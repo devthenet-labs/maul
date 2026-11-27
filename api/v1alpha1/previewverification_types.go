@@ -277,7 +277,7 @@ type ToolsSpec struct {
 // PreviewVerificationSpec is one request to evaluate an Intent's approved
 // outcomes (the agent evaluator) against its Preview, or in the agents
 // namespace's workspace, at exactly the recorded heads: the outcomes with
-// their digest, the rung and the tool pod's tools. Slice 1's criteria are
+// their digest and the tool pod's tools. Slice 1's criteria are
 // removed: a request without outcomes is refused (a stored one, pruned of
 // its criteria, is answered Stale stale-approval and never run).
 // intent-controller writes it once, at creation, and it is immutable: a new

@@ -11,11 +11,13 @@ import (
 	"strings"
 	"testing"
 
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
+	"github.com/devthenet-labs/maul/internal/usagerollup"
 )
 
 // checkEraIntent is an open Intent whose verification is v, as the API
@@ -215,5 +217,92 @@ func TestCheckEraCensusGauge(t *testing.T) {
 	})
 	if want := map[string]int64{"intent": 2, "intentrun": 1}; !maps.Equal(got, want) {
 		t.Errorf("gauge = %v, want %v", got, want)
+	}
+}
+
+// TestCensusExemptionsHold pins what the census's exemptions rest on: an
+// Intent leaves a terminal phase only from Failed, back to Planning, and it
+// enters Failed only from Planning or Building, before any pull request, so
+// no round was ever evaluated for it. A terminal Intent, which the census
+// does not look at, therefore never comes back holding a judgement an
+// earlier release reached.
+func TestCensusExemptionsHold(t *testing.T) {
+	for _, from := range []v1alpha1.IntentPhase{v1alpha1.IntentPending, v1alpha1.IntentPlanning,
+		v1alpha1.IntentAwaitingApproval, v1alpha1.IntentBuilding, v1alpha1.IntentInReview, v1alpha1.IntentRevising,
+		v1alpha1.IntentBlocked, v1alpha1.IntentMerged, v1alpha1.IntentClosed} {
+		want := from == v1alpha1.IntentPlanning || from == v1alpha1.IntentBuilding
+		if got := v1alpha1.CanTransitionIntent(from, v1alpha1.IntentFailed); got != want {
+			t.Errorf("%s -> Failed allowed %v, want %v", from, got, want)
+		}
+	}
+	for _, terminal := range []v1alpha1.IntentPhase{v1alpha1.IntentMerged, v1alpha1.IntentClosed,
+		v1alpha1.IntentFailed} {
+		for _, to := range []v1alpha1.IntentPhase{v1alpha1.IntentPending, v1alpha1.IntentAwaitingApproval,
+			v1alpha1.IntentBuilding, v1alpha1.IntentInReview, v1alpha1.IntentRevising, v1alpha1.IntentBlocked} {
+			if v1alpha1.CanTransitionIntent(terminal, to) {
+				t.Errorf("%s -> %s allowed: a terminal Intent returns only to Planning, from Failed", terminal, to)
+			}
+		}
+	}
+}
+
+// TestSettledCheckReviewRunIsKept: a checkreview run an earlier release
+// settled is no stage this controller knows, yet its spend still counts
+// toward its Intent's evaluation ceiling (never the shared one), the run
+// scheduler leaves it as it is (no Job, its phase kept), and deleting it
+// releases its usage finalizer as for any run.
+func TestSettledCheckReviewRunIsKept(t *testing.T) {
+	e, name := newEvaluatorEnv(t, 0.4)
+	e.review(name, 3)
+	e.runs.Usage = usagerollup.New(e.c, e.c, e.runs.Settings.Namespace, false, nil)
+	base := e.intentRuns(name)[0]
+	run := &v1alpha1.IntentRun{ObjectMeta: metav1.ObjectMeta{Name: name + "-cr-r1-a1", Namespace: testNS,
+		Labels: base.Labels, OwnerReferences: base.OwnerReferences,
+		Finalizers: []string{v1alpha1.FinalizerUsageRollup}}, Spec: *base.Spec.DeepCopy()}
+	run.Spec.Stage, run.Spec.Evaluation = retiredStageCheckReview, nil
+	if err := e.c.Create(t.Context(), run); err != nil {
+		t.Fatal(err)
+	}
+	run.Status = v1alpha1.IntentRunStatus{Phase: v1alpha1.RunComplete, Outcome: "reviewed",
+		Usage: v1alpha1.UsageSummary{CostUSD: "0.25"}}
+	if err := e.c.Status().Update(t.Context(), run); err != nil {
+		t.Fatal(err)
+	}
+	jobsBefore := len(e.jobs.launchedInOrder())
+
+	p := &pass{r: e.intent, set: e.intent.Settings, in: e.get(name), proj: e.project0(), now: e.clock.Now()}
+	p.runs = e.runPtrs(name)
+	without := &pass{r: e.intent, set: e.intent.Settings, in: e.get(name), proj: e.project0(), now: e.clock.Now()}
+	for _, r := range p.runs {
+		if r.Name != run.Name {
+			without.runs = append(without.runs, r)
+		}
+	}
+	if got, want := p.evaluationSpend()-without.evaluationSpend(), int64(250_000); got != want {
+		t.Errorf("the settled check review adds %d to the evaluation spend, want %d", got, want)
+	}
+
+	if _, err := e.runs.Reconcile(t.Context(), req(run.Name)); err != nil {
+		t.Fatalf("reconcile the settled check review: %v", err)
+	}
+	var got v1alpha1.IntentRun
+	if err := e.c.Get(t.Context(), client.ObjectKeyFromObject(run), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status.Phase != v1alpha1.RunComplete || got.Status.Outcome != "reviewed" {
+		t.Errorf("run = %s %s, want it kept Complete", got.Status.Phase, got.Status.Outcome)
+	}
+	if n := len(e.jobs.launchedInOrder()); n != jobsBefore {
+		t.Errorf("%d Jobs launched for it, want none", n-jobsBefore)
+	}
+
+	if err := e.c.Delete(t.Context(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.runs.Reconcile(t.Context(), req(run.Name)); err != nil {
+		t.Fatalf("reconcile the deleted check review: %v", err)
+	}
+	if err := e.c.Get(t.Context(), client.ObjectKeyFromObject(run), &got); !kerrors.IsNotFound(err) {
+		t.Errorf("the deleted check review is still held: %v, finalizers %v", err, got.Finalizers)
 	}
 }
