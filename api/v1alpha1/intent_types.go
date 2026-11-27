@@ -127,14 +127,19 @@ const (
 //     closed unmerged.
 //   - Failed→Planning: revival — an approver applied the trigger label again
 //     (it was removed on entry to Failed).
+//   - InReview→Planning, Revising→Planning (and Blocked→Planning from
+//     either): a replan in review (--intent-replan-in-review). An approver's
+//     replan stops the running round, closes the open pull requests with a
+//     comment, and plans again from the issue; the new plan needs a new
+//     approval and builds on a branch of its own (IntentBranch).
 var intentTransitions = map[IntentPhase][]IntentPhase{
 	"":                     {IntentPending},
 	IntentPending:          {IntentPlanning, IntentBlocked, IntentClosed},
 	IntentPlanning:         {IntentAwaitingApproval, IntentBlocked, IntentClosed, IntentFailed},
 	IntentAwaitingApproval: {IntentBuilding, IntentPlanning, IntentBlocked, IntentClosed},
 	IntentBuilding:         {IntentInReview, IntentBlocked, IntentClosed, IntentFailed},
-	IntentInReview:         {IntentRevising, IntentMerged, IntentBlocked, IntentClosed},
-	IntentRevising:         {IntentInReview, IntentMerged, IntentBlocked, IntentClosed},
+	IntentInReview:         {IntentRevising, IntentMerged, IntentBlocked, IntentClosed, IntentPlanning},
+	IntentRevising:         {IntentInReview, IntentMerged, IntentBlocked, IntentClosed, IntentPlanning},
 	IntentBlocked: {
 		IntentPending, IntentPlanning, IntentAwaitingApproval,
 		IntentBuilding, IntentInReview, IntentRevising, IntentMerged, IntentClosed,
@@ -1505,11 +1510,26 @@ type IntentStatus struct {
 	// +optional
 	Commands *IntentCommands `json:"commands,omitempty"`
 	// Branch is the branch every pull request of the intent is opened from:
-	// maul-intent/<intent>, created once and then only fast-forwarded.
+	// maul-intent/<intent> (maul-intent/<intent>-p<plan revision> for a plan
+	// made by a replan in review: IntentBranch), created once and then only
+	// fast-forwarded.
 	// +optional
 	// +kubebuilder:validation:MaxLength=255
 	// +kubebuilder:validation:Pattern=`^maul-intent/[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`
 	Branch string `json:"branch,omitempty"`
+	// PlanBranchesFrom is the first plan revision built on a branch of its
+	// own (IntentBranch): the plan revision after the one the intent's first
+	// replan in review superseded, set once by that replan. Zero while the
+	// intent was never replanned in review: every plan builds on
+	// maul-intent/<intent>.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=999
+	PlanBranchesFrom int32 `json:"planBranchesFrom,omitempty"`
+	// Replan is the replan in review being settled (IntentReplan); nil
+	// once the intent plans again, and while none was asked for.
+	// +optional
+	Replan *IntentReplan `json:"replan,omitempty"`
 	// PullRequests are the pull requests maul opened, one per app
 	// repository.
 	// +optional

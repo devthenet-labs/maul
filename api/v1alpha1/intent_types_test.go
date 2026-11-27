@@ -42,6 +42,8 @@ func designIntentEdges() map[[2]IntentPhase]bool {
 		{IntentBuilding, IntentInReview}:         true, // every PR open
 		{IntentInReview, IntentRevising}:         true, // review/revise/check-fix round
 		{IntentRevising, IntentInReview}:         true, // round done or failed
+		{IntentInReview, IntentPlanning}:         true, // replan in review
+		{IntentRevising, IntentPlanning}:         true, // replan in review, the round stopped
 		{IntentInReview, IntentMerged}:           true, // every PR merged
 		{IntentRevising, IntentMerged}:           true, // a human merged mid-round
 		{IntentBlocked, IntentMerged}:            true, // a human merged while blocked
