@@ -204,7 +204,7 @@ func (c currencyCase) applyVerdict(in *v1alpha1.Intent) {
 		return
 	}
 	i := slices.IndexFunc(v.Outcomes, func(r v1alpha1.OutcomeResult) bool { return r.ID == oVersion })
-	v.Outcomes[i].Result, v.Outcomes[i].Basis, v.Passed = v1alpha1.OutcomeFailed, "", v.Passed-1
+	v.Outcomes[i].Result, v.Passed = v1alpha1.OutcomeFailed, v.Passed-1
 	switch c.verdict {
 	case verdictFailing:
 		v.State, v.Failed = v1alpha1.VerificationFailing, v.Failed+1

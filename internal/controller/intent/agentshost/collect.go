@@ -178,7 +178,7 @@ func (r *Reconciler) storeLedger(ctx context.Context, pv *v1alpha1.PreviewVerifi
 	if err := r.Create(ctx, cm); err != nil && !kerrors.IsAlreadyExists(err) {
 		return err
 	}
-	sum := toolledger.ApplyStatus(&pv.Status, out)
+	sum := toolledger.ApplyStatus(out)
 	sum.ConfigMap, sum.Builds = cm.Name, b.list
 	pv.Status.Ledger = sum
 	pv.Status.Environment = []v1alpha1.PartFact{b.head}

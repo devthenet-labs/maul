@@ -117,7 +117,7 @@ func TestAgentsRoundCreatesAWorkspaceVerification(t *testing.T) {
 		t.Fatalf("heads = %+v (%s)", pv.Spec.Heads, pv.Spec.HeadSetDigest)
 	}
 	if tl := pv.Spec.Tools; tl == nil || tl.Browser || !tl.Sandbox || tl.LookAroundRoutes != 0 ||
-		len(pv.Spec.Outcomes) != 3 || pv.Spec.Rung != v1alpha1.RungFull ||
+		len(pv.Spec.Outcomes) != 3 ||
 		pv.Spec.Timeout.Duration != DefaultEvaluateTimeout+v1alpha1.DefaultCLIBuildTimeout+EvaluationToolsMargin {
 		t.Fatalf("verification spec = %+v", pv.Spec)
 	}

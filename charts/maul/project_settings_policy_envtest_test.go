@@ -133,7 +133,6 @@ func TestProjectSettingsPolicyAgainstAPIServer(t *testing.T) {
 		p.Spec.Limits.Evaluate.MaxTurns = 20
 		p.Spec.Limits.Evaluate.MaxCostMicroUSD = 500_000
 		p.Spec.Limits.Build.MaxTurns = 500
-		p.Spec.Limits.CheckReview.MaxTurns = 4
 	})
 	e.project("single", withStatus, func(p *v1alpha1.Project) {
 		p.Spec.Repositories = p.Spec.Repositories[1:]
@@ -587,15 +586,9 @@ func (e *settingsEnv) checkPinned(t *testing.T) {
 		{"verification.postLogs", "alpha", func(p *v1alpha1.Project) { verifyOf(p).PostLogs = true }, psPinned, checkBlind},
 		{"verification.timeout", "alpha", func(p *v1alpha1.Project) { verifyOf(p).Timeout = minutes(5) }, psPinned,
 			checkBlind},
-		{"models.checkReview", "alpha", func(p *v1alpha1.Project) { modelsOf(p).CheckReview = "anthropic/claude-a" },
-			psPinned, checkBlind},
-		{"limits.checkReview", "alpha", func(p *v1alpha1.Project) { p.Spec.Limits.CheckReview.MaxTurns = 3 }, psPinned,
-			checkBlind},
-		// Removing a key is a change too: an operator's postLogs, the
-		// check reviewer's turns and the spec's own preview gone.
+		// Removing a key is a change too: an operator's postLogs and the
+		// spec's own preview gone.
 		{"a pinned key removed", "high", func(p *v1alpha1.Project) { verifyOf(p).PostLogs = false }, psPinned, checkBlind},
-		{"a pinned stage removed", "high", func(p *v1alpha1.Project) { p.Spec.Limits.CheckReview = v1alpha1.StageLimits{} },
-			psPinned, checkBlind},
 		{"a pinned block removed", "single", func(p *v1alpha1.Project) { p.Spec.Preview = nil }, psPinned, checkBlind},
 		{"a repository's url", "alpha", func(p *v1alpha1.Project) { lib(p).URL = "https://github.com/acme/other" },
 			psRepoKeys, checkBlind},

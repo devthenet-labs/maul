@@ -62,16 +62,16 @@ func declaredIntentStages(t *testing.T) (consts, enum []string) {
 }
 
 // TestIntentStagesExhaustive pins IntentStages to every IntentStage constant
-// declared and to the CRD enum, so a new stage cannot be added without the
-// list every stage switch is tested against (intent-controller's
-// TestStageSwitchesExhaustive) learning of it, and every stage names its runs.
+// declared, and IntentStages with RetiredIntentStages to the CRD enum, so a
+// new stage cannot be added without the list every stage switch is tested
+// against (intent-controller's TestStageSwitchesExhaustive) learning of it,
+// every stage names its runs, and a retired spelling names none.
 func TestIntentStagesExhaustive(t *testing.T) {
 	want := []IntentStage{
 		IntentStagePlan,
 		IntentStageBuild,
 		IntentStageRevise,
 		IntentStageEvaluate,
-		IntentStageCheckReview,
 	}
 	got := IntentStages()
 	if !slices.Equal(got, want) {
@@ -79,14 +79,28 @@ func TestIntentStagesExhaustive(t *testing.T) {
 	}
 
 	consts, enum := declaredIntentStages(t)
-	asStrings := make([]string, len(got))
-	for i, s := range got {
-		asStrings[i] = string(s)
+	strs := func(stages []IntentStage) []string {
+		out := make([]string, len(stages))
+		for i, s := range stages {
+			out[i] = string(s)
+		}
+		return slices.Sorted(slices.Values(out))
 	}
-	for what, values := range map[string][]string{"declared constants": consts, "enum marker": enum} {
-		sorted, listed := slices.Sorted(slices.Values(values)), slices.Sorted(slices.Values(asStrings))
-		if !slices.Equal(sorted, listed) {
-			t.Errorf("IntentStage %s = %v, IntentStages() = %v: they must name the same stages", what, sorted, listed)
+	if sorted, listed := slices.Sorted(slices.Values(consts)), strs(got); !slices.Equal(sorted, listed) {
+		t.Errorf("IntentStage declared constants = %v, IntentStages() = %v: they must name the same stages",
+			sorted, listed)
+	}
+	all := strs(append(IntentStages(), RetiredIntentStages()...))
+	if sorted := slices.Sorted(slices.Values(enum)); !slices.Equal(sorted, all) {
+		t.Errorf("IntentStage enum marker = %v, IntentStages() and RetiredIntentStages() = %v: they must name "+
+			"the same stages", sorted, all)
+	}
+	for _, retired := range RetiredIntentStages() {
+		if slices.Contains(got, retired) {
+			t.Errorf("retired stage %q is in IntentStages()", retired)
+		}
+		if name := IntentRunName("target-1", retired, 1, "shop", 1); name != "" {
+			t.Errorf("IntentRunName(%q) = %q, want none: no run of a retired stage is created", retired, name)
 		}
 	}
 

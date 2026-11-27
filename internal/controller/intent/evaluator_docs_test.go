@@ -45,12 +45,13 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			v1alpha1.ConditionEvaluatorUnverified, "--intent-evaluate-codex", "unverified",
 			"maxEvaluateCostMicroUSD", "maxToolCalls", "limits.evaluate", "limits.checkReview",
 			"-ledger", "-evidence", "status.ledger", "/maul verify explore",
-			// Migrating from saved checks: the supersede, the retired
-			// settings, the leftover stores and the rollback.
-			"status.verification.judge", string(v1alpha1.JudgeObserved), v1alpha1.ConditionVerificationSuperseded,
-			"maul.intent.verification_superseded", "--intent-checkreview-model", "--intent-checkreview-max-turns",
-			"checkReviewModel", "checkReviewMaxTurns", "spec.models.checkReview", "-checks-", v1alpha1.LabelIntent,
-			"helm rollback", "agent.paused",
+			// Migrating from saved checks: passing through 0.14.18, the
+			// guard and the census, the removed settings, the leftover
+			// stores and the rollback.
+			"0.14.18", "status.verification.judge", string(v1alpha1.JudgeObserved),
+			v1alpha1.ConditionVerificationSuperseded, "maul.intent.check_era_records", "--intent-checkreview-model",
+			"--intent-checkreview-max-turns", "checkReviewModel", "checkReviewMaxTurns", "spec.models.checkReview",
+			"-checks-", v1alpha1.LabelIntent, "helm rollback",
 		},
 		"docs/intents/acceptance.md": {
 			"evaluator.md", "outcomes", "from:", "kind: keep", "manual: true", "not covered",
@@ -66,7 +67,7 @@ func TestEvaluatorDocsStateTheSwitchesAndCommands(t *testing.T) {
 			"`secrets`", "`configmaps`", "status.tools", "2.5 CPU", "evaluateTimeout",
 		},
 		"docs/configuration/intent-controller.md": {
-			"--intent-evaluator", "--intent-evaluate-model", "--intent-checkreview-model",
+			"--intent-evaluator", "--intent-evaluate-model",
 			"--intent-evaluate-timeout", "--intent-default-handoff", "--intent-handoff-max",
 			"--intent-evaluate-codex", "--intent-evaluation-cost-max", "--intent-max-tool-calls",
 		},

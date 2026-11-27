@@ -27,7 +27,6 @@ func TestEvaluatorRoleLabels(t *testing.T) {
 	}
 	values := []struct{ got, want string }{
 		{RoleEvaluator, "evaluator"},
-		{RoleCheckReview, "checkreview"},
 		{PreviewRoleTools, "tools"},
 	}
 	for _, v := range values {

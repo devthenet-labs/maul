@@ -199,6 +199,11 @@ func (u *slice1Upgrade) leaveSliceOneBehind() {
 	}
 	u.create(toUnstructured(t, criteriaVerification("beatbattle-48-v1-a1")))
 	settled := toUnstructured(t, outcomeVerification("beatbattle-49-v1-a1"))
+	// The old CRDs require an outcome verification's rung, a field this
+	// release's types no longer have.
+	if err := unstructured.SetNestedField(settled.Object, "full", "spec", "rung"); err != nil {
+		t.Fatal(err)
+	}
 	u.create(settled)
 	settled.Object["status"] = map[string]any{"phase": "Stale", "reason": "stale-criteria",
 		"environment": []any{map[string]any{"name": "tester", "role": "tester", "ready": true}}}

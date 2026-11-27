@@ -520,10 +520,7 @@ func outcomesReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificatio
 
 // judgementReady reports v's judgement at its heads, whatever its state:
 // every outcome seen to hold or accepted, and a clean environment, as
-// Judge's hand-off needs (review H2). A record an earlier release left
-// disputed (status.verification.disputed, retired: this release writes
-// none, and the supersede clears it) is never ready: until the Project can
-// run a round that withdraws it, it waits on a replay that will never come.
+// Judge's hand-off needs (review H2).
 func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerification) bool {
 	if !judgedAtRecord(v) {
 		// No judgement of its round at its heads, or the state records a
@@ -532,7 +529,7 @@ func judgementReady(acc *v1alpha1.IntentAcceptance, v *v1alpha1.IntentVerificati
 		return false
 	}
 	results := v.JudgedOutcomes()
-	if len(v.Disputed) > 0 || len(results) == 0 ||
+	if len(results) == 0 ||
 		!httpstep.EnvClass(v.OutcomesEnvironment).Clean() {
 		return false
 	}

@@ -125,8 +125,8 @@ func (p *pass) blockOnClass(ctx context.Context, runs []*v1alpha1.IntentRun) (bl
 }
 
 // stageNoun names a run's stage in a message: the plan, the build, the
-// revise round, the check-fix round, the acceptance-fix round, the
-// evaluation round or the check review.
+// revise round, the check-fix round, the acceptance-fix round or the
+// evaluation round.
 func stageNoun(run *v1alpha1.IntentRun) string {
 	switch run.Spec.Stage {
 	case v1alpha1.IntentStagePlan:
@@ -135,8 +135,6 @@ func stageNoun(run *v1alpha1.IntentRun) string {
 		return "build"
 	case v1alpha1.IntentStageEvaluate:
 		return "evaluation round"
-	case v1alpha1.IntentStageCheckReview:
-		return "check review"
 	case v1alpha1.IntentStageRevise:
 		switch roundKindOf(run.Spec.Trigger) {
 		case roundChecks:

@@ -208,8 +208,7 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 		}
 		// explore is retired with the cost ladder: every round is a model
 		// round, so /maul verify explore is a plain /maul verify, recorded
-		// and answered as one (status.verification.requested.explore is
-		// never set).
+		// and answered as one.
 		args.Explore = false
 		if args.Stop {
 			return p.stopAutoFix(ctx, c, n)

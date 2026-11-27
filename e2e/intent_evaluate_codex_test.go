@@ -40,7 +40,7 @@ func TestIntentEvaluateCodex(t *testing.T) {
 			runs[0].Spec.Harness != v1alpha1.ProjectHarnessCodex {
 			t.Errorf("evaluate runs %d, harness %v; want one, on codex", len(runs), runs)
 		}
-		if runs := e.stageRuns(t, name, v1alpha1.IntentStageCheckReview); len(runs) != 0 {
+		if runs := e.stageRuns(t, name, "checkreview"); len(runs) != 0 {
 			t.Errorf("checkreview runs %d, want none", len(runs))
 		}
 		job := e.kubelet.waitRun(t, "the evaluator's Job", phaseIs("evaluate"))

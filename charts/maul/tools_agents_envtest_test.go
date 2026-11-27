@@ -481,7 +481,6 @@ func agentsVerification(name string) *v1alpha1.PreviewVerification {
 	s.Outcomes = []v1alpha1.AcceptanceOutcome{{ID: "counts", Kind: v1alpha1.OutcomeKindChange,
 		Outcome: "bbcount prints the number of beats.", From: "print the beat count"}}
 	s.OutcomesDigest = "sha256:" + strings.Repeat("e", 64)
-	s.Rung = v1alpha1.RungFull
 	s.Tools = &v1alpha1.ToolsSpec{Sandbox: true, MaxToolCalls: 300}
 	s.Workspace = &v1alpha1.VerificationWorkspace{
 		Repository: "bbcount", HeadSHA: strings.Repeat("a", 40), BaseSHA: strings.Repeat("b", 40),

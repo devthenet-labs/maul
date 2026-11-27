@@ -598,7 +598,7 @@ func (v *VerificationReconciler) storeLedger(ctx context.Context, pv *v1alpha1.P
 			return err
 		}
 	}
-	sum := toolledger.ApplyStatus(&pv.Status, out)
+	sum := toolledger.ApplyStatus(out)
 	sum.ConfigMap, sum.Evidence = ledgerName, evidenceName
 	pv.Status.Ledger = sum
 	return nil

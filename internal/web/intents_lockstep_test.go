@@ -124,9 +124,12 @@ func TestIntentStagesMatchTypeScript(t *testing.T) {
 	for _, s := range stages {
 		got = append(got, s[1])
 	}
-	want := []string{string(v1alpha1.IntentStagePlan), string(v1alpha1.IntentStageBuild),
-		string(v1alpha1.IntentStageRevise), string(v1alpha1.IntentStageEvaluate),
-		string(v1alpha1.IntentStageCheckReview)}
+	// A retired stage stays: a stored run of it is still shown.
+	all := append(v1alpha1.IntentStages(), v1alpha1.RetiredIntentStages()...)
+	want := make([]string, 0, len(all))
+	for _, s := range all {
+		want = append(want, string(s))
+	}
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {

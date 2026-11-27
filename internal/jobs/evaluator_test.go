@@ -57,16 +57,6 @@ func evaluatorSpec() Spec {
 	}
 }
 
-// checkReviewSpec is a checkreview IntentRun's Job: no tree, no tool pod.
-func checkReviewSpec() Spec {
-	spec := evaluatorSpec()
-	spec.Phase = "checkreview"
-	spec.Owner, spec.Finding = "intent-x-cr-r1-a1", "intent-x-cr-r1-a1"
-	spec.Role = v1alpha1.RoleCheckReview
-	spec.ToolHost = nil
-	return spec
-}
-
 // buildRoleJob runs build (shape plus name resolution) without creating
 // anything.
 func buildRoleJob(t *testing.T, cfg Config, spec Spec) *batchv1.Job {
@@ -86,19 +76,13 @@ func TestGoldenEvaluatorJob(t *testing.T) {
 	goldenJob(t, "job_evaluator", buildRoleJob(t, roleConfig(), evaluatorSpec()))
 }
 
-// TestGoldenCheckReviewJob pins the check reviewer's: role labels, no
-// fetch, the wait probe, DNS none with only the broker pinned.
-func TestGoldenCheckReviewJob(t *testing.T) {
-	goldenJob(t, "job_checkreview", buildRoleJob(t, roleConfig(), checkReviewSpec()))
-}
-
-// TestRoleForcesDNSNone: both roles get dnsPolicy None whatever Config.DNS
-// says, the broker pinned, and the artifact server never asked for (they
-// fetch nothing). Only the evaluator gets maul-tools, at the tool pod's
-// address, which is never resolved.
+// TestRoleForcesDNSNone: the evaluator gets dnsPolicy None whatever
+// Config.DNS says, the broker pinned, and the artifact server never asked
+// for (it fetches nothing), and maul-tools at the tool pod's address, which
+// is never resolved.
 func TestRoleForcesDNSNone(t *testing.T) {
 	for _, mode := range []DNSMode{"", DNSCluster, DNSNone} {
-		for _, spec := range []Spec{evaluatorSpec(), checkReviewSpec()} {
+		for _, spec := range []Spec{evaluatorSpec()} {
 			t.Run(string(mode)+"/"+spec.Role, func(t *testing.T) {
 				r := clusterResolver()
 				cfg := roleConfig()
@@ -112,10 +96,8 @@ func TestRoleForcesDNSNone(t *testing.T) {
 					t.Errorf("resolver asked %v, want only the broker", r.asked)
 				}
 				// Sorted by address: the tool pod's 10.42 before the broker's 10.100.
-				want := []corev1.HostAlias{{IP: "10.100.40.2", Hostnames: []string{brokerHost}}}
-				if spec.Role == v1alpha1.RoleEvaluator {
-					want = append([]corev1.HostAlias{{IP: toolPodIP, Hostnames: []string{ToolsHostName}}}, want...)
-				}
+				want := []corev1.HostAlias{{IP: toolPodIP, Hostnames: []string{ToolsHostName}},
+					{IP: "10.100.40.2", Hostnames: []string{brokerHost}}}
 				if got := marshal(t, pod.HostAliases); got != marshal(t, want) {
 					t.Errorf("hostAliases:\n%s\nwant:\n%s", got, marshal(t, want))
 				}
@@ -128,8 +110,6 @@ func TestRoleForcesDNSNone(t *testing.T) {
 // Job and its pod template alike, the selectors the role's egress policy and
 // the tool pod's ingress policy match; the per-Job Secret carries neither.
 func TestRoleLabels(t *testing.T) {
-	noEval := checkReviewSpec()
-	noEval.Evaluation = ""
 	tests := []struct {
 		name     string
 		spec     Spec
@@ -137,8 +117,6 @@ func TestRoleLabels(t *testing.T) {
 		wantPV   string
 	}{
 		{"evaluator", evaluatorSpec(), v1alpha1.RoleEvaluator, pvUID},
-		{"checkreview", checkReviewSpec(), v1alpha1.RoleCheckReview, pvUID},
-		{"checkreview without a verification", noEval, v1alpha1.RoleCheckReview, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -175,10 +153,10 @@ func TestRoleLabels(t *testing.T) {
 	}
 }
 
-// TestRolePrepare: neither role fetches, extracts or commits anything; both
-// stage the handoff under /work/input and make /work/scratch. The evaluator
-// ends with the strict probe over every target, dns included, and is handed
-// the controller's resolver; the check reviewer ends with the wait probe.
+// TestRolePrepare: the evaluator's prepare fetches, extracts or commits
+// nothing; it stages the handoff under /work/input, makes /work/scratch, and
+// ends with the strict probe over every target, dns included, handed the
+// controller's resolver.
 func TestRolePrepare(t *testing.T) {
 	strict := toolsBinDir + "/" + agentRunnerBin + " " + sandboxprobe.Command +
 		" --mode=strict --targets=internet,k8s,imds,dns\n"
@@ -188,7 +166,6 @@ func TestRolePrepare(t *testing.T) {
 		wantDNS bool
 	}{
 		{evaluatorSpec(), strict, true},
-		{checkReviewSpec(), waitProbeScript, false},
 	} {
 		t.Run(tt.spec.Role, func(t *testing.T) {
 			job := buildRoleJob(t, roleConfig(), tt.spec)
@@ -227,7 +204,7 @@ func TestRolePrepare(t *testing.T) {
 // /workspace, so the posture's /work/scratch is the only directory its file
 // tools see.
 func TestRoleWorkspace(t *testing.T) {
-	for _, spec := range []Spec{evaluatorSpec(), checkReviewSpec()} {
+	for _, spec := range []Spec{evaluatorSpec()} {
 		job := buildRoleJob(t, roleConfig(), spec)
 		pod := job.Spec.Template.Spec
 		for _, ct := range append(slices.Clone(pod.InitContainers), pod.Containers...) {
@@ -258,8 +235,8 @@ func envValue(env []corev1.EnvVar, name string) string {
 	return ""
 }
 
-// TestEvaluatorToolsURL: only the evaluator is told where its tool pod is,
-// by the reserved name, which Config.Env cannot set or shadow.
+// TestEvaluatorToolsURL: the evaluator is told where its tool pod is, by
+// the reserved name, which Config.Env cannot set or shadow.
 func TestEvaluatorToolsURL(t *testing.T) {
 	if !reservedEnv[ToolsURLEnv] || !slices.Contains(PerJobEnvNames(), ToolsURLEnv) {
 		t.Fatalf("%s is not a reserved per-Job name", ToolsURLEnv)
@@ -276,10 +253,6 @@ func TestEvaluatorToolsURL(t *testing.T) {
 	if !slices.Equal(got, []string{"http://maul-tools:8090"}) {
 		t.Errorf("evaluator %s = %v, want exactly http://maul-tools:8090", ToolsURLEnv, got)
 	}
-	cr := buildRoleJob(t, cfg, checkReviewSpec()).Spec.Template.Spec.Containers[0].Env
-	if v := envValue(cr, ToolsURLEnv); v != "" {
-		t.Errorf("check reviewer %s = %q, want unset", ToolsURLEnv, v)
-	}
 }
 
 // TestRoleRefusals: every contradiction is refused before anything is
@@ -295,10 +268,7 @@ func TestRoleRefusals(t *testing.T) {
 		{"tool host without an IP", nil, func(s *Spec) { s.ToolHost.IP = "" }},
 		{"tool host IP not an address", nil, func(s *Spec) { s.ToolHost.IP = "maul-tools.example" }},
 		{"tool host name not a label", nil, func(s *Spec) { s.ToolHost.Name = "Maul_Tools" }},
-		{"tool host on the check reviewer", nil, func(s *Spec) {
-			*s = checkReviewSpec()
-			s.ToolHost = &HostAlias{Name: ToolsHostName, IP: toolPodIP}
-		}},
+		{"the retired check reviewer's role", nil, func(s *Spec) { s.Role = "checkreview" }},
 		{"tool host without a role", nil, func(s *Spec) { s.Role = "" }},
 		{"verification label without a role", nil, func(s *Spec) { s.Role, s.ToolHost = "", nil }},
 		{"unknown role", nil, func(s *Spec) { s.Role = "tools" }},

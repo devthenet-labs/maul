@@ -269,7 +269,7 @@ func genProject(r *rand.Rand) *v1alpha1.Project {
 		s.Repositories = append(s.Repositories, repo)
 	}
 	s.Limits = v1alpha1.ProjectLimits{Plan: genStage(r), Build: genStage(r), Revise: genStage(r),
-		Evaluate: genStage(r), CheckReview: genStage(r)}
+		Evaluate: genStage(r)}
 	if r.Intn(4) != 0 { // a Project the schema defaulted
 		s.Limits.MaxActiveIntents = int32(1 + r.Intn(20))
 		s.Limits.MaxRevisions = i32(int32(r.Intn(21)))
@@ -302,7 +302,7 @@ func genProject(r *rand.Rand) *v1alpha1.Project {
 		s.Models = &v1alpha1.ProjectModels{}
 	default:
 		s.Models = &v1alpha1.ProjectModels{Plan: pick(r, modelPool), Build: pick(r, modelPool),
-			Evaluate: pick(r, modelPool), CheckReview: pick(r, modelPool)}
+			Evaluate: pick(r, modelPool)}
 	}
 	switch r.Intn(3) {
 	case 0:

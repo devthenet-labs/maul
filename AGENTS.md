@@ -211,7 +211,7 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (`spec.harness`, immutable) and is launched, held for a credential (`credgate.ProviderFor`: codex waits for an OpenAI
   key) and measured on it; off, a codex Project is not Ready (`HarnessNotEnabled`) and a codex run waits Pending. A
   Project may choose each stage's model within its harness (`spec.models`: plan, build (also every revise round),
-  evaluate; `checkReview` is a retired field nothing reads; `models.go`), each a stage flag's model or on
+  evaluate; `models.go`), each a stage flag's model or on
   `--intent-model-allowlist` (chart `intentController.config.modelAllowlist`, split by harness at startup into
   `RunHarness.Allowed`), else it is not Ready and its open intents are held Blocked (`ModelNotAllowed`); a run records
   its Project's choice (`spec.model`, empty when none: the stage flag runs, as before) and a recorded model no longer
@@ -264,17 +264,21 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `/maul preview`). Evaluation spend has its own ceiling (`--intent-evaluation-cost-max`,
   `limits.maxEvaluateCostMicroUSD`); a codex Project is evaluated only with `--intent-evaluate-codex`, else its hand-off
   is early and it carries `EvaluatorUnverified`. No role run owns a Repository, reads a tree or pushes. Every round is
-  a full evaluation: the PV's `spec.rung` and the run's `spec.evaluation.rung` are always `full` (retired fields kept
-  for one release, as are the saved-check fields of `status.acceptance`), and `/maul verify explore` is parsed as a
-  plain `/maul verify`. The checkreview stage is retired: never launched (`errStageRetired`), and a run an earlier
-  release left is aborted and its Job deleted (`run_controller.go` `retireRun`); `--intent-checkreview-model` and
-  `--intent-checkreview-max-turns` are hidden, ignored and warned of at startup (`logRetiredFlags`). At the upgrade
-  (`verify_migrate.go`) an open intent whose verification an earlier release judged (no `status.verification.judge`
-  marker, `v1alpha1.JudgeObserved`) has that result withdrawn once (`withdraw`: in-flight round dropped, judgement
-  cleared, condition `VerificationSuperseded`, the comment's `templates.WithdrawnSentence`) and gets one fresh round
-  (`verifySupersede`, not counted in `maxVerifications`, held to the evaluation ceiling; gauge
-  `maul.intent.verification_superseded`); every record this release starts carries the marker (`newVerification`).
-  Guide `docs/intents/evaluator.md#migrating-from-saved-checks`.
+  a full evaluation, and `/maul verify explore` is parsed as a plain `/maul verify`. 0.14.19 removed the check-era
+  fields (saved checks, the rung, the cost ladder's records, `checkReview` models and limits) and the supersede
+  0.14.18 ran, so an install must pass through 0.14.18: before its manager starts intent-controller takes a second
+  read-only census (`census_checks.go`, `TakeCheckEraCensus`: an open Intent whose verification has no judge marker,
+  `v1alpha1.JudgeObserved`, and still holds a judgement or round in flight, or was withdrawn and waits for its fresh
+  round, condition `VerificationSuperseded`; an unfinished IntentRun of the retired stage `checkreview`), reported as
+  `maul.intent.check_era_records`, and REFUSES to start while it finds any (the chart's
+  `templates/check-era-guard.yaml` fails a cluster-reaching render on the same records). The stage spelling
+  `checkreview` stays in the IntentRun enum (`v1alpha1.RetiredIntentStages`; a settled run still counts toward the
+  evaluation ceiling, `retiredStageCheckReview`), as do the outcome result `quarantined` and the retired PV reasons and
+  part role, so stored objects keep validating. What is left of the supersede (`verify_migrate.go`): every record
+  carries the marker (`newVerification`, `markVerification` for an unmarked record with nothing judged), and the
+  condition with the comment's `templates.WithdrawnSentence` holds until a round judged under these rules clears it
+  (`clearSuperseded`). Guide `docs/intents/evaluator.md#migrating-from-saved-checks`; the upgrade test
+  `charts/maul/check_era_upgrade_envtest_test.go` runs on the frozen 0.14.18 CRDs (`hack/testdata/crd-upgrade/0.14.18`).
   A round runs on a host behind the `toolHost` port (`toolhost.go`: `placement`, `verifies`, `heads`, `gate`, whose
   `place` fills the host's spec fields): `slotHost` (`toolhost_slot.go`, S1, preview-controller's slot tool pod) or,
   with `--intent-evaluator-agents` (slice S2, default off; chart `intentController.verification.agents.enabled`, which
@@ -828,14 +832,13 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   approver's save) and `components/ProjectSettingsView.tsx`.
 - `projectsettings` — the Project settings page's pure core (stdlib and `api/v1alpha1` only, a test pins that): one
   table of the editable spec fields (`Fields`: id, lock group, kind, the CRD's range, default, when a change takes
-  effect; never the intent repository, labels, a repository's name, url or preview, the harness, surfaces, or the
-  retired `checkReview` model and limits), `Gate` (the session's GitHub id against `status.approvers`, the live list and
-  `ApproversMaxAge`), `Apply`, `Check` (locks, switches, ceilings, floors, `status.admits`: models, classes, the
-  controller's ceilings, run-budget bounds, the delegation switches; only changed fields, a cleared one by its landing
-  value), `Confirmations`, and `projectsettings.Decide`, which runs them in order and hands back the Project to patch
-  only when all agree; `View` (bounds, the approvers' GitHub state, the other field managers with their operation, the
-  last edit), the `Policy` the chart renders once for the server and the admission policy (`DefaultPolicy` pinned to
-  the chart's defaults), the
+  effect; never the intent repository, labels, a repository's name, url or preview, the harness or surfaces), `Gate`
+  (the session's GitHub id against `status.approvers`, the live list and `ApproversMaxAge`), `Apply`, `Check` (locks,
+  switches, ceilings, floors, `status.admits`: models, classes, the controller's ceilings, run-budget bounds, the
+  delegation switches; only changed fields, a cleared one by its landing value), `Confirmations`, and
+  `projectsettings.Decide`, which runs them in order and hands back the Project to patch only when all agree; `View`
+  (bounds, the approvers' GitHub state, the other field managers with their operation, the last edit), the `Policy` the
+  chart renders once for the server and the admission policy (`DefaultPolicy` pinned to the chart's defaults), the
   `maul.run/settings-edited` record (`NewEdit`, `ParseEdit`), and `CheckApprovers`, which `maul setup project` shares.
   `RunBudget` is pinned to the controller's `stageBudget`; the admission policy is held to `Check` by a seeded property
   against a real API server (chart envtest).
@@ -1121,7 +1124,7 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   at most 6 screenshots the verdicts cite first; its envelope is only the model's claim) runs on maul's image with no
   tree; `report.Evaluation` is its report (verdicts and anomalies only, decoded strictly, so a report carrying the
   retired `disputes`, `proposed`, `retire` or `contrary` keys is refused and repaired like any other), and the plan
-  report gains `acceptance` outcomes. `MAUL_PHASE=checkreview` is a configuration error: the stage is retired. On an
+  report gains `acceptance` outcomes. `MAUL_PHASE=checkreview` is a configuration error. On an
   agents round the evaluate handoff names the surface (`EvaluateTools.Workspace{Surface, Binary, Language, Build}`) and
   carries `Tools.Key`, which agent-runner writes to `input/tools-key` (0400, `maultool.KeyFile`) before the model runs,
   adds to the scrubber, and sends with its own `finish` (a key on a slot round is refused). Whether the REAL model
@@ -1166,8 +1169,7 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   reserved per-Job names). The prepare init runs `agent-runner sandbox-probe`: strict inside the injection script on a
   repository image, else the wait probe (`--mode=wait --targets=k8s,imds`, `|| echo`, never fails the Job) as the
   script's last step, both with `MAUL_SANDBOX_PROBE_TIMEOUT` (default 20s); evaluation Jobs run neither.
-  `evaluator.go` is the agent evaluator's Job shape (`Spec.Role`; `RoleCheckReview` stays only because the chart's
-  policies select by it for one release): maul's image, no tree, no
+  `evaluator.go` is the agent evaluator's Job shape (`Spec.Role`, `RoleEvaluator` only): maul's image, no tree, no
   artifact fetch, no network profile, no resolver whatever `Config.DNS` says (the broker and the tool pod are host
   entries), `maul.run/role` on Job and pod, and for the evaluator `maul.run/preview-verification` plus a prepare ending
   in the strict probe over every target, DNS included (`Config.SandboxProbeDNS`).

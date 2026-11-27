@@ -318,8 +318,7 @@ func (e *evalEnv) describeEval(t *testing.T, name string) string {
 	}
 	b.WriteString(e.describeRuns(t, name))
 	for n, pv := range e.verifications(t, name) {
-		fmt.Fprintf(&b, "\npv %s: rung %s %s %s tools %+v", n, pv.Spec.Rung, pv.Status.Phase, pv.Status.Reason,
-			pv.Status.Tools)
+		fmt.Fprintf(&b, "\npv %s: %s %s tools %+v", n, pv.Status.Phase, pv.Status.Reason, pv.Status.Tools)
 	}
 	return b.String()
 }
@@ -430,14 +429,11 @@ func TestIntentEvaluatePasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	tool := e.checkEvaluatorPinned(t, name, &pv)
-	if pv.Status.Ledger == nil || pv.Status.Ledger.ConfigMap == "" || len(pv.Status.Confirmed) != 0 ||
-		len(pv.Spec.Checks) != 0 {
-		t.Errorf("ledger %+v, confirmed %d, checks %d; want the ledger stored and no check", pv.Status.Ledger,
-			len(pv.Status.Confirmed), len(pv.Spec.Checks))
+	if pv.Status.Ledger == nil || pv.Status.Ledger.ConfigMap == "" {
+		t.Errorf("ledger %+v; want the ledger stored", pv.Status.Ledger)
 	}
-	if acc := in.Status.Acceptance; (acc.Checks != nil && acc.Checks.Count > 0) || len(acc.Reviews) != 0 ||
-		len(e.stageRuns(t, name, v1alpha1.IntentStageCheckReview)) != 0 {
-		t.Errorf("acceptance checks %+v reviews %+v; want nothing stored or reviewed", acc.Checks, acc.Reviews)
+	if n := len(e.stageRuns(t, name, "checkreview")); n != 0 {
+		t.Errorf("%d checkreview runs; want none", n)
 	}
 
 	// The hand-off: ready, linked, each row naming the call it cites.
@@ -593,8 +589,8 @@ func TestIntentEvaluateFixRound(t *testing.T) {
 			appRepoURL)
 	}
 	in := e.intent(t, name)
-	if v := in.Status.Verification; v.Round != 2 || v.Failed == 0 || v.Rung != "" {
-		t.Errorf("verification = %+v, want round 2 failed, no rung recorded", v)
+	if v := in.Status.Verification; v.Round != 2 || v.Failed == 0 {
+		t.Errorf("verification = %+v, want round 2 failed", v)
 	}
 	for _, o := range in.Status.Verification.Outcomes {
 		if o.Result != v1alpha1.OutcomeFailed || o.Reason != "seen-not-to-hold" || len(o.Cites) == 0 {
@@ -603,9 +599,6 @@ func TestIntentEvaluateFixRound(t *testing.T) {
 	}
 	if ref := fix.Spec.Inputs.VerificationRef; ref == nil || ref.Name != e.round(t, name, 2).Name {
 		t.Errorf("fix run inputs %+v, want round 2", fix.Spec.Inputs)
-	}
-	if r := e.round(t, name, 2); r.Spec.Rung != v1alpha1.RungFull || len(r.Spec.Checks) != 0 {
-		t.Errorf("round 2 = %s with %d checks, want a full round and no check", r.Spec.Rung, len(r.Spec.Checks))
 	}
 	e.waitStatus(t, pr.HeadSHA, "failure", "")
 	job := e.kubelet.waitRun(t, "the fix round's Job", func(r agentRun) bool {
@@ -1141,9 +1134,6 @@ func TestIntentEvaluateBrowserPasses(t *testing.T) {
 		return v.State == v1alpha1.VerificationPassed
 	})
 	pv := e.round(t, name, 1)
-	if len(pv.Status.Confirmed) != 0 || len(pv.Status.Confirmations) != 0 {
-		t.Errorf("confirmations %+v, confirmed %d; want none", pv.Status.Confirmations, len(pv.Status.Confirmed))
-	}
 	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed ||
 		o[0].Reason != "seen-to-hold" || len(o[0].Cites) != 2 {
 		t.Errorf("outcomes %+v, want vote-button seen to hold on the screenshot and the script", o)
@@ -1165,10 +1155,10 @@ func TestIntentEvaluateBrowserPasses(t *testing.T) {
 	in = e.waitEval(t, name, "round 2 to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed && v.Round == 2
 	})
-	if r := e.round(t, name, 2); r.Spec.Rung != v1alpha1.RungFull || len(r.Spec.Checks) != 0 ||
-		len(e.evaluatorJobs()) != 2 || len(e.stageRuns(t, name, v1alpha1.IntentStageCheckReview)) != 0 {
-		t.Errorf("round 2 = %s with %d checks, %d evaluate Jobs; want a model round, no check, two evaluators",
-			r.Spec.Rung, len(r.Spec.Checks), len(e.evaluatorJobs()))
+	e.round(t, name, 2)
+	if len(e.evaluatorJobs()) != 2 || len(e.stageRuns(t, name, "checkreview")) != 0 {
+		t.Errorf("%d evaluate Jobs; want a model round's two evaluators and no checkreview run",
+			len(e.evaluatorJobs()))
 	}
 }
 
@@ -1242,9 +1232,6 @@ func TestIntentEvaluateBrowserScreenshotOnly(t *testing.T) {
 	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed ||
 		o[0].Reason != "seen-to-hold" || len(o[0].Cites) != 1 {
 		t.Errorf("outcomes %+v, want vote-button seen to hold on the screenshot", o)
-	}
-	if acc := in.Status.Acceptance; acc.Checks != nil && acc.Checks.Count > 0 {
-		t.Errorf("check store %+v, want nothing stored", acc.Checks)
 	}
 	pv := e.round(t, name, 1)
 	entries := e.checkBrowserLedger(t, pv, e.evaluatorJobs()[0])

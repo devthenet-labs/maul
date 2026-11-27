@@ -333,7 +333,6 @@ type StageLimits struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.build) || !has(self.build.maxCostMicroUSD) || self.build.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.build.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
 // +kubebuilder:validation:XValidation:rule="!has(self.revise) || !has(self.revise.maxCostMicroUSD) || self.revise.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.revise.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
 // +kubebuilder:validation:XValidation:rule="!has(self.evaluate) || !has(self.evaluate.maxCostMicroUSD) || self.evaluate.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.evaluate.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
-// +kubebuilder:validation:XValidation:rule="!has(self.checkReview) || !has(self.checkReview.maxCostMicroUSD) || self.checkReview.maxCostMicroUSD <= (has(self.maxCostMicroUSD) ? self.maxCostMicroUSD : 10000000)",message="limits.checkReview.maxCostMicroUSD must not exceed limits.maxCostMicroUSD"
 type ProjectLimits struct {
 	// MaxActiveIntents is how many of this Project's intents may be
 	// non-terminal at once; a newly triggered issue past it waits.
@@ -401,12 +400,6 @@ type ProjectLimits struct {
 	// preview through its slot tool pod).
 	// +optional
 	Evaluate StageLimits `json:"evaluate,omitempty"`
-	// CheckReview bounds each check reviewer run (read-only, judging the
-	// round's new saved checks). Retired with the check reviewer: the
-	// observed evaluator runs none, so it bounds nothing. Removed in the
-	// next release.
-	// +optional
-	CheckReview StageLimits `json:"checkReview,omitempty"`
 	// MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in
 	// micro-USD: what the intent's evaluate runs may spend together, apart
 	// from the build ceiling (maxCostMicroUSD). Past it the evaluation ends
@@ -837,8 +830,7 @@ type ProjectSpec struct {
 // as status.admits.subagents and status.admits.workflows). A switch the
 // controller does not allow grants nothing. Each run records its grant at
 // creation (IntentRun spec.grant), so a change applies to new runs only.
-// Plans, the evaluator, the check reviewer and codex Projects never
-// delegate.
+// Plans, the evaluator and codex Projects never delegate.
 // +kubebuilder:validation:XValidation:rule="!has(self.workflows) || !self.workflows || (has(self.subagents) && self.subagents)",message="delegation.workflows needs delegation.subagents"
 type ProjectDelegation struct {
 	// Subagents lets a build or revise run delegate to subagents, each
@@ -877,14 +869,6 @@ type ProjectModels struct {
 	// +kubebuilder:validation:MaxLength=128
 	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`
 	Evaluate string `json:"evaluate,omitempty"`
-	// CheckReview is the check reviewer's model (--intent-checkreview-model
-	// when unset; a codex Project's build model, as for Evaluate). Retired
-	// with the check reviewer: the observed evaluator runs none. Removed in
-	// the next release.
-	// +optional
-	// +kubebuilder:validation:MaxLength=128
-	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`
-	CheckReview string `json:"checkReview,omitempty"`
 }
 
 // ProjectHarness is the coding agent an intent's runs use.

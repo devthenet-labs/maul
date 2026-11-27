@@ -40,8 +40,8 @@ func TestIntentNames(t *testing.T) {
 		{"build run", IntentRunName("target-1", IntentStageBuild, 2, "shop", 1), "target-1-bld-r2-shop-a1"},
 		{"revise run", IntentRunName("target-1", IntentStageRevise, 3, "shop", 2), "target-1-rev3-shop-a2"},
 		{"evaluate run", IntentRunName("target-1", IntentStageEvaluate, 2, "ignored", 1), "target-1-ev-r2-a1"},
-		{"check review run", IntentRunName("target-1", IntentStageCheckReview, 4, "ignored", 3), "target-1-cr-r4-a3"},
 		{"unknown stage", IntentRunName("target-1", "deploy", 1, "shop", 1), ""},
+		{"retired check review stage", IntentRunName("target-1", "checkreview", 4, "ignored", 3), ""},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
@@ -67,8 +67,6 @@ func TestIntentNameBudget(t *testing.T) {
 		"build":    IntentRunName(intent, IntentStageBuild, MaxIntentRound, key, MaxIntentRunAttempt),
 		"revise":   IntentRunName(intent, IntentStageRevise, MaxIntentRound, key, MaxIntentRunAttempt),
 		"evaluate": IntentRunName(intent, IntentStageEvaluate, MaxIntentRound, key, MaxIntentRunAttempt),
-		"check review": IntentRunName(intent, IntentStageCheckReview, MaxIntentRound, key,
-			MaxIntentRunAttempt),
 	}
 	if got := len(names["build"]); got != validation.LabelValueMaxLength {
 		t.Errorf("longest build run name is %d characters, want exactly the label limit %d (the budget is spent)",
@@ -163,12 +161,12 @@ func (p runParts) name() string {
 	return IntentRunName(IntentName(p.Project, p.Issue), p.Stage, p.Round, p.Key, p.Attempt)
 }
 
-// identity is what the name must distinguish within one Intent: a plan,
-// evaluate or check review run's name carries no repository key.
+// identity is what the name must distinguish within one Intent: a plan or
+// evaluate run's name carries no repository key.
 func (p runParts) identity() string {
 	key := p.Key
 	switch p.Stage {
-	case IntentStagePlan, IntentStageEvaluate, IntentStageCheckReview:
+	case IntentStagePlan, IntentStageEvaluate:
 		key = ""
 	}
 	return strings.Join([]string{

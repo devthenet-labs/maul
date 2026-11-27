@@ -33,7 +33,7 @@ const (
 	// Jobs.
 	LabelRunKind = "maul.run/kind"
 	// LabelRole names an intent agent Job's role in the agents namespace
-	// (RoleEvaluator, RoleCheckReview), the selector each role's own egress
+	// (RoleEvaluator, RoleTools), the selector each role's own egress
 	// policy matches and every other agent policy excludes. Only
 	// intent-controller may set it (the maul-evaluator-labels policy).
 	LabelRole = "maul.run/role"
@@ -71,15 +71,13 @@ const (
 	AnnotationRepo = "maul.run/repo"
 )
 
-// Role label values. RoleEvaluator, RoleCheckReview and RoleTools are LabelRole values
+// Role label values. RoleEvaluator and RoleTools are LabelRole values
 // on agents-namespace Jobs; PreviewRoleTools is the maul.run/preview-role
 // value of a slot's tool pod, beside the PreviewPartRole values the slot
 // already uses (command, seed).
 const (
 	// RoleEvaluator marks an evaluate-stage IntentRun's Job and pod.
 	RoleEvaluator = "evaluator"
-	// RoleCheckReview marks a checkreview-stage IntentRun's Job and pod.
-	RoleCheckReview = "checkreview"
 	// RoleTools marks an agents-namespace tool pod's Job and pod: the tool
 	// pod an agents verification's evaluator drives (no Preview).
 	RoleTools = "tools"

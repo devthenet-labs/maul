@@ -16,12 +16,6 @@ import (
 	"github.com/devthenet-labs/maul/internal/ghclient"
 )
 
-const (
-	manualID     = "sounds-good"
-	automaticID  = "render"
-	quarantineID = "leaderboard"
-)
-
 // setStatus writes the Intent's status as mutate leaves it, as another of the
 // intent reconciler's steps would have.
 func (e *env) setStatus(name string, mutate func(*v1alpha1.Intent)) {
@@ -43,7 +37,7 @@ func newAcceptEnv(t *testing.T, mutate ...func(*v1alpha1.Project)) *env {
 // reviewingWithCriteria drives a new intent to InReview and records an
 // approved plan's slice-1 criteria as the API server keeps them now that
 // the criteria field is removed (their digest alone), and a verification of
-// the current commits with one of them quarantined, as slice 1 would. The
+// the current commits, as slice 1 would. The
 // Preview exists but is not live yet (acceptReady).
 func (e *env) reviewingWithCriteria() string {
 	e.t.Helper()
@@ -57,7 +51,7 @@ func (e *env) reviewingWithCriteria() string {
 		in.Status.Acceptance = &v1alpha1.IntentAcceptance{PlanRevision: in.Status.Approval.PlanRevision,
 			Digest: hs.digest}
 		in.Status.Verification = &v1alpha1.IntentVerification{State: v1alpha1.VerificationWaitingForPreview,
-			HeadSetDigest: hs.digest, QuarantinedIDs: []string{quarantineID}, Heads: hs.heads,
+			HeadSetDigest: hs.digest, Heads: hs.heads,
 			AutoFix: v1alpha1.AutoFix{State: v1alpha1.AutoFixHalted, Reason: v1alpha1.AutoFixHumanReview}}
 	})
 	e.settleActions(name)

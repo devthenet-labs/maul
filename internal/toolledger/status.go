@@ -12,12 +12,9 @@ import (
 
 // ApplyStatus returns a verified ledger's summary (count, sha256 and the
 // index of every entry), the same way for every host; the host names the
-// ConfigMaps it wrote (and the builds, for a workspace) on it and sets
-// st.Ledger. It writes nothing else onto st: the replays, confirmations and
-// confirmed checks an earlier relay recorded are retired and stay unset,
-// whatever the ledger holds.
-func ApplyStatus(st *v1alpha1.PreviewVerificationStatus, out Output) *v1alpha1.LedgerSummary {
-	st.Replay, st.Confirmations, st.Confirmed = nil, nil, nil
+// ConfigMaps it wrote (and the builds, for a workspace) on it and sets it as
+// the verification's status.ledger.
+func ApplyStatus(out Output) *v1alpha1.LedgerSummary {
 	return &v1alpha1.LedgerSummary{Count: ClampInt32(out.Ledger.Summary.Count), SHA256: out.Ledger.Summary.SHA256,
 		Entries: Index(out.Ledger.Entries)}
 }

@@ -124,8 +124,9 @@ func checkEvaluatorJobs(t *testing.T, admin client.Client, as func(string) clien
 		want     string // "" admits
 	}{
 		{"intent-controller, an evaluator", saIntent, egressAgents, evaluator, evaluator, ""},
-		{"intent-controller, a check reviewer", saIntent, egressAgents,
-			evLabels(evRole, "checkreview"), evLabels(evRole, "checkreview"), ""},
+		// The check reviewer's role is retired: nothing creates its Job.
+		{"intent-controller, the retired check reviewer", saIntent, egressAgents,
+			evLabels(evRole, "checkreview"), evLabels(evRole, "checkreview"), evShapeDenied},
 		{"intent-controller, an agents-namespace tool pod", saIntent, egressAgents,
 			evLabels(evRole, "tools", evEvaluation, evUID), evLabels(evRole, "tools", evEvaluation, evUID), ""},
 		{"intent-controller, an unlabelled Job", saIntent, egressAgents, nil, nil, ""},

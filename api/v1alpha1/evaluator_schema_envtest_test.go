@@ -17,9 +17,8 @@ import (
 )
 
 // The evaluator's schema (SPEC S1-01): approved outcomes beside the kept
-// criteria, saved checks by reference on the Intent and inline (each at most
-// MaxSavedCheckBytes) on a PreviewVerification, the tool pod, ledger and
-// capture summaries on its status, per-outcome results and the hand-off on
+// criteria digest, the tool pod, ledger and capture summaries on a
+// PreviewVerification's status, per-outcome results and the hand-off on
 // the Intent, the evaluate run's record and the Project's evaluator settings.
 // They run inside TestSchemaValidation's single envtest boot.
 
@@ -34,26 +33,9 @@ func schemaOutcomes() []maulv1.AcceptanceOutcome {
 	}
 }
 
-// schemaSavedChecks is one saved check of each form.
-func schemaSavedChecks() []maulv1.SavedCheck {
-	digest := func(c string) string { return "sha256:" + strings.Repeat(c, 64) }
-	return []maulv1.SavedCheck{
-		{ID: "winner-rises.order", Outcome: "winner-rises", Form: maulv1.CheckFormHTTP,
-			Body: `{"id":"winner-rises.order","outcome":"winner-rises","form":"http"}`, Digest: digest("1")},
-		{ID: "leaderboard-still-loads", Outcome: "leaderboard-still-loads", Form: maulv1.CheckFormBrowser,
-			Body: `{"form":"browser"}`, Digest: digest("2")},
-		{ID: "winner-rises.cli", Outcome: "winner-rises", Form: maulv1.CheckFormExec,
-			Body: `{"form":"exec"}`, Digest: digest("3")},
-		{ID: "winner-rises.run", Outcome: "winner-rises", Form: maulv1.CheckFormRun,
-			Body: `{"form":"run"}`, Digest: digest("4")},
-	}
-}
-
 // schemaOutcomeVerification is a valid outcome PreviewVerification.
 func schemaOutcomeVerification(name string) *maulv1.PreviewVerification {
 	v := schemaVerification(name)
-	v.Spec.Checks, v.Spec.ChecksDigest = schemaSavedChecks(), schemaDigest
-	v.Spec.Rung = maulv1.RungFull
 	v.Spec.Tools = &maulv1.ToolsSpec{Browser: true, Sandbox: true, MaxToolCalls: 300, LookAroundRoutes: 8}
 	return v
 }
@@ -62,7 +44,6 @@ func schemaOutcomeVerification(name string) *maulv1.PreviewVerification {
 // evaluator adds.
 func fullEvaluatorStatus() maulv1.PreviewVerificationStatus {
 	sha := strings.Repeat("a", 64)
-	check := "sha256:" + strings.Repeat("1", 64)
 	return maulv1.PreviewVerificationStatus{
 		Phase: maulv1.VerificationObserved, Reason: maulv1.VerificationReasonOK,
 		StartedAt: schemaNow.DeepCopy(), CompletedAt: schemaNow.DeepCopy(),
@@ -74,10 +55,6 @@ func fullEvaluatorStatus() maulv1.PreviewVerificationStatus {
 				{Seq: 2, Kind: maulv1.LedgerKindAgent, Verb: maulv1.LedgerVerbBrowser, Exit: 1, ResultSHA256: sha,
 					Artifacts: []string{sha}, Refused: true, Side: maulv1.TreeBase},
 			}},
-		Replay: []maulv1.CheckRun{{CheckDigest: check, Result: maulv1.CheckRunPass, Token: "v1a1-0a1b2c", Seq: 1}},
-		Confirmations: []maulv1.CheckRun{{CheckDigest: check, Result: maulv1.CheckRunQuarantined,
-			Token: "c-9f8e7d", Seq: 3, DryRunSeq: 2}},
-		Confirmed: schemaSavedChecks()[:1],
 		Capture: &maulv1.CaptureSummary{Components: []maulv1.ComponentCapture{
 			{Name: "api", Bytes: 65536, Truncated: true}, {Name: "web", Bytes: 12}}, Events: 7},
 		Environment: []maulv1.PartFact{{Name: "tools", Role: maulv1.PreviewRoleToolPod, Ready: true}},
@@ -87,13 +64,10 @@ func fullEvaluatorStatus() maulv1.PreviewVerificationStatus {
 // fullEvaluatorVerification populates every Intent verification field the
 // evaluator adds.
 func fullEvaluatorVerification() *maulv1.IntentVerification {
-	check := "sha256:" + strings.Repeat("1", 64)
 	return &maulv1.IntentVerification{
 		State: maulv1.VerificationUnconfirmed, Round: 1, Attempt: 1, Judge: maulv1.JudgeObserved,
 		Outcomes: []maulv1.OutcomeResult{
-			{ID: "winner-rises", Result: maulv1.OutcomePassed, Basis: check,
-				Line:  "Check: POST /api/battles, GET /api/leaderboard; asserts the winner is listed above the loser.",
-				Cites: []int32{1, 3, 4, 5, 6, 7, 8, 512}},
+			{ID: "winner-rises", Result: maulv1.OutcomePassed, Cites: []int32{1, 3, 4, 5, 6, 7, 8, 512}},
 			{ID: "leaderboard-still-loads", Result: maulv1.OutcomeUnsure, Reason: "the evaluator disputed the check"},
 			{ID: "sounds-good", Result: maulv1.OutcomeAccepted},
 		},
@@ -103,7 +77,6 @@ func fullEvaluatorVerification() *maulv1.IntentVerification {
 			Reason: maulv1.HandoffReasonUnconfirmed},
 		FirstGreenAt:           schemaNow.DeepCopy(),
 		EvaluationCostMicroUSD: 1500000,
-		Disputed:               []string{check},
 	}
 }
 
@@ -211,8 +184,8 @@ func testEvaluatorProjectSchema(ctx context.Context, t *testing.T, c client.Clie
 	}
 }
 
-// testOutcomeAcceptanceSchema: an Intent's approved outcomes, its check
-// store and review cache, and the evaluator's results on its verification.
+// testOutcomeAcceptanceSchema: an Intent's approved outcomes and the
+// evaluator's results on its verification.
 func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
 	key := client.ObjectKey{Name: "target-90", Namespace: "default"}
@@ -231,10 +204,6 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 		s := fullIntentStatus()
 		s.Acceptance = &maulv1.IntentAcceptance{PlanRevision: 1, Digest: schemaDigest,
 			Outcomes: schemaOutcomes(), OutcomesDigest: schemaDigest,
-			Checks: &maulv1.CheckStoreRef{ConfigMap: "target-90-checks-r1", Digest: schemaDigest, Count: 3},
-			Reviews: []maulv1.CheckReviewRecord{{CheckDigest: schemaDigest, OutcomeDigest: schemaDigest,
-				Answer: maulv1.ReviewProves, Run: "target-90-cr-r1-a1", Check: "winner-rises.api",
-				Reason: "It rates its own battle and reads both ratings."}},
 		}
 		s.Verification = fullEvaluatorVerification()
 		return s
@@ -302,20 +271,7 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 		}},
 		{"an unknown outcome kind", func(s *maulv1.IntentStatus) { s.Acceptance.Outcomes[0].Kind = "remove" }},
 		{"a malformed outcome id", func(s *maulv1.IntentStatus) { s.Acceptance.Outcomes[0].ID = "Winner" }},
-		{"41 stored checks", func(s *maulv1.IntentStatus) { s.Acceptance.Checks.Count = 41 }},
-		{"a check store without its digest", func(s *maulv1.IntentStatus) { s.Acceptance.Checks.Digest = "" }},
-		{"an unknown review answer", func(s *maulv1.IntentStatus) { s.Acceptance.Reviews[0].Answer = "maybe" }},
-		{"a malformed reviewed check id", func(s *maulv1.IntentStatus) { s.Acceptance.Reviews[0].Check = "Rate It" }},
-		{"a review reason over 600 characters", func(s *maulv1.IntentStatus) {
-			s.Acceptance.Reviews[0].Reason = strings.Repeat("r", 601)
-		}},
-		{"81 reviews", func(s *maulv1.IntentStatus) {
-			for len(s.Acceptance.Reviews) < 81 {
-				s.Acceptance.Reviews = append(s.Acceptance.Reviews, s.Acceptance.Reviews[0])
-			}
-		}},
 		{"an unknown outcome result", func(s *maulv1.IntentStatus) { s.Verification.Outcomes[0].Result = "pass" }},
-		{"a basis that is not a digest", func(s *maulv1.IntentStatus) { s.Verification.Outcomes[0].Basis = "e21" }},
 		{"21 outcome results", func(s *maulv1.IntentStatus) {
 			for len(s.Verification.Outcomes) < 21 {
 				s.Verification.Outcomes = append(s.Verification.Outcomes, s.Verification.Outcomes[0])
@@ -334,9 +290,6 @@ func testOutcomeAcceptanceSchema(ctx context.Context, t *testing.T, c client.Cli
 		{"a release without its time", func(s *maulv1.IntentStatus) { s.Verification.Handoff.ReleasedAt = nil }},
 		{"a release without its reason", func(s *maulv1.IntentStatus) { s.Verification.Handoff.Reason = "" }},
 		{"a negative evaluation cost", func(s *maulv1.IntentStatus) { s.Verification.EvaluationCostMicroUSD = -1 }},
-		{"a disputed entry that is not a digest", func(s *maulv1.IntentStatus) {
-			s.Verification.Disputed = []string{"winner-rises.order"}
-		}},
 		{"an unknown verification state", func(s *maulv1.IntentStatus) { s.Verification.State = "Judging" }},
 		{"nine cites on an outcome", func(s *maulv1.IntentStatus) {
 			s.Verification.Outcomes[0].Cites = []int32{1, 2, 3, 4, 5, 6, 7, 8, 9}
@@ -386,20 +339,17 @@ func testOutcomeVerificationSchema(ctx context.Context, t *testing.T, c client.C
 		}
 		sameJSON(t, "evaluator status", read.Status, fullEvaluatorStatus())
 	})
-	t.Run("spec checks are immutable", func(t *testing.T) {
+	t.Run("spec outcomes are immutable", func(t *testing.T) {
 		v := &maulv1.PreviewVerification{}
 		if err := c.Get(ctx, client.ObjectKey{Name: name, Namespace: "default"}, v); err != nil {
 			t.Fatal(err)
 		}
-		v.Spec.Checks[0].Body = `{"form":"http","changed":true}`
+		v.Spec.Outcomes[0].Outcome = "Rating a battle changes nothing."
 		if err := c.Update(ctx, v); err == nil {
-			t.Error("Update(saved check body) = nil, want immutability rejection")
+			t.Error("Update(outcome) = nil, want immutability rejection")
 		}
 	})
 
-	bigCheck := func(n int, r string) func(*maulv1.PreviewVerification) {
-		return func(v *maulv1.PreviewVerification) { v.Spec.Checks[0].Body = strings.Repeat(r, n) }
-	}
 	for _, tt := range []struct {
 		name    string
 		mutate  func(*maulv1.PreviewVerification)
@@ -409,58 +359,16 @@ func testOutcomeVerificationSchema(ctx context.Context, t *testing.T, c client.C
 			v.Spec.Outcomes, v.Spec.OutcomesDigest = nil, ""
 		}, true},
 		{"no outcomes, nothing else of an outcome verification", func(v *maulv1.PreviewVerification) {
-			v.Spec.Outcomes, v.Spec.OutcomesDigest, v.Spec.Checks, v.Spec.ChecksDigest = nil, "", nil, ""
-			v.Spec.Rung, v.Spec.Tools = "", nil
+			v.Spec.Outcomes, v.Spec.OutcomesDigest, v.Spec.Tools = nil, "", nil
 		}, true},
 		{"outcomes without their digest", func(v *maulv1.PreviewVerification) { v.Spec.OutcomesDigest = "" }, true},
-		{"outcomes without a rung", func(v *maulv1.PreviewVerification) { v.Spec.Rung = "" }, true},
 		{"outcomes without tools", func(v *maulv1.PreviewVerification) { v.Spec.Tools = nil }, true},
-		{"an unknown rung", func(v *maulv1.PreviewVerification) { v.Spec.Rung = "explore" }, true},
-		{"a replay round with no checks", func(v *maulv1.PreviewVerification) {
-			v.Spec.Rung, v.Spec.Checks, v.Spec.ChecksDigest = maulv1.RungReplay, nil, ""
-		}, true},
-		{"a replay round", func(v *maulv1.PreviewVerification) { v.Spec.Rung = maulv1.RungReplay }, false},
-		{"a first round with no checks", func(v *maulv1.PreviewVerification) {
-			v.Spec.Checks, v.Spec.ChecksDigest = nil, ""
-		}, false},
-		{"checks without their digest", func(v *maulv1.PreviewVerification) { v.Spec.ChecksDigest = "" }, true},
 		{"21 outcomes", func(v *maulv1.PreviewVerification) {
 			for i := len(v.Spec.Outcomes); i < 21; i++ {
 				o := v.Spec.Outcomes[0]
 				o.ID = fmt.Sprintf("o-%d", i)
 				v.Spec.Outcomes = append(v.Spec.Outcomes, o)
 			}
-		}, true},
-		{"41 checks", func(v *maulv1.PreviewVerification) {
-			for len(v.Spec.Checks) < 41 {
-				v.Spec.Checks = append(v.Spec.Checks, v.Spec.Checks[0])
-			}
-		}, true},
-		{"40 checks", func(v *maulv1.PreviewVerification) {
-			for len(v.Spec.Checks) < 40 {
-				v.Spec.Checks = append(v.Spec.Checks, v.Spec.Checks[0])
-			}
-		}, false},
-		{"40 checks of 8 KiB", func(v *maulv1.PreviewVerification) {
-			for len(v.Spec.Checks) < 40 {
-				v.Spec.Checks = append(v.Spec.Checks, v.Spec.Checks[0])
-			}
-			for i := range v.Spec.Checks {
-				v.Spec.Checks[i].Body = strings.Repeat("x", maulv1.MaxSavedCheckBytes)
-			}
-		}, false},
-		{"a check body of 8 KiB", bigCheck(maulv1.MaxSavedCheckBytes, "x"), false},
-		{"a check body over 8 KiB", bigCheck(maulv1.MaxSavedCheckBytes+1, "x"), true},
-		// The bound is on bytes: 2731 three-byte characters are 8193 bytes.
-		{"a check body over 8 KiB in multi-byte text", bigCheck(2731, "€"), true},
-		{"an empty check body", bigCheck(0, "x"), true},
-		{"an unknown check form", func(v *maulv1.PreviewVerification) { v.Spec.Checks[0].Form = "grpc" }, true},
-		{"a check digest that is not one", func(v *maulv1.PreviewVerification) {
-			v.Spec.Checks[0].Digest = strings.Repeat("1", 64)
-		}, true},
-		{"a malformed check id", func(v *maulv1.PreviewVerification) { v.Spec.Checks[0].ID = "a..b" }, true},
-		{"a check bound to a malformed outcome", func(v *maulv1.PreviewVerification) {
-			v.Spec.Checks[0].Outcome = "winner-rises.order"
 		}, true},
 		{"301 tool calls", func(v *maulv1.PreviewVerification) { v.Spec.Tools.MaxToolCalls = 301 }, true},
 		{"49 tool calls", func(v *maulv1.PreviewVerification) { v.Spec.Tools.MaxToolCalls = 49 }, true},
@@ -540,23 +448,6 @@ func testEvaluatorStatusSchema(ctx context.Context, t *testing.T, c client.Clien
 		{"an artifact hash that is not one", func(s *maulv1.PreviewVerificationStatus) {
 			s.Ledger.Entries[1].Artifacts = []string{"shot.png"}
 		}},
-		{"an unknown check result", func(s *maulv1.PreviewVerificationStatus) { s.Replay[0].Result = "flaky" }},
-		{"a replay digest that is not one", func(s *maulv1.PreviewVerificationStatus) {
-			s.Replay[0].CheckDigest = "winner-rises.order"
-		}},
-		{"41 confirmations", func(s *maulv1.PreviewVerificationStatus) {
-			for len(s.Confirmations) < 41 {
-				s.Confirmations = append(s.Confirmations, s.Confirmations[0])
-			}
-		}},
-		{"41 confirmed checks", func(s *maulv1.PreviewVerificationStatus) {
-			for len(s.Confirmed) < 41 {
-				s.Confirmed = append(s.Confirmed, s.Confirmed[0])
-			}
-		}},
-		{"a confirmed check over 8 KiB", func(s *maulv1.PreviewVerificationStatus) {
-			s.Confirmed[0].Body = strings.Repeat("x", maulv1.MaxSavedCheckBytes+1)
-		}},
 		{"a capture over 64 KiB", func(s *maulv1.PreviewVerificationStatus) { s.Capture.Components[0].Bytes = 65537 }},
 		{"a negative event count", func(s *maulv1.PreviewVerificationStatus) { s.Capture.Events = -1 }},
 	} {
@@ -575,8 +466,7 @@ func testEvaluatorStatusSchema(ctx context.Context, t *testing.T, c client.Clien
 }
 
 // testEvaluateRunSchema: an evaluate run, and only one, records the
-// verification it judges, pinned by UID, with its tool pod's address and
-// its rung.
+// verification it judges, pinned by UID, with its tool pod's address.
 func testEvaluateRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 	t.Helper()
 	for _, tt := range []struct {
@@ -589,14 +479,10 @@ func testEvaluateRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 			func(s *maulv1.IntentRunSpec) { s.Evaluation = nil }, true},
 		{"an evaluate run without the verification's uid", maulv1.IntentStageEvaluate,
 			func(s *maulv1.IntentRunSpec) { s.Evaluation.UID = "" }, true},
-		{"an evaluate run with an unknown rung", maulv1.IntentStageEvaluate,
-			func(s *maulv1.IntentRunSpec) { s.Evaluation.Rung = "explore" }, true},
 		{"an evaluate run with a tool address that is not one", maulv1.IntentStageEvaluate,
 			func(s *maulv1.IntentRunSpec) { s.Evaluation.ToolIP = "tools.slot.svc" }, true},
 		{"an evaluate run with an IPv6 tool address", maulv1.IntentStageEvaluate,
 			func(s *maulv1.IntentRunSpec) { s.Evaluation.ToolIP = "fd00:10:42::17" }, false},
-		{"a check review run recording a verification", maulv1.IntentStageCheckReview,
-			func(s *maulv1.IntentRunSpec) { s.Evaluation = schemaRunEvaluation() }, true},
 		{"a build run recording a verification", maulv1.IntentStageBuild,
 			func(s *maulv1.IntentRunSpec) { s.Evaluation = schemaRunEvaluation() }, true},
 	} {

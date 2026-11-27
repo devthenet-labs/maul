@@ -13,27 +13,15 @@ import (
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
-// ApplyStatus returns the ledger's summary and index and leaves none of the
-// retired check runs (replay, confirmations, confirmed checks) on status,
-// whatever an earlier write left there.
+// ApplyStatus returns the ledger's summary and index.
 func TestApplyStatus(t *testing.T) {
 	log, msg := toolLedger(t, testPNG(t, 8, 8))
 	out := verifiedLedger(t, log, msg)
-	run := []v1alpha1.CheckRun{{CheckDigest: "sha256:" + sha256Hex(nil), Result: v1alpha1.CheckRunPass}}
-	st := v1alpha1.PreviewVerificationStatus{Replay: run, Confirmations: run,
-		Confirmed: []v1alpha1.SavedCheck{{ID: "items.body"}}}
-	sum := ApplyStatus(&st, out)
+	sum := ApplyStatus(out)
 	entries := out.Ledger.Entries
 	want := &v1alpha1.LedgerSummary{Count: 7, SHA256: out.Ledger.Summary.SHA256, Entries: Index(entries)}
 	if !reflect.DeepEqual(sum, want) {
 		t.Errorf("summary = %+v, want %+v", sum, want)
-	}
-	if st.Ledger != nil {
-		t.Error("ApplyStatus set st.Ledger; the host names its ConfigMaps first")
-	}
-	if st.Replay != nil || st.Confirmations != nil || st.Confirmed != nil || st.Base != nil {
-		t.Errorf("status = replay %+v, confirmations %+v, confirmed %+v, base %+v; want none: only the index "+
-			"is written", st.Replay, st.Confirmations, st.Confirmed, st.Base)
 	}
 }
 

@@ -106,8 +106,7 @@ func evaluationFixture(t *testing.T) []client.Object {
 			IntentRef: v1alpha1.ObjectReference{Name: "alpha-7", UID: "uid-alpha-7"},
 			Stage:     v1alpha1.IntentStageEvaluate, Round: 1, Attempt: 1,
 			Repository: v1alpha1.IntentRunRepository{URL: "https://github.com/acme/app"},
-			Evaluation: &v1alpha1.IntentRunEvaluation{Verification: evalPV, UID: evalPVUID, ToolIP: "10.0.0.9",
-				Rung: v1alpha1.VerificationRung("full")},
+			Evaluation: &v1alpha1.IntentRunEvaluation{Verification: evalPV, UID: evalPVUID, ToolIP: "10.0.0.9"},
 		},
 		Status: v1alpha1.IntentRunStatus{Phase: v1alpha1.RunComplete, Outcome: "ok", Report: evalReport},
 	}
@@ -118,7 +117,7 @@ func evaluationFixture(t *testing.T) []client.Object {
 		ObjectMeta: metav1.ObjectMeta{Name: evalPV, Namespace: "maul", UID: evalPVUID},
 		Spec: v1alpha1.PreviewVerificationSpec{
 			IntentRef: v1alpha1.ObjectReference{Name: "alpha-7", UID: "uid-alpha-7"},
-			Round:     1, Attempt: 1, Rung: v1alpha1.VerificationRung("full"), HeadSetDigest: evalHeadSet,
+			Round:     1, Attempt: 1, HeadSetDigest: evalHeadSet,
 			Outcomes: []v1alpha1.AcceptanceOutcome{
 				{ID: "rate-battle", Outcome: "A rated battle moves the rating"},
 				{ID: "leaderboard", Outcome: "The leaderboard lists the battle", Kind: v1alpha1.OutcomeKindKeep},

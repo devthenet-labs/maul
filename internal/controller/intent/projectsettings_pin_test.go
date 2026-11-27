@@ -44,7 +44,7 @@ func TestProjectSettingsRunBudgetIsStageBudget(t *testing.T) {
 		if n := money(); n > 0 {
 			l.MaxEvaluateCostMicroUSD = &n
 		}
-		for _, st := range []*v1alpha1.StageLimits{&l.Plan, &l.Build, &l.Revise, &l.Evaluate, &l.CheckReview} {
+		for _, st := range []*v1alpha1.StageLimits{&l.Plan, &l.Build, &l.Revise, &l.Evaluate} {
 			st.MaxCostMicroUSD = money()
 		}
 		s := Settings{EvaluationCostMax: money()}

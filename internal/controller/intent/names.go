@@ -384,8 +384,7 @@ func (s Settings) ceiling(stage v1alpha1.IntentStage) StageCeiling {
 	case v1alpha1.IntentStageEvaluate:
 		return s.Evaluate
 	}
-	// A retired stage's (the check reviewer's) is zero too: none of its
-	// runs is launched.
+	// An unknown or retired stage's is zero: none of its runs is launched.
 	return StageCeiling{}
 }
 
@@ -412,8 +411,6 @@ func stageLimits(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha1.Stage
 	case v1alpha1.IntentStageEvaluate:
 		return p.Spec.Limits.Evaluate
 	}
-	// spec.limits.checkReview is a retired field, kept in the schema for one
-	// release and read by nothing.
 	return v1alpha1.StageLimits{}
 }
 
@@ -559,7 +556,7 @@ func (s Settings) workflowsAllowed(h v1alpha1.ProjectHarness) bool {
 // subagentStage reports whether stage's runs may be granted subagents: the
 // first build and every revise round (check-fix and verify-fix rounds
 // included), the stages that run agent-runner's build phase in the writable
-// posture. A plan, evaluate or checkreview run never is.
+// posture. A plan or evaluate run never is.
 func subagentStage(stage v1alpha1.IntentStage) bool {
 	return stage == v1alpha1.IntentStageBuild || stage == v1alpha1.IntentStageRevise
 }

@@ -346,7 +346,6 @@ func schemaVerification(name string) *maulv1.PreviewVerification {
 			Run:               "0a1b2c",
 			Outcomes:          schemaOutcomes(),
 			OutcomesDigest:    schemaDigest,
-			Rung:              maulv1.RungFull,
 			Tools:             &maulv1.ToolsSpec{Sandbox: true, MaxToolCalls: 300},
 			Timeout:           metav1.Duration{Duration: 10 * time.Minute},
 		},

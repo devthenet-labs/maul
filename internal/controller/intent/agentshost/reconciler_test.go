@@ -93,54 +93,6 @@ func checkRelayConfig(t *testing.T, spec jobs.ToolPodSpec) {
 	}
 }
 
-// TestStartIgnoresSavedChecks: saved checks are no part of what an agents
-// verification is held to, and the relay replays none. One with none, on an
-// Intent whose check store an earlier release wrote (what intent-controller
-// writes for every such Intent), starts; so does one still carrying checks
-// of another store, forged, or for a replay round; and each relay config
-// carries no checks and no replay.
-func TestStartIgnoresSavedChecks(t *testing.T) {
-	saved := savedCheck(t, checkBody)
-	store := "sha256:" + strings.Repeat("c", 64)
-	for _, tc := range []struct {
-		name string
-		mut  func(*v1alpha1.PreviewVerification)
-	}{
-		{"no checks beside the Intent's store", func(*v1alpha1.PreviewVerification) {}},
-		{"another check store", func(pv *v1alpha1.PreviewVerification) {
-			pv.Spec.Checks, pv.Spec.ChecksDigest = []v1alpha1.SavedCheck{saved}, "sha256:"+strings.Repeat("d", 64)
-		}},
-		{"a forged check", func(pv *v1alpha1.PreviewVerification) {
-			forged := saved
-			forged.Digest = "sha256:" + strings.Repeat("0", 64)
-			pv.Spec.Checks, pv.Spec.ChecksDigest = []v1alpha1.SavedCheck{forged}, store
-		}},
-		{"a replay round", func(pv *v1alpha1.PreviewVerification) {
-			pv.Spec.Rung, pv.Spec.Checks, pv.Spec.ChecksDigest = v1alpha1.RungReplay,
-				[]v1alpha1.SavedCheck{saved}, store
-		}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := newWorld(t)
-			w.intent.Status.Acceptance.Checks = &v1alpha1.CheckStoreRef{ConfigMap: intentName + "-checks-1",
-				Digest: store, Count: 1}
-			tc.mut(w.pv)
-			h := newHarness(t, w)
-			h.reconcile(t)
-			if pv := h.pv(t); len(h.tools.created) != 1 || pv.Status.Phase != v1alpha1.VerificationRunning {
-				t.Fatalf("created %d, status %s %s; want the tool pod started", len(h.tools.created),
-					pv.Status.Phase, pv.Status.Reason)
-			}
-			raw := h.tools.created[0].Data[previewtools.ConfigFile]
-			for _, key := range []string{`"checks"`, `"replayOnly"`} {
-				if strings.Contains(raw, key) {
-					t.Errorf("the relay config carries %s: %s", key, raw)
-				}
-			}
-		})
-	}
-}
-
 // TestStartReusesTheSecretsKey: a Secret an earlier pass created keeps its
 // key, so CreateToolPod adopts it rather than refusing other data.
 func TestStartReusesTheSecretsKey(t *testing.T) {
@@ -376,16 +328,10 @@ func checkLedgerBuilds(t *testing.T, l *v1alpha1.LedgerSummary) {
 	}
 }
 
-// checkRuns: no replay, confirmation or base status (the ledger's replays
-// at head and base are an old relay's, read by nothing), the head build
-// part.
+// checkRuns: the head build part (the ledger's replays at head and base
+// are an old relay's, read by nothing).
 func checkRuns(t *testing.T, pv *v1alpha1.PreviewVerification) {
 	t.Helper()
-	if pv.Status.Replay != nil || pv.Status.Confirmations != nil || pv.Status.Confirmed != nil ||
-		pv.Status.Base != nil {
-		t.Errorf("replay %+v, confirmations %+v, confirmed %+v, base %+v; want none", pv.Status.Replay,
-			pv.Status.Confirmations, pv.Status.Confirmed, pv.Status.Base)
-	}
 	env := pv.Status.Environment
 	if len(env) != 1 || env[0].Role != v1alpha1.PreviewPartRole("build") || env[0].LastTermination == nil ||
 		env[0].LastTermination.Reason != "Completed" || env[0].LastTermination.ExitCode != 0 {
@@ -454,9 +400,6 @@ func TestCollectBuilds(t *testing.T) {
 			if pv.Status.Phase != tc.phase || pv.Status.Reason != tc.reason {
 				t.Fatalf("status = %s %s, want %s %s", pv.Status.Phase, pv.Status.Reason, tc.phase, tc.reason)
 			}
-			if pv.Status.Base != nil {
-				t.Errorf("base = %+v, want none", pv.Status.Base)
-			}
 			if l := pv.Status.Ledger; l == nil || len(l.Builds) != 2 || l.Builds[1].Side != v1alpha1.TreeBase ||
 				l.Builds[1].Result != tc.base {
 				t.Errorf("ledger builds = %+v, want the base's %s", l, tc.base)
@@ -523,7 +466,7 @@ func TestCollectRefusesTheLedger(t *testing.T) {
 				t.Fatalf("status = %s %s, want Infra %s", pv.Status.Phase, pv.Status.Reason, tc.reason)
 			}
 			if tc.reason == v1alpha1.VerificationReasonLedgerMismatch &&
-				(pv.Status.Ledger != nil || pv.Status.Base != nil || pv.Status.Replay != nil) {
+				pv.Status.Ledger != nil {
 				t.Errorf("a refused ledger kept on status: %+v", pv.Status)
 			}
 		})
@@ -564,10 +507,10 @@ func TestCollectGuardsTheImageID(t *testing.T) {
 	}
 }
 
-// TestCollectReplayRoundIsGuarded: a verification written for a replay
-// round, its relay finished on its own account (at the end of a replay, at
-// its wall clock, or told to stop) with no evaluator call, is Infra
-// evaluator-not-run like any round, never Observed.
+// TestCollectReplayRoundIsGuarded: a relay finished on its own account (at
+// the end of an earlier release's replay, at its wall clock, or told to
+// stop) with no evaluator call is Infra evaluator-not-run like any round,
+// never Observed.
 func TestCollectReplayRoundIsGuarded(t *testing.T) {
 	for _, tc := range []struct {
 		finish string
@@ -580,12 +523,6 @@ func TestCollectReplayRoundIsGuarded(t *testing.T) {
 	} {
 		t.Run(tc.finish, func(t *testing.T) {
 			w := newWorld(t)
-			// A replay round replays the saved checks of the Intent's store.
-			store := "sha256:" + strings.Repeat("c", 64)
-			w.pv.Spec.Rung, w.pv.Spec.ChecksDigest = v1alpha1.RungReplay, store
-			w.pv.Spec.Checks = []v1alpha1.SavedCheck{savedCheck(t, checkBody)}
-			w.intent.Status.Acceptance.Checks = &v1alpha1.CheckStoreRef{ConfigMap: intentName + "-checks-1",
-				Digest: store, Count: 1}
 			h := running(t, w)
 			log, msg := toolsLog(t, ledgerOpts{headBuild: v1alpha1.BuildBuilt, baseBuild: v1alpha1.BuildBuilt,
 				relayFinish: tc.finish})

@@ -20,13 +20,12 @@ import (
 	"github.com/devthenet-labs/maul/internal/sandboxprobe"
 )
 
-// The agent evaluator's and check reviewer's Jobs (Spec.Role). Both are
-// intent runs on maul's own runner image with no tree: no artifact fetch, no
-// git init, no repository image, no network profile. Both run without a
-// resolver whatever Config.DNS says (the broker, and the evaluator's tool
-// pod, are pinned in the hosts file), and both carry v1alpha1.LabelRole on
-// the Job and its pod, the selector of their own egress policies. The
-// evaluator also carries v1alpha1.LabelPreviewVerification, the value its tool
+// The agent evaluator's Job (Spec.Role). It is an intent run on maul's own
+// runner image with no tree: no artifact fetch, no git init, no repository
+// image, no network profile. It runs without a resolver whatever Config.DNS
+// says (the broker, and its tool pod, are pinned in the hosts file), and
+// carries v1alpha1.LabelRole on the Job and its pod, the selector of its own
+// egress policy. It also carries v1alpha1.LabelPreviewVerification, the value its tool
 // pod's ingress policy admits, and its prepare ends with the strict sandbox
 // probe over every target, the cluster's resolver included.
 const (
@@ -58,7 +57,7 @@ type HostAlias struct {
 var ErrRoleRefused = errors.New("jobs: role refused")
 
 // roles are the Spec.Role values a Job may carry.
-var roles = []string{v1alpha1.RoleEvaluator, v1alpha1.RoleCheckReview}
+var roles = []string{v1alpha1.RoleEvaluator}
 
 // roleRefusal reports why a Spec's role, or the fields that belong to a
 // role, cannot be built, or nil when they can (a Job with none of them
@@ -66,8 +65,8 @@ var roles = []string{v1alpha1.RoleEvaluator, v1alpha1.RoleCheckReview}
 func roleRefusal(cfg Config, spec Spec) error {
 	if spec.Role == "" {
 		if spec.ToolHost != nil || spec.Evaluation != "" {
-			return fmt.Errorf("%w: a tool host or a verification UID belongs to an evaluator or check-reviewer "+
-				"Job, and this Job has no role", ErrRoleRefused)
+			return fmt.Errorf("%w: a tool host or a verification UID belongs to an evaluator Job, "+
+				"and this Job has no role", ErrRoleRefused)
 		}
 		return nil
 	}
@@ -193,21 +192,15 @@ var evaluatorProbeArgs = "--mode=" + string(sandboxprobe.ModeStrict) + " --targe
 var evaluatorProbeScript = toolsBinDir + `/` + agentRunnerBin + ` ` + sandboxprobe.Command + ` ` +
 	evaluatorProbeArgs + "\n"
 
-// rolePrepareContainer is a role Job's init: the handoff, then the probe
-// (strict for the evaluator, the wait probe for the check reviewer). It
-// holds no identity, as every prepare init.
-func (c *Client) rolePrepareContainer(runner Runner, spec Spec, res corev1.ResourceRequirements) corev1.Container {
+// rolePrepareContainer is a role Job's init: the handoff, then the strict
+// probe. It holds no identity, as every prepare init.
+func (c *Client) rolePrepareContainer(runner Runner, res corev1.ResourceRequirements) corev1.Container {
 	env := []corev1.EnvVar{
 		{Name: "HOME", Value: roleWorkDir},
 		{Name: sandboxprobe.TimeoutEnv, Value: c.cfg.SandboxProbeTimeout.String()},
+		{Name: sandboxprobe.DNSEnv, Value: c.cfg.SandboxProbeDNS},
 	}
-	script := roleHandoffScript
-	if spec.Role == v1alpha1.RoleEvaluator {
-		env = append(env, corev1.EnvVar{Name: sandboxprobe.DNSEnv, Value: c.cfg.SandboxProbeDNS})
-		script += evaluatorProbeScript
-	} else {
-		script += waitProbeScript
-	}
+	script := roleHandoffScript + evaluatorProbeScript
 	return corev1.Container{
 		Name:    initContainerName,
 		Image:   runner.Image,

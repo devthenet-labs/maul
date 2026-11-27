@@ -111,6 +111,7 @@ func TestCheckEraUpgradeAgainstAPIServer(t *testing.T) {
 	u.census(wantIntents, wantRuns)
 
 	u.applyCRDs(newCRDs)
+	u.waitPruned()
 	u.guardFails("this release's CRDs", wantIntents, wantRuns)
 	u.census(wantIntents, wantRuns)
 	for _, w := range []struct {
@@ -133,6 +134,22 @@ func TestCheckEraUpgradeAgainstAPIServer(t *testing.T) {
 	if out, err := u.h.run(u.renderArgs()...); err != nil {
 		t.Errorf("the guard still fails once the leftovers are deleted: %v\n%s", err, out)
 	}
+
+	// Back to 0.14.18: what this release created (an outcome verification
+	// and an evaluate run, neither naming the rung 0.14.18's rules require)
+	// still takes 0.14.18's writes, its unchanged spec ratcheted.
+	pv := cePV("beatbattle-52-v1-a1", "beatbattle-52")
+	pv.Status = v1alpha1.PreviewVerificationStatus{Phase: v1alpha1.VerificationRunning, StartedAt: &ceNow,
+		Environment: []v1alpha1.PartFact{{Name: "tools", Role: v1alpha1.PreviewRoleToolPod}}}
+	u.create(pv)
+	run := ceRun("beatbattle-52-ev-r1-a1", "beatbattle-52", v1alpha1.IntentStageEvaluate, v1alpha1.RunRunning)
+	run.Spec.Evaluation = &v1alpha1.IntentRunEvaluation{Verification: pv.Name, UID: "u-" + types.UID(pv.Name),
+		ToolIP: "10.0.0.7"}
+	u.create(run)
+	u.applyCRDs(checkEraOldCRDs)
+	u.waitServedOld()
+	u.writable("PreviewVerification", pv.Name)
+	u.writable("IntentRun", run.Name)
 }
 
 func startCheckEraUpgrade(t *testing.T) *checkEraUpgrade {
@@ -405,6 +422,52 @@ func applyCRDFiles(t *testing.T, crds client.Client, dir string, files []string)
 		if err := crds.Update(ctx, &crd); err != nil {
 			t.Fatalf("apply %s%s: %v", dir, file, err)
 		}
+	}
+}
+
+// waitPruned waits until the API server serves this release's CRDs: the
+// Project's retired spec.models.checkReview reads back pruned on a dry-run
+// update (the field is in no schema of this release). Without it the
+// writes below could run against 0.14.18's schema and pass vacuously.
+func (u *checkEraUpgrade) waitPruned() {
+	t, ctx := u.t, u.t.Context()
+	deadline := time.Now().Add(time.Minute)
+	for {
+		obj := u.get("Project", ceProject)
+		err := u.admin.Update(ctx, obj, client.DryRunAll)
+		_, found, _ := unstructured.NestedString(obj.Object, "spec", "models", "checkReview")
+		if err == nil && !found {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("this release's CRDs are not served after a minute: %v, checkReview kept %v", err, found)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// waitServedOld waits until the API server serves 0.14.18's CRDs again: a
+// dry-run update of the Project keeps a check-review model. Without it the
+// rollback's writes could run against this release's schema and pass
+// vacuously.
+func (u *checkEraUpgrade) waitServedOld() {
+	t, ctx := u.t, u.t.Context()
+	deadline := time.Now().Add(time.Minute)
+	for {
+		obj := u.get("Project", ceProject)
+		if err := unstructured.SetNestedField(obj.Object, "anthropic/claude-opus-5-5", "spec", "models",
+			"checkReview"); err != nil {
+			t.Fatal(err)
+		}
+		err := u.admin.Update(ctx, obj, client.DryRunAll)
+		_, found, _ := unstructured.NestedString(obj.Object, "spec", "models", "checkReview")
+		if err == nil && found {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("0.14.18's CRDs are not served after a minute: %v, checkReview kept %v", err, found)
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 

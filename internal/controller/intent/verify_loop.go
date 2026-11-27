@@ -446,8 +446,7 @@ func (p *pass) rearmedAfter(ctx context.Context, pushed []v1alpha1.VerificationH
 
 // clearJudgement drops a verification's judged result.
 func clearJudgement(v *v1alpha1.IntentVerification) {
-	v.Passed, v.Failed, v.Quarantined, v.NotRun = 0, 0, 0, 0
-	v.QuarantinedIDs = nil
+	v.Passed, v.Failed, v.NotRun = 0, 0, 0
 }
 
 // countManual counts the manual outcomes accepted at v's head set and those
@@ -595,13 +594,12 @@ func previewNotLive(v *v1alpha1.IntentVerification) bool {
 func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headSet,
 	state v1alpha1.IntentVerificationState, fill func(*v1alpha1.PreviewVerificationSpec) error) error {
 	v := p.in.Status.Verification
-	superseding := kind == verifySupersede
 	round, attempt := v.Round+1, int32(1)
 	if kind == verifyRetry {
 		round, attempt = v.Round, v.Attempt+1
 	}
 	if round > v1alpha1.MaxIntentRound || attempt > v1alpha1.MaxVerificationAttempts {
-		return p.roundsSpent(ctx, superseding)
+		return p.roundsSpent(ctx)
 	}
 	run, err := newRunToken()
 	if err != nil {
@@ -636,16 +634,13 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 		}
 	}
 	p.pruneVerifications(ctx)
-	err = p.update(ctx, func(cur *v1alpha1.Intent) error {
+	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		// Every round this release starts is judged under its rules: the
-		// marker ends a supersede in the write that starts its round.
+		// Every round this release starts is judged under its rules.
 		nv.Judge = v1alpha1.JudgeObserved
 		nv.State, nv.Cause = state, ""
 		nv.Round, nv.Attempt = pv.Spec.Round, pv.Spec.Attempt
 		nv.Ref, nv.RetryOwed = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}, false
-		// The retired cost ladder's records (status.verification.rung,
-		// modelRound, escalation) are never written: every round is full.
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		if kind != verifyRetry {
@@ -660,32 +655,23 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 			p.startHandoff(nv)
 		}
 		if kind != verifyAutomatic {
-			// A retry, and a supersede's fresh round, serve a waiting
-			// request too.
+			// A retry serves a waiting request too.
 			nv.Requested = nil
 		}
 		return nil
 	})
-	if err == nil && superseding {
-		verificationsSuperseded.add(p.in)
-	}
-	return err
 }
 
 // roundsSpent records a verification that can start no round, the round or
 // attempt numbering spent: Unavailable, any request consumed, the judge
-// marker written (ending a supersede, which is then counted).
-func (p *pass) roundsSpent(ctx context.Context, superseding bool) error {
-	err := p.update(ctx, func(cur *v1alpha1.Intent) error {
+// marker written.
+func (p *pass) roundsSpent(ctx context.Context) error {
+	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		nv.State, nv.Cause, nv.Requested, nv.RetryOwed = v1alpha1.VerificationUnavailable, "", nil, false
 		nv.Judge = v1alpha1.JudgeObserved
 		return nil
 	})
-	if err == nil && superseding {
-		verificationsSuperseded.add(p.in)
-	}
-	return err
 }
 
 // verificationTrigger is the trigger annotation a round of kind carries.
@@ -693,8 +679,6 @@ func verificationTrigger(kind verifyKind) string {
 	switch kind {
 	case verifyRequest:
 		return verificationByRequest
-	case verifySupersede:
-		return verificationBySupersede
 	case verifyNotDue, verifyAutomatic, verifyRetry, verifyRequestRefused:
 	}
 	return verificationByAutomatic

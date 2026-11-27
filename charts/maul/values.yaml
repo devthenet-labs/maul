@@ -1279,7 +1279,7 @@ intentController:
     # posture: the same tools, no web, depth 1, foreground only (so the
     # build's own background shell commands are refused too), the run's
     # model, at most four at once. A Project that does not opt in gets
-    # none. Plans, the evaluator and the check reviewer never delegate, and
+    # none. Plans and the evaluator never delegate, and
     # codex Projects are unaffected. intent-controller publishes what it
     # allows on each Project (status.admits.subagents, .workflows).
     #
@@ -1325,9 +1325,9 @@ intentController:
     # on a preview-slot Job only from preview-controller, on the Job and its
     # pod template alike, on a Pod only from the Job controller for its Job,
     # and never changed afterwards. Needs Kubernetes 1.30+. It also renders
-    # the evaluator's and check reviewer's own egress policies (the broker;
-    # the evaluator also 8090 on a preview slot's tool pod; no DNS) and
-    # leaves both roles out of every other agent egress policy, in every
+    # the evaluator's own egress policy (the broker and 8090 on a preview
+    # slot's tool pod; no DNS) and leaves the role out of every other agent
+    # egress policy, in every
     # network mode: it needs agent.networkPolicy.create and is refused under
     # mode istio. It is verification's one switch (the former
     # preview.verification.enabled is removed): with previewController on
@@ -1348,10 +1348,7 @@ intentController:
         # Evaluate a codex Project's previews on brokered codex. Off, such a
         # Project gets the early hand-off (EvaluatorUnverified).
         codexEvaluator: false
-        # The evaluator's model (claude Projects). The check reviewer is
-        # retired with saved checks: checkReviewModel and checkReviewMaxTurns
-        # are removed, and either one set fails the render
-        # (docs/intents/evaluator.md#migrating-from-saved-checks).
+        # The evaluator's model (claude Projects).
         evaluateModel: anthropic/claude-sonnet-5-5
         # One evaluation round's wall clock. Its slot tool Job must fit under
         # preview.verification.deadlineMaxSeconds, so this must be shorter.

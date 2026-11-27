@@ -95,16 +95,16 @@ func evaluable(os []v1alpha1.AcceptanceOutcome) bool {
 	return slices.ContainsFunc(os, func(o v1alpha1.AcceptanceOutcome) bool { return !o.Manual })
 }
 
-// syncEvaluation is syncVerification's evaluator shape: first the
-// supersede of an earlier release's record (verify_migrate.go), then
+// syncEvaluation is syncVerification's evaluator shape: first the judge
+// marker on a record an earlier release left with nothing judged
+// (markVerification, verify_migrate.go), then
 // NotDeclared for a plan with nothing to evaluate (the head set still tracked, for an
 // approver's acceptance), Off for a Project with no verified evaluator,
 // the human-round halt and the head set as slice 1 keeps them, then the
 // round in flight (settleEvaluation).
 func (p *pass) syncEvaluation(ctx context.Context) (bool, error) {
 	acc := p.in.Status.Acceptance
-	canRun := evaluable(acc.Outcomes) && !p.set.evaluatorUnverified(p.proj)
-	if changed, err := p.supersede(ctx, canRun); changed || err != nil {
+	if changed, err := p.markVerification(ctx); changed || err != nil {
 		return changed, err
 	}
 	hs, ok := p.headsNow()
@@ -209,8 +209,7 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 // consumed), and the intent is never blocked for it (DESIGN 5).
 func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 	v := p.in.Status.Verification
-	superseding := supersedePending(p.in)
-	if v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil && !superseding {
+	if v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil {
 		return false, nil
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "the intent's evaluations spent their ceiling; nothing more is evaluated",
@@ -224,25 +223,15 @@ func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 	if err := p.answerNotRun(ctx, templates.NotRunBudget, 0); err != nil {
 		return false, err
 	}
-	err := p.update(ctx, func(cur *v1alpha1.Intent) error {
+	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		nv.State, nv.Requested = v1alpha1.VerificationUnconfirmed, nil
-		// A supersede that can start no round ends here, the earlier
-		// result still withdrawn: an approver's /maul verify, once the
-		// limit is raised, evaluates afresh.
-		nv.Judge = v1alpha1.JudgeObserved
 		return nil
 	})
-	if err == nil && superseding {
-		verificationsSuperseded.add(p.in)
-	}
-	return true, err
 }
 
 // createEvaluation creates the round's outcome PreviewVerification: the
-// approved outcomes and their digest, the rung "full" (every round is a
-// model round; the schema requires the retired field beside the outcomes,
-// and no saved check is ever copied in), the tool pod's tools and its wall
+// approved outcomes and their digest, the tool pod's tools and its wall
 // clock (the evaluate run's timeout plus EvaluationToolsMargin, within a
 // verification's hour), then where it runs (place, its tool host's:
 // toolHost.gate), which may narrow the tools and set its own wall clock.
@@ -254,7 +243,6 @@ func (p *pass) createEvaluation(ctx context.Context, kind verifyKind, place func
 	return p.createVerification(ctx, kind, hs, v1alpha1.VerificationEvaluating,
 		func(spec *v1alpha1.PreviewVerificationSpec) error {
 			spec.Outcomes, spec.OutcomesDigest = slices.Clone(acc.Outcomes), acc.OutcomesDigest
-			spec.Rung = v1alpha1.RungFull
 			spec.Tools = &v1alpha1.ToolsSpec{
 				Browser:          p.proj.Spec.Surfaces != nil && p.proj.Spec.Surfaces.Browser != nil,
 				Sandbox:          true,
@@ -339,8 +327,7 @@ func (p *pass) evaluationRunning(ctx context.Context, pv *v1alpha1.PreviewVerifi
 // evaluationObserved is settleEvaluation once its tool host collected pv:
 // once its evaluator's run settled complete, the round is judged; with no
 // run, or a failed one, the round's next attempt is due. Nothing is
-// reviewed or stored first: no check is saved (the check reviewer and the
-// check store are retired).
+// reviewed or stored first: no check is saved.
 func (p *pass) evaluationObserved(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	run *v1alpha1.IntentRun) (bool, error) {
 	switch {
@@ -394,7 +381,7 @@ func (p *pass) launchEvaluator(ctx context.Context, pv *v1alpha1.PreviewVerifica
 		return false, err
 	}
 	_, err = p.createRoleRun(ctx, v1alpha1.IntentStageEvaluate, pv.Spec.Round, pv.Spec.Attempt,
-		&v1alpha1.IntentRunEvaluation{Verification: pv.Name, UID: pv.UID, ToolIP: t.PodIP, Rung: v1alpha1.RungFull},
+		&v1alpha1.IntentRunEvaluation{Verification: pv.Name, UID: pv.UID, ToolIP: t.PodIP},
 		map[string]string{keyIssue: handoff})
 	if errors.Is(err, errEvaluationCeiling) {
 		p.dropInFlight(ctx, *p.in.Status.Verification.Ref)

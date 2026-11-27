@@ -149,7 +149,7 @@
 //	Preview spec         PreviewSourceReconciler (preview-controller writes
 //	                     its status, which the IntentReconciler only reads)
 //	PreviewVerification  IntentReconciler: creates (spec, once) and deletes
-//	                     (supersede, retention, review end); its status has
+//	                     (retention, review end, a dropped round); its status has
 //	                     one writer by spec.placement (immutable): for slot
 //	                     (unset) preview-controller, for agents this
 //	                     controller's agents host (SPEC S2 O1); the
@@ -182,8 +182,8 @@
 // writers: the IntentReconciler creates the outcome PreviewVerification and,
 // only once preview-controller's status names the slot tool pod's address,
 // the evaluate IntentRun pinning it (createRoleRun, the lease, under the
-// evaluation ceiling, which only evaluate and checkreview spend counts
-// against); the RunReconciler launches it only while that verification is
+// evaluation ceiling, which only evaluate spend, and the checkreview runs
+// an earlier release left, counts against); the RunReconciler launches it only while that verification is
 // still the Intent's at its heads (evaluationCurrent, read uncached), stops
 // it once the Intent no longer has it in flight (evaluationEnded) and
 // keeps its report, the evaluator's claims, on run status; the
@@ -191,13 +191,12 @@
 // verification's (the facts) and judges it (evaluate_judge.go,
 // acceptance.Judge: a verdict counts when it cites valid entries of the
 // verified ledger), routing it through the kept machinery: an evidenced
-// failure is a verify-fix round. No check is saved, reviewed or replayed:
-// the check reviewer's stage is retired, and the RunReconciler settles a
-// checkreview run an earlier release left Aborted, its Job deleted
-// (retireRun). No role run owns a Repository or reads a tree, and none
-// pushes. A verification an earlier release judged is superseded once, at
-// upgrade (verify_migrate.go): its result withdrawn, one fresh evaluation
-// due that spends none of maxVerifications. The IntentReconciler alone
+// failure is a verify-fix round. No check is saved, reviewed or replayed,
+// and no checkreview run is created or launched (an unfinished one an
+// earlier release left refuses startup: census_checks.go). No role run owns
+// a Repository or reads a tree, and none pushes. A verification an earlier
+// release judged with saved checks refuses startup too until 0.14.18 has
+// superseded it (verify_migrate.go). The IntentReconciler alone
 // writes the gated
 // hand-off (handoff.go, status.verification.handoff and firstGreenAt): the
 // mode and clock as the first evaluation is created, the release with a

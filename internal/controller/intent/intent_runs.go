@@ -245,7 +245,7 @@ func (p *pass) atCeiling() bool {
 func (p *pass) evaluationSpend() int64 {
 	var sum int64
 	for _, run := range p.runs {
-		if roleStage(run.Spec.Stage) {
+		if roleStage(run.Spec.Stage) || run.Spec.Stage == retiredStageCheckReview {
 			sum = addUsage(sum, microUSD(run.Status.Usage.CostUSD))
 		}
 	}

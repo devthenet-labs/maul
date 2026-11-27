@@ -667,7 +667,6 @@ func verification(name string) *v1alpha1.PreviewVerification {
 			Round: 1, Attempt: 1, Run: "0a1b2c",
 			Outcomes:       []v1alpha1.AcceptanceOutcome{{ID: "home", Outcome: "The home page answers."}},
 			OutcomesDigest: "sha256:" + strings.Repeat("d", 64),
-			Rung:           v1alpha1.RungFull,
 			Tools:          &v1alpha1.ToolsSpec{Sandbox: true, MaxToolCalls: 300},
 			Timeout:        metav1.Duration{Duration: 10 * time.Minute},
 		},

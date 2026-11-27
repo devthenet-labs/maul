@@ -165,7 +165,7 @@ with nindent at the matchLabels key's indent inside `with`.
 matchExpressions:
     - key: maul.run/role
       operator: NotIn
-      values: [evaluator, checkreview, tools]
+      values: [evaluator, tools]
 {{- end -}}
 {{- end }}
 
@@ -174,15 +174,15 @@ maul.profileRoleExclusion: maul.agentRoleExclusion for the network-profile
 policies (networkpolicy-profiles.yaml). With the agents-namespace tool pod on
 (maul.evaluatorAgents) a tool pod carrying a profile label takes that
 profile's proxy port, as its build does (DESIGN 7.8: a tool pod's network is
-never wider than the build's, and never narrower), so only the evaluator and
-the check reviewer stay left out; otherwise exactly maul.agentRoleExclusion.
+never wider than the build's, and never narrower), so only the evaluator
+stays left out; otherwise exactly maul.agentRoleExclusion.
 */}}
 {{- define "maul.profileRoleExclusion" -}}
 {{- if include "maul.evaluatorAgents" . -}}
 matchExpressions:
     - key: maul.run/role
       operator: NotIn
-      values: [evaluator, checkreview]
+      values: [evaluator]
 {{- else -}}
 {{- include "maul.agentRoleExclusion" . -}}
 {{- end -}}

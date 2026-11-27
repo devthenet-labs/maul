@@ -105,14 +105,6 @@ func TestVerificationPlacement(t *testing.T) {
 	}
 }
 
-func TestCheckRunSide(t *testing.T) {
-	for tree, want := range map[TreeSide]TreeSide{"": TreeHead, TreeHead: TreeHead, TreeBase: TreeBase} {
-		if got := (CheckRun{Tree: tree}).Side(); got != want {
-			t.Errorf("CheckRun{Tree: %q}.Side() = %q, want %q", tree, got, want)
-		}
-	}
-}
-
 func TestValidCommitSHA(t *testing.T) {
 	for sha, want := range map[string]bool{
 		strings.Repeat("a", 40): true, "0123456789abcdef0123456789abcdef01234567": true,

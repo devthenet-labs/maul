@@ -225,18 +225,19 @@ verdicts, each citing the round's own verified tool calls, say every outcome hol
 [The agent evaluator](../../docs/intents/evaluator.md)). Off, nothing of it renders and no intent is verified: a Project
 that asks for verification says it is Off, and each preview is handed over at once. Slice 1's criteria no longer run:
 the former `preview.verification.enabled` is removed, and set, whatever its value, it fails the render naming this key
-([migrating from slice 1](../../docs/intents/evaluator.md#migrating-from-slice-1)). The check reviewer is retired with
-saved checks: `intentController.verification.checkReviewModel` and `checkReviewMaxTurns` are removed, and either one
-set, whatever its value, fails the render naming it
+([migrating from slice 1](../../docs/intents/evaluator.md#migrating-from-slice-1)). The check reviewer's
+`intentController.verification.checkReviewModel` and `checkReviewMaxTurns` were removed in 0.14.19 and are not in the
+values schema, so either one set fails the render; an install must pass through 0.14.18 first, and the chart's check-era
+guard fails a render that reaches a cluster while records only 0.14.18 settles remain
 ([migrating from saved checks](../../docs/intents/evaluator.md#migrating-from-saved-checks)). On, the chart renders:
 
-- the `maul-evaluator-labels` admission policies: `maul.run/role` (`evaluator`, `checkreview`) and
-  `maul.run/preview-verification` on an agents-namespace Job only from intent-controller, role `tools` on a preview-slot
-  Job only from preview-controller, on the Job and its pod template alike, on a Pod only from the Job controller for its
-  Job, and never changed afterwards. Needs Kubernetes 1.30+;
-- the evaluator's and check reviewer's own egress policies (the broker; the evaluator also port 8090 on its own slot
-  tool pod; no DNS), with both roles left out of every other agent egress policy in every network mode. It therefore
-  needs `agent.networkPolicy.create` and is refused under `agent.networkPolicy.mode: istio`;
+- the `maul-evaluator-labels` admission policies: `maul.run/role` (`evaluator`) and `maul.run/preview-verification` on
+  an agents-namespace Job only from intent-controller, role `tools` on a preview-slot Job only from preview-controller,
+  on the Job and its pod template alike, on a Pod only from the Job controller for its Job, and never changed
+  afterwards. Needs Kubernetes 1.30+;
+- the evaluator's own egress policy (the broker and port 8090 on its own slot tool pod; no DNS), with the role left out
+  of every other agent egress policy in every network mode. It therefore needs `agent.networkPolicy.create` and is
+  refused under `agent.networkPolicy.mode: istio`;
 - with `previewController.enabled` as well, and only then: verification in the preview slots (the request channel and
   its fences), the slot tool pod's images, admission, isolation policy, grants and larger slot quota, and both
   controllers switched on with the settings below.

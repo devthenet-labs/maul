@@ -82,15 +82,6 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 			"handed to people at once")
 	f.String("intent-evaluate-model", "anthropic/claude-sonnet-5-5",
 		"canonical model a claude Project's evaluate runs run (--intent-evaluator)")
-	// --intent-checkreview-model and --intent-checkreview-max-turns are
-	// RETIRED with the check reviewer: they stay registered, hidden, and
-	// ignored for one release, so a leftover value (the chart renders both
-	// until it drops them) meets a warning naming the migration
-	// (logRetiredFlags) rather than an unknown-flag error.
-	for _, name := range retiredFlags {
-		f.String(name, "", "RETIRED with the check reviewer: ignored")
-		_ = f.MarkHidden(name) // registered just above
-	}
 	f.Duration("intent-evaluate-timeout", intent.DefaultEvaluateTimeout,
 		"wall-clock limit of an evaluate run, between 1m and 55m (its tool pod lives 5m longer, within the "+
 			"hour a verification may take)")
@@ -1040,13 +1031,10 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	}
 
 	logVerificationOff(ctx, log, set)
-	logRetiredFlags(ctx, log, opts)
 	// Read-only, uncached, before the manager starts: the API reader.
 	if err := censuses(ctx, log, mgr.GetAPIReader(), set); err != nil {
 		return err
 	}
-	// The upgrade's supersede of earlier verifications, counted as done.
-	intent.ReportSuperseded()
 	log.LogAttrs(ctx, slog.LevelInfo, "intent-controller starting",
 		slog.String("namespace", namespace),
 		slog.String("agent_namespace", agentNS),
@@ -1076,25 +1064,6 @@ func serve(ctx context.Context, opts *cli.Options) error {
 	return nil
 }
 
-// retiredFlags are the flags retired with the check reviewer, kept
-// registered and hidden for one release (logRetiredFlags).
-var retiredFlags = []string{"intent-checkreview-model", "intent-checkreview-max-turns"}
-
-// savedChecksMigration is where an operator of the retired check reviewer
-// reads what changed.
+// savedChecksMigration is where an operator upgrading past saved checks
+// reads what an install must pass through.
 const savedChecksMigration = "docs/intents/evaluator.md#migrating-from-saved-checks"
-
-// logRetiredFlags warns once, at startup, for each retired flag set on the
-// command line or in the environment: it is accepted and ignored, whatever
-// it holds, so a leftover value neither stops intent-controller nor reads
-// as still in force.
-func logRetiredFlags(ctx context.Context, log *slog.Logger, opts *cli.Options) {
-	for _, name := range retiredFlags {
-		if !opts.IsSet(name) {
-			continue
-		}
-		log.LogAttrs(ctx, slog.LevelWarn, "--"+name+" is retired with the check reviewer and ignored: maul's "+
-			"evaluator saves no checks, so none is reviewed; drop it, see "+savedChecksMigration,
-			slog.String("flag", name))
-	}
-}

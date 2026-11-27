@@ -257,35 +257,6 @@ spec:
                     maxItems: 32
                     type: array
                     x-kubernetes-list-type: atomic
-                  checks:
-                    description: |-
-                      Checks names the check store of the approved plan revision; unset
-                      until a first check is saved. Retired with saved checks: the observed
-                      evaluator leaves it untouched, so a rollback's check store resumes its
-                      numbering. Removed in the next release.
-                    properties:
-                      configMap:
-                        description: ConfigMap names the store.
-                        maxLength: 253
-                        minLength: 1
-                        type: string
-                      count:
-                        description: Count is how many checks the store holds.
-                        format: int32
-                        maximum: 40
-                        minimum: 0
-                        type: integer
-                      digest:
-                        description: |-
-                          Digest is the digest of the stored checks: what a
-                          PreviewVerification's checksDigest must equal.
-                        pattern: ^sha256:[0-9a-f]{64}$
-                        type: string
-                    required:
-                    - configMap
-                    - count
-                    - digest
-                    type: object
                   digest:
                     description: |-
                       Digest is the digest of the plan's slice-1 criteria list
@@ -293,38 +264,6 @@ spec:
                       records, another only on a record of slice 1's era.
                     pattern: ^sha256:[0-9a-f]{64}$
                     type: string
-                  narrowed:
-                    description: |-
-                      Narrowed are the saved checks that passed cleanly in a round whose
-                      evaluator saw their outcome, as worded, fail (a fail verdict, or
-                      contrary ledger entries), each with the verification of that round.
-                      From the round after, none of them is a basis for its outcome's pass,
-                      whatever a later evaluator says: the outcome passes only on another
-                      check, or an approver's acceptance. Retired with saved checks, left
-                      untouched as Checks is.
-                    items:
-                      description: |-
-                        NarrowedCheck is a saved check that passed cleanly in a round whose
-                        evaluator saw its outcome, as worded, fail: it asserts less than the
-                        outcome, and never again supports a pass of it.
-                      properties:
-                        digest:
-                          description: Digest is the check's digest.
-                          pattern: ^sha256:[0-9a-f]{64}$
-                          type: string
-                        verification:
-                          description: Verification names the PreviewVerification
-                            whose round narrowed it.
-                          maxLength: 63
-                          minLength: 1
-                          type: string
-                      required:
-                      - digest
-                      - verification
-                      type: object
-                    maxItems: 40
-                    type: array
-                    x-kubernetes-list-type: atomic
                   outcomes:
                     description: Outcomes are the approved outcomes in plan order
                       (the evaluator).
@@ -388,108 +327,6 @@ spec:
                     maximum: 999
                     minimum: 1
                     type: integer
-                  redCleared:
-                    description: |-
-                      RedCleared are the checks saved red (SavedCheck.Expect fail) that
-                      have since replayed green, each with the verification whose replay
-                      did. Until one has, only a run red by the assertion it was saved
-                      failing reproduces its defect. A clearance counts from the round
-                      after the one that earned it, so that round is judged, and its fix
-                      decided, on the same facts. Retired with saved checks, left untouched
-                      as Checks is.
-                    items:
-                      description: RedClearance is a check saved red that replayed
-                        green.
-                      properties:
-                        digest:
-                          description: Digest is the check's digest.
-                          pattern: ^sha256:[0-9a-f]{64}$
-                          type: string
-                        verification:
-                          description: Verification names the PreviewVerification
-                            whose replay passed it.
-                          maxLength: 63
-                          minLength: 1
-                          type: string
-                      required:
-                      - digest
-                      - verification
-                      type: object
-                    maxItems: 40
-                    type: array
-                    x-kubernetes-list-type: atomic
-                  reviews:
-                    description: |-
-                      Reviews cache the check reviewer's answers, so a check is reviewed
-                      once per outcome statement. Retired with saved checks, left untouched
-                      as Checks is.
-                    items:
-                      description: |-
-                        CheckReviewRecord is one cached check review: the answer a checkreview
-                        run gave for one check against one outcome statement, keyed by both
-                        digests, so a changed check or outcome is reviewed again.
-                      properties:
-                        answer:
-                          description: Answer is the reviewer's.
-                          enum:
-                          - proves
-                          - does_not_prove
-                          - unclear
-                          type: string
-                        check:
-                          description: |-
-                            Check is the reviewed check's id, and Reason the reviewer's one-line
-                            reason for its answer, bounded and made visible: a later round's
-                            evaluator is told why a check was refused, by outcome and check id,
-                            so it strengthens the check rather than proposes it again. Unset on
-                            a review recorded before they were kept.
-                          pattern: ^[a-z][a-z0-9-]{0,31}(\.[a-z0-9][a-z0-9-]{0,31})?$
-                          type: string
-                        checkDigest:
-                          description: CheckDigest is the reviewed check's digest.
-                          pattern: ^sha256:[0-9a-f]{64}$
-                          type: string
-                        expect:
-                          description: |-
-                            Expect is fail when the reviewer was asked the red question: the
-                            check failed, and the evaluator proposed it to show a defect. Only
-                            such a review lets a check saved red support a fail.
-                          enum:
-                          - fail
-                          type: string
-                        failedAssertion:
-                          maxLength: 512
-                          type: string
-                        failedStep:
-                          description: |-
-                            FailedStep and FailedAssertion are, for the red question, the
-                            failing assertion it judged: a red review counts only for that one.
-                          format: int32
-                          maximum: 64
-                          minimum: 1
-                          type: integer
-                        outcomeDigest:
-                          description: OutcomeDigest is the digest of the outcome
-                            it was reviewed against.
-                          pattern: ^sha256:[0-9a-f]{64}$
-                          type: string
-                        reason:
-                          maxLength: 600
-                          type: string
-                        run:
-                          description: Run is the checkreview IntentRun that answered.
-                          maxLength: 63
-                          minLength: 1
-                          type: string
-                      required:
-                      - answer
-                      - checkDigest
-                      - outcomeDigest
-                      - run
-                      type: object
-                    maxItems: 80
-                    type: array
-                    x-kubernetes-list-type: atomic
                 required:
                 - digest
                 - planRevision
@@ -1684,44 +1521,6 @@ spec:
                       its Job.
                     maxLength: 63
                     type: string
-                  disputed:
-                    description: |-
-                      Disputed are the digests of the saved checks the evaluator disputed,
-                      awaiting a replay round once their replacements are confirmed and
-                      reviewed. Retired with saved checks: cleared once when a record is
-                      superseded, never written after. Removed in the next release.
-                    items:
-                      pattern: ^sha256:[0-9a-f]{64}$
-                      type: string
-                    maxItems: 40
-                    type: array
-                    x-kubernetes-list-type: set
-                  escalation:
-                    description: |-
-                      Escalation is the one automatic full round a head set gets after an
-                      unsure round at those heads: due while Round is the replay round
-                      that asked for it, spent once a later round starts there. Retired as
-                      Rung is.
-                    properties:
-                      headSetDigest:
-                        description: HeadSetDigest is the head set it is for.
-                        pattern: ^sha256:[0-9a-f]{64}$
-                        type: string
-                      recheck:
-                        description: |-
-                          Recheck: a full round asked for it, left unsure only on outcomes its
-                          evaluator passed with no check accepted, so maul checks once more.
-                        type: boolean
-                      round:
-                        description: Round is the round that asked for it.
-                        format: int32
-                        maximum: 999
-                        minimum: 1
-                        type: integer
-                    required:
-                    - headSetDigest
-                    - round
-                    type: object
                   evaluationCostMicroUSD:
                     description: |-
                       EvaluationCostMicroUSD is what the intent's evaluate and checkreview
@@ -1851,37 +1650,6 @@ spec:
                     maximum: 20
                     minimum: 0
                     type: integer
-                  modelRound:
-                    description: |-
-                      ModelRound is the latest full round judged on its evaluator's
-                      report: a new round replays only at its heads and outcomes, and only
-                      when its evaluator raised nothing (Clear). Retired as Rung is.
-                    properties:
-                      clear:
-                        description: |-
-                          Clear: its evaluator saw no outcome fail (no fail verdict, no
-                          contrary entry).
-                        type: boolean
-                      headSetDigest:
-                        description: HeadSetDigest is the head set it was judged at.
-                        pattern: ^sha256:[0-9a-f]{64}$
-                        type: string
-                      outcomesDigest:
-                        description: OutcomesDigest is the approved outcome list it
-                          judged.
-                        pattern: ^sha256:[0-9a-f]{64}$
-                        type: string
-                      round:
-                        description: Round is that round.
-                        format: int32
-                        maximum: 999
-                        minimum: 1
-                        type: integer
-                    required:
-                    - headSetDigest
-                    - outcomesDigest
-                    - round
-                    type: object
                   noDefect:
                     description: |-
                       NoDefect is the latest acceptance-fix round's conclusion that the code
@@ -1939,14 +1707,6 @@ spec:
                       description: OutcomeResult is the decided result of one approved
                         outcome.
                       properties:
-                        basis:
-                          description: |-
-                            Basis is the digest of the saved check the result rests on; unset
-                            when none does. Retired with saved checks: the observed evaluator
-                            never writes it (Cites is what a result rests on). Removed in the
-                            next release.
-                          pattern: ^sha256:[0-9a-f]{64}$
-                          type: string
                         cites:
                           description: |-
                             Cites are the entries of the round's verified ledger index that the
@@ -1966,23 +1726,6 @@ spec:
                           description: ID of the outcome.
                           pattern: ^[a-z][a-z0-9-]{0,31}$
                           type: string
-                        line:
-                          description: |-
-                            Line is the maul-rendered one-line description of the basis check
-                            (its steps and assertions in maul's words). Retired with saved checks,
-                            as Basis is.
-                          maxLength: 1024
-                          pattern: ^[^\r\n]*$
-                          type: string
-                        objected:
-                          description: |-
-                            Objected records that the round's evaluator said it saw the outcome
-                            fail (a fail verdict, or contrary entries), whatever Reason says: a
-                            finding about the round's heads, which holds every later round there
-                            (G-B-LIB-1). Retired with saved checks: never written by the observed
-                            evaluator, whose fail verdict is its finding. Removed in the next
-                            release.
-                          type: boolean
                         reason:
                           description: |-
                             Reason says why the result is not passed. It may quote the
@@ -2051,25 +1794,6 @@ spec:
                       Preview is live.
                     format: date-time
                     type: string
-                  quarantined:
-                    description: |-
-                      Quarantined counts the criteria that passed only on retry. Retired
-                      with saved checks: cleared once when a record is superseded, never
-                      written after. Removed in the next release.
-                    format: int32
-                    maximum: 20
-                    minimum: 0
-                    type: integer
-                  quarantinedIDs:
-                    description: |-
-                      QuarantinedIDs are the criteria that passed only on retry. Retired
-                      as Quarantined is.
-                    items:
-                      pattern: ^[a-z][a-z0-9-]{0,31}$
-                      type: string
-                    maxItems: 20
-                    type: array
-                    x-kubernetes-list-type: set
                   ref:
                     description: Ref is the latest PreviewVerification, pinned by
                       UID.
@@ -2109,13 +1833,6 @@ spec:
                         format: int64
                         minimum: 1
                         type: integer
-                      explore:
-                        description: |-
-                          Explore asks for the full rung (/maul verify explore): the saved
-                          checks replayed and then the evaluator, whatever a replay could show.
-                          Retired with the cost ladder: never set; /maul verify explore is read
-                          as /maul verify. Removed in the next release.
-                        type: boolean
                       fix:
                         description: Fix also re-arms automatic fixes (/maul verify
                           fix).
@@ -2189,17 +1906,6 @@ spec:
                     maximum: 999
                     minimum: 0
                     type: integer
-                  rung:
-                    description: |-
-                      Rung is the rung of the latest round (Round): full, the saved checks
-                      replayed and then the evaluator; or replay, the saved checks alone
-                      with no model. A retry of the round keeps it. Retired with the cost
-                      ladder: cleared once when a record is superseded, never written after.
-                      Removed in the next release.
-                    enum:
-                    - full
-                    - replay
-                    type: string
                   state:
                     description: State of the verification.
                     enum:
@@ -2217,82 +1923,6 @@ spec:
                     - Evaluating
                     - Unconfirmed
                     type: string
-                  suspected:
-                    description: |-
-                      Suspected is the latest judged round's suspected defect: outcomes
-                      that would be failed only on checks saved red (a defect present from
-                      round 1). maul never fixes one on its own: the gated hand-off is held
-                      and the evidence shown until an approver's /maul verify fix confirms it
-                      (Confirmed), which starts the fix round on it. Set by each judgement,
-                      shown and confirmable only while the heads are the ones it judged.
-                      Retired with saved checks: cleared once when a record is superseded,
-                      never written after. Removed in the next release.
-                    properties:
-                      confirmed:
-                        description: Confirmed records the approver's /maul verify
-                          fix that confirmed it.
-                        properties:
-                          at:
-                            description: At is the command comment's created_at.
-                            format: date-time
-                            type: string
-                          by:
-                            description: By is the approver's login, for display.
-                            maxLength: 64
-                            minLength: 1
-                            pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*$
-                            type: string
-                          byID:
-                            description: ByID is GitHub's numeric id of the approver.
-                            format: int64
-                            minimum: 1
-                            type: integer
-                          round:
-                            description: |-
-                              Round is status.rounds when re-armed: only a human round after it
-                              halts the latch again.
-                            format: int32
-                            maximum: 999
-                            minimum: 0
-                            type: integer
-                        required:
-                        - at
-                        - by
-                        - byID
-                        - round
-                        type: object
-                      headSetDigest:
-                        description: HeadSetDigest is the combined change it was found
-                          at.
-                        pattern: ^sha256:[0-9a-f]{64}$
-                        type: string
-                      outcomes:
-                        description: Outcomes are the ids of the outcomes it is about.
-                        items:
-                          type: string
-                        maxItems: 20
-                        minItems: 1
-                        type: array
-                        x-kubernetes-list-type: atomic
-                      recordedAt:
-                        description: |-
-                          RecordedAt is when maul recorded it: only a /maul verify fix created
-                          after it confirms it (fifth review, 1), so no comment written before
-                          the evidence existed counts as a person having seen it.
-                        format: date-time
-                        type: string
-                      verification:
-                        description: Verification names the PreviewVerification whose
-                          judgement found it.
-                        maxLength: 63
-                        minLength: 1
-                        type: string
-                    required:
-                    - headSetDigest
-                    - outcomes
-                    - recordedAt
-                    - verification
-                    type: object
                   unavailableReason:
                     description: |-
                       Cause is why the round settled without a judgement (SettleCause),

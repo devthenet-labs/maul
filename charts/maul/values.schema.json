@@ -2141,10 +2141,6 @@
                             "minLength": 1,
                             "description": "Canonical model the evaluator runs"
                         },
-                        "checkReviewModel": {
-                            "type": "string",
-                            "description": "REMOVED with the check reviewer (saved checks are retired); set, whatever its value, this key fails the render naming it (kept in the schema only so the render can say so, for one release)"
-                        },
                         "evaluateTimeout": {
                             "$ref": "#/definitions/duration",
                             "description": "One evaluation round's wall clock; shorter than preview.verification.deadlineMaxSeconds"
@@ -2154,10 +2150,6 @@
                             "minimum": 1,
                             "maximum": 1000,
                             "description": "The most agent turns one evaluate run may take; every tool call is a turn, and the last few are kept for the report"
-                        },
-                        "checkReviewMaxTurns": {
-                            "type": "integer",
-                            "description": "REMOVED with the check reviewer (saved checks are retired); set, whatever its value, this key fails the render naming it (kept in the schema only so the render can say so, for one release)"
                         },
                         "maxEvaluateCostUSD": {
                             "type": "number",

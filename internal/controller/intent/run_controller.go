@@ -49,15 +49,13 @@ const runSchedulerRequest = "\x00intent-scheduler"
 const KindIntent = "intent"
 
 // Stage priorities within the slot pool: a build ahead of a plan (a revise
-// round, slice 1b, ahead of both; an evaluation ahead of a revise round,
-// since a hand-off waits on it; its check review ahead of everything), each
-// FIFO.
+// round, slice 1b, ahead of both; an evaluation ahead of everything, since
+// a hand-off waits on it), each FIFO.
 var stagePriority = map[v1alpha1.IntentStage]int32{
-	v1alpha1.IntentStagePlan:        1,
-	v1alpha1.IntentStageBuild:       2,
-	v1alpha1.IntentStageRevise:      3,
-	v1alpha1.IntentStageEvaluate:    4,
-	v1alpha1.IntentStageCheckReview: 5,
+	v1alpha1.IntentStagePlan:     1,
+	v1alpha1.IntentStageBuild:    2,
+	v1alpha1.IntentStageRevise:   3,
+	v1alpha1.IntentStageEvaluate: 4,
 }
 
 // jobPhase is the agentrun phase each stage's Job runs.
@@ -77,21 +75,16 @@ var errStageNotEnabled = errors.New("this controller does not run the stage: the
 // enum refuses one); nothing is created or launched for it.
 var errUnknownStage = errors.New("the stage is unknown to this controller")
 
-// errStageRetired: a stage the schema still admits whose runs this release
-// never creates or launches (retiredStage): the check reviewer's.
-var errStageRetired = errors.New("the stage is retired: maul's evaluator saves no checks, so none is reviewed")
-
 // launchEnabled reports whether this controller knows how to create and
-// launch runs of stage: nil for every stage the schema admits but a
-// retired one (errStageRetired), errUnknownStage for any other. Whether it
+// launch runs of stage: nil for every stage of v1alpha1.IntentStages,
+// errUnknownStage for any other (a retired spelling the schema keeps for
+// stored runs, v1alpha1.RetiredIntentStages, included). Whether it
 // does so as configured is Settings.stageEnabled.
 func launchEnabled(stage v1alpha1.IntentStage) error {
 	switch stage {
 	case v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise,
 		v1alpha1.IntentStageEvaluate:
 		return nil
-	case v1alpha1.IntentStageCheckReview:
-		return fmt.Errorf("stage %q: %w", stage, errStageRetired)
 	}
 	return fmt.Errorf("stage %q: %w", stage, errUnknownStage)
 }
@@ -111,26 +104,12 @@ func (s Settings) stageEnabled(stage v1alpha1.IntentStage) error {
 	return nil
 }
 
-// roleStage reports the evaluator's and the check reviewer's stages, whose
-// Jobs run in a role (jobs.Spec.Role): no tree, no Repository, maul's own
-// runner image, and a JSON handoff the run's input carries. The check
-// reviewer's stays one though it is retired (retiredStage): what its runs
-// spent still counts against the evaluation ceiling (evaluationSpend).
+// roleStage reports the evaluator's stage, whose Jobs run in a role
+// (jobs.Spec.Role): no tree, no Repository, maul's own runner image, and a
+// JSON handoff the run's input carries.
 func roleStage(stage v1alpha1.IntentStage) bool {
-	return stage == v1alpha1.IntentStageEvaluate || stage == v1alpha1.IntentStageCheckReview
+	return stage == v1alpha1.IntentStageEvaluate
 }
-
-// retiredStage reports a stage the schema still admits whose runs this
-// release never launches or collects: the check reviewer's (no check is
-// saved, so none is reviewed). A run of it an earlier release left is
-// settled by retireRun.
-func retiredStage(stage v1alpha1.IntentStage) bool {
-	return stage == v1alpha1.IntentStageCheckReview
-}
-
-// retiredDetail says why a run of a retired stage ended.
-const retiredDetail = "the check reviewer is retired: maul's evaluator saves no checks, so nothing this run " +
-	"would report is used; its Job, if any, was deleted"
 
 // irunGVK is the owner TypeMeta a run's transcript carries.
 var irunGVK = metav1.TypeMeta{APIVersion: v1alpha1.GroupVersion.String(), Kind: "IntentRun"}
@@ -365,9 +344,6 @@ func pushHeld(run *v1alpha1.IntentRun) bool {
 // never granted one: granting it would only hand the slot back, and every
 // pass would grant it again ahead of the runs that could launch.
 func (r *RunReconciler) launchable(ctx context.Context, run *v1alpha1.IntentRun) bool {
-	if retiredStage(run.Spec.Stage) {
-		return false // retireRun settles it
-	}
 	var in v1alpha1.Intent
 	if err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name}, &in); err != nil ||
 		in.UID != run.Spec.IntentRef.UID || in.Spec.Suspend || terminal(in.Status.Phase) || roundEnded(&in, run) ||
@@ -404,7 +380,7 @@ func (r *RunReconciler) launchable(ctx context.Context, run *v1alpha1.IntentRun)
 
 // runRepositoryNames are the Repositories a run works from: its own, then,
 // for a plan run of a multi-repository Project, each tree's. A role run
-// (evaluate, checkreview) works from none: it reads no tree.
+// (evaluate) works from none: it reads no tree.
 func runRepositoryNames(run *v1alpha1.IntentRun) []string {
 	if roleStage(run.Spec.Stage) {
 		return nil
@@ -480,11 +456,6 @@ func (r *RunReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		}
 		return ctrl.Result{}, r.rollUpUsage(ctx, &run)
 	}
-	if retiredStage(run.Spec.Stage) && !runSettled(&run) {
-		// Before the pause: stopping a run that is never used spends
-		// nothing.
-		return ctrl.Result{}, r.retireRun(ctx, &run)
-	}
 	switch run.Status.Phase {
 	case v1alpha1.RunPending, "":
 		return ctrl.Result{}, r.pending(ctx, &run)
@@ -520,21 +491,6 @@ func (r *RunReconciler) run(ctx context.Context, req ctrl.Request) (ctrl.Result,
 		return res, r.rollUpUsage(ctx, &run)
 	}
 	return ctrl.Result{}, nil
-}
-
-// retireRun settles an unfinished run of a retired stage (retiredStage),
-// pending or running, as intentEnded settles one whose Intent ended: its
-// Job deleted, if it has one, then the run Aborted, saying why. Nothing it
-// produced is read.
-func (r *RunReconciler) retireRun(ctx context.Context, run *v1alpha1.IntentRun) error {
-	if run.Status.JobRef != nil {
-		if err := r.Jobs.Delete(ctx, run.Status.JobRef.Name); err != nil && !kerrors.IsNotFound(err) {
-			return err
-		}
-	}
-	r.log().LogAttrs(ctx, slog.LevelInfo, "a run of a retired stage is stopped", slog.String("run", run.Name),
-		slog.String("stage", string(run.Spec.Stage)))
-	return r.settle(ctx, run, result{outcome: OutcomeAborted, detail: retiredDetail})
 }
 
 // pending fails a pending run that can never launch: its Intent gone or
@@ -812,8 +768,7 @@ func (r *RunReconciler) launchTree(ctx context.Context, run *v1alpha1.IntentRun,
 	return r.launchVerified(ctx, run, proj, spec, requireImage)
 }
 
-// launchRole launches an evaluate run (a role run; one of the retired
-// check reviewer's is settled instead, retiredStage): no tree and no
+// launchRole launches an evaluate run (a role run): no tree and no
 // Repository, maul's own runner image, the run's JSON handoff as the
 // Job's issue.md, and the role its egress policy selects. An evaluate run is
 // launched only while the verification it pins is current
@@ -847,11 +802,6 @@ func (r *RunReconciler) launchRole(ctx context.Context, run *v1alpha1.IntentRun,
 		BudgetMicroUSD: r.Settings.runBudgetFor(run, proj),
 		Deadline:       r.Settings.jobDeadline(r.Settings.runTimeout(run)),
 		Role:           v1alpha1.RoleEvaluator,
-	}
-	if stage != v1alpha1.IntentStageEvaluate {
-		// The check reviewer's stage is retired (retireRun settles its runs
-		// before they reach here).
-		return r.settle(ctx, run, result{outcome: OutcomeAborted, detail: retiredDetail})
 	}
 	refusal, err := r.evaluationCurrent(ctx, run)
 	switch {
@@ -1424,10 +1374,6 @@ func (r *RunReconciler) collect(ctx context.Context, run *v1alpha1.IntentRun) (c
 		return ctrl.Result{}, r.collectPlan(ctx, run, out.Events, transcript, st)
 	case v1alpha1.IntentStageEvaluate:
 		return ctrl.Result{}, r.collectEvaluate(ctx, run, out.Events, transcript, st)
-	case v1alpha1.IntentStageCheckReview:
-		// Retired: retireRun settles its runs before they are collected.
-		return ctrl.Result{}, r.settle(ctx, run, result{outcome: OutcomeAborted, detail: retiredDetail,
-			transcript: transcript})
 	case v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise:
 	}
 	return r.heldOr(r.collectBuild(ctx, run, out.Events, transcript, st))

@@ -10,18 +10,18 @@ SPDX-License-Identifier: MIT
 {{- fail "intentController.verification.evaluator is incompatible with agent.networkPolicy.mode istio: the mesh's agents-istio policy grants every agent pod istiod, so the evaluator's egress cannot be closed" }}
 {{- end }}
 #
-# The agent evaluator's and check reviewer's egress, rendered only while
+# The agent evaluator's egress, rendered only while
 # intentController.verification.evaluator is on, in every network mode
 # (none, cilium, gke; istio is refused above). Plain networking.k8s.io/v1, so
 # every one of those modes enforces it.
 #
 # Every other agents-namespace egress policy (agents-egress, the Cilium and
 # GKE per-harness policies, the network-profile policies) leaves out the
-# roles evaluator, checkreview and tools (maul.agentRoleExclusion), so a
-# role pod is selected only by the namespace default-deny and by its own
-# policy below. Neither role gets DNS (the job controllers pin the broker,
-# and the evaluator's tool pod, in the pod's hosts file), the artifact
-# server, a model API or a network profile:
+# roles evaluator and tools (maul.agentRoleExclusion), so a role pod is
+# selected only by the namespace default-deny and by its own policy below.
+# The evaluator gets no DNS (intent-controller pins the broker, and its tool
+# pod, in the pod's hosts file), no artifact server, no model API and no
+# network profile:
 #
 #   evaluator    the egress broker on 8080, and 8090 on pods labelled
 #                maul.run/preview-role tools in a preview slot namespace.
@@ -29,7 +29,6 @@ SPDX-License-Identifier: MIT
 #                verification", so the binding control is the per-
 #                verification ingress policy preview-controller renders on
 #                the tool pod, admitting exactly one evaluator's UID.
-#   checkreview  the egress broker on 8080, nothing else.
 #   tools        nothing: no agents-namespace tool pod exists yet.
 #
 # The labels these select on are fenced by maul-evaluator-labels
@@ -49,7 +48,7 @@ stays as slice 1 rendered it):
                evaluator to its own tool pod: the per-verification key the
                relay requires on 8090 does.
 */}}
-{{- range $role := list "evaluator" "checkreview" }}
+{{- range $role := list "evaluator" }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

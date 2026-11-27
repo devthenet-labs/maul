@@ -132,7 +132,7 @@ func TestWorkspaceConfigRoundTrip(t *testing.T) {
 
 // TestWorkspaceBoundsMatchCRD holds the relay's bounds and the API's
 // constants to the PreviewVerification CRD's markers (SPEC S2-08, the
-// lockstep test S2-01b left): base runs, ledger builds, the agents
+// lockstep test S2-01b left): ledger builds, the agents
 // timeout, the cli build timeout and the binary's depth.
 func TestWorkspaceBoundsMatchCRD(t *testing.T) {
 	b, err := os.ReadFile("../../deploy/kustomize/base/crds/maul.run_previewverifications.yaml")
@@ -154,7 +154,6 @@ func TestWorkspaceBoundsMatchCRD(t *testing.T) {
 			t.Errorf("%s: CRD %v, Go %v", what, got, want)
 		}
 	}
-	check("status.base.runs maxItems", sub(status, "base", "properties", "runs")["maxItems"], maulv1.MaxBaseRuns)
 	check("status.ledger.builds maxItems", sub(status, "ledger", "properties", "builds")["maxItems"],
 		maulv1.MaxLedgerBuilds)
 	if maxBuilds > maulv1.MaxLedgerBuilds {

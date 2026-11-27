@@ -19,8 +19,8 @@ import (
 //     approver.
 //   - evaluate: likewise the approver of the plan whose build it judges.
 //
-// A stage it does not know, or a retired one (the check reviewer's, whose
-// runs are never created), is the org's.
+// A stage it does not know (a retired spelling among them, whose runs are
+// never created) is the org's.
 //
 // A revise round by command or review is attributed where it is leased (its
 // commenter, its newest reviewer). A person with no GitHub id on record (an

@@ -74,9 +74,7 @@ func (s Settings) modelAdmitted(h v1alpha1.ProjectHarness, id string) bool {
 
 // projectModelFields are spec.models' fields by name, in the Project's
 // order: evaluate only with the agent evaluator on, since without it no
-// run of the stage is ever created. checkReview is a retired field, kept
-// in the schema for one release: no run of its stage is created, so what
-// it names is never judged and never keeps a Project from being Ready.
+// run of the stage is ever created.
 func projectModelFields(m *v1alpha1.ProjectModels, evaluator bool) [][2]string {
 	if m == nil {
 		return nil

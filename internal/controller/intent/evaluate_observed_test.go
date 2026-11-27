@@ -447,9 +447,6 @@ func TestVerifyExploreIsAPlainVerify(t *testing.T) {
 			if len(replies) != 1 || strings.Contains(replies[0], "explore") {
 				t.Errorf("replies %q, want one, a plain request's", replies)
 			}
-			if r := e.verification(name).Requested; r != nil && r.Explore {
-				t.Errorf("request %+v, want recorded without explore", r)
-			}
 			if pv := e.roundOf(name, 2); pv.Annotations[annotationVerificationTrigger] != verificationByRequest {
 				t.Errorf("round 2 started by %q, want the request", pv.Annotations[annotationVerificationTrigger])
 			}

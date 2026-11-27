@@ -89,8 +89,8 @@ func (p *pass) linkHeld() bool {
 // held; once released, ready while every outcome is confirmed, "couldn't
 // confirm" (and why) once the evaluation gave up or ran out of time, and
 // "still checking" otherwise. A judgement an earlier release's rules
-// reached (no judge marker: an intent that ended before this release, or
-// one the supersede has not reached) is marked Earlier, so it keeps that
+// reached (no judge marker: an intent that ended before 0.14.18, or one it
+// left unmarked because its Project could not evaluate) is marked Earlier, so it keeps that
 // release's words, which are true of it: an upgrade then edits no ended
 // intent's comment for wording alone (W13).
 func (p *pass) handoffView() *templates.PreviewHandoff {
