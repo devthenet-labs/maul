@@ -1012,7 +1012,15 @@ func (e *env) pendingRun(name, intent string, stage v1alpha1.IntentStage) {
 			e.t.Fatal(err)
 		}
 	}
+	// A build or revise run is only ever made for the approved plan, which
+	// it records.
+	var planRevision int32
 	in.Status.Phase = v1alpha1.IntentPlanning
+	if stage != v1alpha1.IntentStagePlan {
+		planRevision = 1
+		in.Status.Phase = v1alpha1.IntentBuilding
+		in.Status.Approval = &v1alpha1.IntentApproval{By: approver, PlanRevision: planRevision}
+	}
 	if err := e.c.Status().Update(ctx, in); err != nil {
 		e.t.Fatal(err)
 	}
@@ -1023,7 +1031,7 @@ func (e *env) pendingRun(name, intent string, stage v1alpha1.IntentStage) {
 			Round: 1, Attempt: 1,
 			Repository: v1alpha1.IntentRunRepository{URL: appRepoURL,
 				RepositoryRef: v1alpha1.LocalObjectReference{Name: name + "-src"}},
-			Inputs: v1alpha1.IntentRunInputs{ConfigMap: name + "-input"}},
+			Inputs: v1alpha1.IntentRunInputs{ConfigMap: name + "-input", PlanRevision: planRevision}},
 	}
 	if err := e.c.Create(ctx, run); err != nil {
 		e.t.Fatal(err)

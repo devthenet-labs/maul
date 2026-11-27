@@ -346,7 +346,7 @@ func (r *RunReconciler) launchable(ctx context.Context, run *v1alpha1.IntentRun)
 	var in v1alpha1.Intent
 	if err := r.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name}, &in); err != nil ||
 		in.UID != run.Spec.IntentRef.UID || in.Spec.Suspend || terminal(in.Status.Phase) || roundEnded(&in, run) ||
-		r.Settings.harnessOff(run.Spec.Harness) {
+		planSuperseded(&in, run) || r.Settings.harnessOff(run.Spec.Harness) {
 		return false
 	}
 	var proj v1alpha1.Project
@@ -573,6 +573,8 @@ func (r *RunReconciler) intentEnded(ctx context.Context, run *v1alpha1.IntentRun
 			return false, perr
 		}
 		switch {
+		case planSuperseded(&in, run):
+			detail = supersededDetail(run)
 		case perr == nil && repositoryLeft(&proj, run):
 			detail = repositoryLeftDetail(run)
 		case roundEnded(&in, run):
@@ -592,6 +594,40 @@ func (r *RunReconciler) intentEnded(ctx context.Context, run *v1alpha1.IntentRun
 	// recorded its report, usage and transcript: they are kept.
 	return true, r.settle(ctx, run, result{outcome: OutcomeAborted, detail: detail,
 		keep: run.Status.PushedCommit != "" || pushHeld(run)})
+}
+
+// planSuperseded reports a run of a plan a replan in review replaced: the
+// replan is being settled (status.replan), the intent plans again or waits
+// for its new plan's approval (no plan is approved), or another plan revision
+// was approved since. Nothing of it is launched or pushed. A plan run is
+// never superseded: it makes the plan. A build, revise or evaluate run is
+// created only for the approved plan, and only a replan clears or replaces
+// the approval of an intent whose runs have not ended, so no other run is
+// ever caught by this.
+func planSuperseded(in *v1alpha1.Intent, run *v1alpha1.IntentRun) bool {
+	if run.Spec.Stage == v1alpha1.IntentStagePlan {
+		return false
+	}
+	if in.Status.Replan != nil {
+		return true
+	}
+	switch ap := in.Status.Approval; {
+	case ap != nil:
+		return ap.PlanRevision != run.Spec.Inputs.PlanRevision
+	case in.Status.Phase == v1alpha1.IntentPlanning, in.Status.Phase == v1alpha1.IntentAwaitingApproval:
+		return true
+	}
+	return false
+}
+
+// supersededDetail says why a planSuperseded run ended, and what of its push
+// was made.
+func supersededDetail(run *v1alpha1.IntentRun) string {
+	const why = "a replan in review superseded the run's plan"
+	if run.Status.PushedCommit != "" {
+		return why + "; commit " + run.Status.PushedCommit + " was made, and no branch was moved to it"
+	}
+	return why + "; nothing was pushed"
 }
 
 // roundEnded reports a revise round of in whose pull request in.Status
@@ -1534,6 +1570,10 @@ var errIntentEnded = errors.New("the intent ended before the build's push")
 // Like an ended intent, nothing more of the round reaches GitHub.
 var errPullRequestEnded = fmt.Errorf("%w: the round's pull request was merged or closed", errIntentEnded)
 
+// errSuperseded: a replan in review replaced the run's plan (planSuperseded).
+// Like an ended intent, nothing more of the run reaches GitHub.
+var errSuperseded = fmt.Errorf("%w: a replan in review superseded the run's plan", errIntentEnded)
+
 // errRepositoryLeft: the Project no longer lists the repository a build or
 // revise run would push to (repositoryLeft). Like an ended intent, nothing
 // more of the run reaches GitHub.
@@ -1561,6 +1601,8 @@ func (r *RunReconciler) pushGate(ctx context.Context, run *v1alpha1.IntentRun) e
 		return err
 	case in.UID != run.Spec.IntentRef.UID || !in.DeletionTimestamp.IsZero() || terminal(in.Status.Phase):
 		return errIntentEnded
+	case planSuperseded(&in, run):
+		return errSuperseded
 	case in.Spec.Suspend:
 		return errHeld
 	}
@@ -1645,6 +1687,8 @@ func (r *RunReconciler) endedBeforePush(ctx context.Context, run *v1alpha1.Inten
 		}
 	case errors.Is(why, errRepositoryLeft):
 		res.detail = repositoryLeftDetail(run)
+	case errors.Is(why, errSuperseded):
+		res.detail = supersededDetail(run)
 	}
 	r.log().LogAttrs(ctx, slog.LevelInfo, "intent ended; the build's push is abandoned", slog.String("run", run.Name))
 	return r.settle(ctx, run, res)

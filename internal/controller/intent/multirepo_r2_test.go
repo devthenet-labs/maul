@@ -142,6 +142,7 @@ func TestPushGateRefusesARepositoryThatLeft(t *testing.T) {
 				IntentRef:  v1alpha1.ObjectReference{Name: name, UID: in.UID},
 				Stage:      tt.stage,
 				Repository: v1alpha1.IntentRunRepository{URL: tt.repoURL},
+				Inputs:     v1alpha1.IntentRunInputs{PlanRevision: in.Status.Approval.PlanRevision},
 			}}
 			run.Namespace = testNS
 			if got := repositoryLeft(e.getProject(), run); got != tt.wantLeft {
