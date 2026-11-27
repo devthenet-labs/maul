@@ -148,3 +148,41 @@ func checkNewBranch(t *testing.T, e *intentEnv, in *v1alpha1.Intent, pr, old v1a
 		t.Errorf("new pull request = %+v, want open from %s", got, branch)
 	}
 }
+
+// TestIntentReplanInReviewStopsTheRound: a replan made while a revise round
+// runs, through the shipped run reconciler: the round is aborted and
+// pushes nothing (no ref written after the replan), the pull request is
+// closed, and the intent plans again.
+func TestIntentReplanInReviewStopsTheRound(t *testing.T) {
+	e := startIntents(t, replanArgs...)
+	number, name := e.fileIntent(t)
+	in := e.approvePlan(t, number, name, 1)
+	pr := in.Status.PullRequests[0]
+	release := e.kubelet.hold(t, "build")
+	afterSecond(in.Status.PhaseTimes[len(in.Status.PhaseTimes)-1].At.Time)
+	e.gh.SetComparePatch(fakegithub.BaseSHA, pr.HeadSHA, "diff --git a/VERSION b/VERSION\n+0.1.0\n")
+	e.gh.CommentAs(int(pr.Number), "/maul revise Say the version in the README too.", approver)
+	e.waitPhase(t, name, v1alpha1.IntentRevising)
+	reviseName := v1alpha1.IntentRunName(name, v1alpha1.IntentStageRevise, 1, appRepo, 1)
+	job := jobs.NameFor(reviseName, intentRunKind, 1)
+	eventually(t, "the round's Job to be held", func() bool { return e.kubelet.held(job) })
+	writes := len(e.gh.RefWrites())
+
+	e.gh.CommentAs(number, "/maul replan", approver)
+	eventually(t, "the round to be stopped", func() bool {
+		run := e.run(t, reviseName)
+		return run.Status.Phase == v1alpha1.RunFailed
+	})
+	release()
+	e.waitPlan(t, name, 2)
+	if run := e.run(t, reviseName); run.Status.Outcome != "aborted" ||
+		!strings.Contains(run.Status.Detail, "a replan in review superseded the run's plan") {
+		t.Errorf("round = %s %q, want aborted by the replan", run.Status.Outcome, run.Status.Detail)
+	}
+	if got := e.gh.RefWrites(); len(got) != writes {
+		t.Errorf("ref writes after the replan = %+v, want none", got[writes:])
+	}
+	if got, _ := e.gh.Pull(int(pr.Number)); got.State != "closed" || got.Merged {
+		t.Errorf("pull request = %s merged %v, want closed unmerged", got.State, got.Merged)
+	}
+}
