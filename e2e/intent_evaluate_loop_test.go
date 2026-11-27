@@ -54,56 +54,44 @@ func (e *evalEnv) checkNoTester(t *testing.T, name string) {
 	}
 }
 
-// startRegression runs the evaluator stack whose checks write their run's
-// own record (so a regression of them may start an automatic fix), and
-// drives an intent to round 1 passing at its pull request's head. It
-// returns the env, the issue number, the Intent's name and the pull
-// request.
+// startRegression runs the evaluator stack and drives an intent to round 1
+// passing at its pull request's head. It returns the env, the issue number,
+// the Intent's name and the pull request.
 func startRegression(t *testing.T) (*evalEnv, int, string, v1alpha1.IntentPullRequest) {
 	t.Helper()
 	e := startEvaluate(t, evalOptions{})
-	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_CHECK_WRITES", "1")
 	number, name, pr := e.toReview(t)
 	e.serve(t, name, pr.HeadSHA)
 	e.waitEval(t, name, "round 1 to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed
 	})
-	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 	return e, number, name, pr
 }
 
 // plantDefect makes the application answer 500 and the scripted evaluator
-// fail every outcome on its check: the saved checks fail their replay,
-// which the evaluator agrees with.
+// fail every outcome, citing the call that showed it.
 func (e *evalEnv) plantDefect() {
 	e.app.set(http.StatusInternalServerError, "")
 	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_EVALUATE", "fail")
 }
 
-// startConfirmedDefect runs the evaluator stack on a build defective from
+// startRound1Defect runs the evaluator stack on a build defective from
 // round 1 (the application answers a version other than the one the build
-// wrote), the scripted evaluator judging as a careful one does ("red"):
-// round 1's defect is only suspected, and an approver's /maul verify fix
-// confirms it, which starts the verify-fix round with no new evaluation
-// (and so no request round). env names more of the fake agent's switches to
-// set. It returns the env, the issue number, the Intent's name and the pull
-// request.
-func startConfirmedDefect(t *testing.T, env ...string) (*evalEnv, int, string, v1alpha1.IntentPullRequest) {
+// wrote): round 1's evaluator sees the version missing and fails the
+// outcome citing its call, which maul counts, and the verify-fix round
+// starts with no one's confirmation. env names more of the fake agent's
+// switches to set. It returns the env, the issue number, the Intent's name
+// and the pull request.
+func startRound1Defect(t *testing.T, env ...string) (*evalEnv, int, string, v1alpha1.IntentPullRequest) {
 	t.Helper()
-	e := startEvaluate(t, evalOptions{outcomes: oneOutcome, mode: "red"})
+	e := startEvaluate(t, evalOptions{outcomes: oneOutcome})
 	for _, name := range env {
 		e.kubelet.setAgentEnv(name, "1")
 	}
 	e.app.set(http.StatusOK, "0.0.9")
 	number, name, pr := e.toReview(t)
 	e.serve(t, name, pr.HeadSHA)
-	in := e.waitEval(t, name, "round 1's suspected defect", func(v *v1alpha1.IntentVerification) bool {
-		return v.State == v1alpha1.VerificationUnconfirmed && v.Suspected != nil
-	})
-	// Only a comment created after maul recorded the suspected defect
-	// confirms it, and GitHub keeps whole seconds.
-	afterSecond(in.Status.Verification.Suspected.RecordedAt.Time)
-	e.requestRound(t, number)
 	return e, number, name, pr
 }
 
@@ -120,13 +108,12 @@ func (e *evalEnv) waitPushed(t *testing.T, name string, fix v1alpha1.IntentRun) 
 }
 
 // TestIntentEvaluateRepeatedFailure twins TestIntentVerifyRepeatedFailure:
-// round 1 passes; a planted defect fails the requested round 2, a replay
-// round with no model (S3), whose unsure result escalates to round 3, a
-// full round whose evaluator agrees, and one verify-fix round starts. It
-// pushes, but the defect stays: the automatic round at its head fails
-// exactly as before (the same outcomes on the same saved checks). Automatic
-// fixes halt (RepeatedFailure), the failing status says so, and no second
-// fix starts. (A human's re-arm, /maul verify fix, would start one: it
+// round 1 passes; a planted defect fails the requested round 2, its
+// evaluator citing the call that showed it, and one verify-fix round
+// starts. It pushes, but the defect stays: the automatic round at its head
+// fails the same outcomes again (the outcome fingerprint, v2: nothing the
+// evaluator cites or writes counts). Automatic fixes halt
+// (RepeatedFailure), the failing status says so, and no second fix starts. (A human's re-arm, /maul verify fix, would start one: it
 // counts fixes from its own round, as on slice 1. One more requested round
 // is not asked for here: requests are spaced verifyInterval apart, and round
 // 2 was one; TestIntentEvaluateFixFindsNoDefect runs a request after a
@@ -142,8 +129,8 @@ func TestIntentEvaluateRepeatedFailure(t *testing.T) {
 		return v.AutoFix.State == v1alpha1.AutoFixHalted && v.AutoFix.Reason == v1alpha1.AutoFixRepeatedFailure
 	})
 	if v := in.Status.Verification; v.Heads[0].Revision != head || v.State != v1alpha1.VerificationFailing ||
-		v.Round != 4 || v.Failed != 2 {
-		t.Errorf("verification %+v, want round 4 failing both outcomes at the fix's head %s", v, head)
+		v.Round != 3 || v.Failed != 2 {
+		t.Errorf("verification %+v, want round 3 failing both outcomes at the fix's head %s", v, head)
 	}
 	if c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionVerifyFailing); c == nil ||
 		c.Status != metav1.ConditionTrue || c.Reason != string(v1alpha1.AutoFixRepeatedFailure) {
@@ -157,14 +144,14 @@ func TestIntentEvaluateRepeatedFailure(t *testing.T) {
 }
 
 // TestIntentEvaluateFixFindsNoDefect twins TestIntentVerifyFixFindsNoDefect:
-// the verify-fix round a confirmed defect started (its Job told it is one)
-// concludes the code has no defect. The round
+// the verify-fix round round 1's observed failure started concludes the
+// code has no defect. The round
 // completes as no_defect with nothing pushed and is not retried; automatic
 // fixes halt (FixFoundNoDefect), the failing status says so, and the issue
 // shows the agent's reason. An approver's /maul verify, once the
 // application answers, runs one more round, which passes.
 func TestIntentEvaluateFixFindsNoDefect(t *testing.T) {
-	e, number, name, pr := startConfirmedDefect(t, "MAUL_FAKE_FIX_NO_DEFECT")
+	e, number, name, pr := startRound1Defect(t, "MAUL_FAKE_FIX_NO_DEFECT")
 	fix := e.waitFixRun(t, name)
 	in := e.waitFor(t, name, "the fix found no defect and back in review", func(in *v1alpha1.Intent) bool {
 		run := e.run(t, fix.Name)
@@ -202,13 +189,13 @@ func TestIntentEvaluateFixFindsNoDefect(t *testing.T) {
 	e.waitEval(t, name, "the requested round to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed && v.Heads[0].Revision == pr.HeadSHA && v.Round == 2
 	})
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	e.checkNoTester(t, name)
 }
 
 // TestIntentEvaluateHumanCancelsPendingFix twins
 // TestIntentVerifyHumanCancelsPendingFix (H5): an approver's /maul revise on
-// the pull request arrives while the verify-fix round a reproduced failure
+// the pull request arrives while the verify-fix round an observed failure
 // started still waits for an agent slot (another intent's plan took it
 // once the round's evaluator finished). The fix is cancelled before any Job
 // exists, superseded by the human, and counts as no fix; automatic fixes
@@ -219,9 +206,8 @@ func TestIntentEvaluateHumanCancelsPendingFix(t *testing.T) {
 	e.plantDefect()
 	releaseEval := e.kubelet.hold(t, "evaluate")
 	e.requestRound(t, number)
-	// Round 2 replays with no model (S3); its unsure result escalates to
-	// round 3, whose evaluator is the one held.
-	within(t, 2*roundTimeout, "the escalated round's evaluator launched and held", func() bool {
+	// Round 2's evaluator is the one held.
+	within(t, 2*roundTimeout, "round 2's evaluator launched and held", func() bool {
 		for _, r := range e.stageRuns(t, name, v1alpha1.IntentStageEvaluate) {
 			if r.Status.JobRef != nil && e.kubelet.held(jobs.NameFor(r.Name, intentRunKind, 1)) {
 				return true
@@ -357,22 +343,20 @@ func (e *evalEnv) stopFixes(t *testing.T, number int, name string) {
 
 // TestIntentEvaluateStop twins TestIntentVerifyStop: round 1 passes; an
 // approver's /maul verify stop halts automatic fixes (HumanStop) and is
-// answered; a planted defect then fails the requested round (a replay round
-// with no model, S3, unsure, so its one full round at the same heads
-// follows at once, stopped fixes or not), a reproduced failure that starts
-// no fix while stopped, verification still reporting. /maul verify fix
-// re-arms them, and the failure gets its fix round.
+// answered; a planted defect then fails the requested round 2, an observed
+// failure that starts no fix while stopped, verification still reporting.
+// /maul verify fix re-arms them, and the failure gets its fix round.
 func TestIntentEvaluateStop(t *testing.T) {
 	e, number, name, pr := startRegression(t)
 	e.stopFixes(t, number, name)
 
 	e.plantDefect()
 	e.gh.CommentAs(number, "/maul verify", approver)
-	e.waitEval(t, name, "the escalated round to fail", func(v *v1alpha1.IntentVerification) bool {
-		return v.State == v1alpha1.VerificationFailing && v.Round == 3
+	e.waitEval(t, name, "the requested round to fail", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationFailing && v.Round == 2
 	})
-	if r := e.round(t, name, 2); r.Spec.Rung != v1alpha1.RungReplay {
-		t.Errorf("round 2 = %s, want the requested replay round", r.Spec.Rung)
+	if r := e.round(t, name, 2); r.Spec.Rung != v1alpha1.RungFull {
+		t.Errorf("round 2 = %s, want a full round", r.Spec.Rung)
 	}
 	e.waitStatus(t, pr.HeadSHA, "failure", "automatic fixes halted")
 	consistently(t, "no fix round while stopped", func() bool {
@@ -383,8 +367,8 @@ func TestIntentEvaluateStop(t *testing.T) {
 
 	e.gh.CommentAs(number, "/maul verify fix", approver)
 	fix := e.waitFixRun(t, name)
-	if ref := fix.Spec.Inputs.VerificationRef; ref == nil || ref.Name != e.round(t, name, 3).Name {
-		t.Errorf("fix run inputs %+v, want the failing round 3", fix.Spec.Inputs)
+	if ref := fix.Spec.Inputs.VerificationRef; ref == nil || ref.Name != e.round(t, name, 2).Name {
+		t.Errorf("fix run inputs %+v, want the failing round 2", fix.Spec.Inputs)
 	}
 	e.checkNoTester(t, name)
 }
@@ -394,9 +378,8 @@ func TestIntentEvaluateStop(t *testing.T) {
 // stopped; the approver pushes to the pull request and re-arms them with
 // /maul verify fix a second later, before maul need have seen the push.
 // GitHub recorded the push first, so the re-arm stands once maul records
-// the pushed head: the application now fails there, the saved checks'
-// replay with it, and an automatic fix round starts on top of the human's
-// commit.
+// the pushed head: the application now fails there, the evaluator sees it,
+// and an automatic fix round starts on top of the human's commit.
 func TestIntentEvaluateFixAfterAHumanPush(t *testing.T) {
 	e, number, name, _ := startRegression(t)
 	e.stopFixes(t, number, name)
@@ -476,7 +459,7 @@ func TestIntentEvaluateReset(t *testing.T) {
 	if n, tools := len(e.verifications(t, name)), len(e.kubelet.ToolRuns()); n != 2 || tools != 2 {
 		t.Errorf("verifications %d, tool pods %d; want 2 and 2", n, tools)
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "2/2 outcomes seen to hold")
 	e.checkNoTester(t, name)
 }
 
@@ -512,7 +495,7 @@ func TestIntentEvaluateWithoutStatusesWrite(t *testing.T) {
 	}
 	eventually(t, "the preview comment to link the preview as ready", func() bool {
 		body := e.previewComment(name, pr.Number)
-		return strings.Contains(body, "Ready: maul checked the approved outcomes.") &&
+		return strings.Contains(body, readyLabel) &&
 			strings.Contains(body, name+previewHostSuffix)
 	})
 	consistently(t, "no maul/acceptance on the head", func() bool {

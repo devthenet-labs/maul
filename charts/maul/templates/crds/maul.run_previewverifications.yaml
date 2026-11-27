@@ -100,13 +100,15 @@ spec:
                   store (status.acceptance.checks), which preview-controller copies
                   into the slot tool pod's ConfigMap: it never reads the store, so it
                   needs no read of the release namespace's ConfigMaps (SPEC Q1). Empty
-                  on a first round, before any check is saved.
+                  on a first round, before any check is saved. Retired with saved
+                  checks: the observed evaluator never writes it. Kept for a rollback;
+                  removed in the next release.
                 items:
                   description: |-
-                    SavedCheck is one confirmed, reviewed check of an approved outcome: its
-                    canonical JSON (internal/checks.Canonical) and digest. The body is the
-                    agent's, validated by internal/checks before it was ever run, and is
-                    untrusted text: it is shown only as quoted data.
+                    SavedCheck is one confirmed, reviewed check of an approved outcome an
+                    earlier release saved: its canonical JSON and digest. Retired with saved
+                    checks: the observed evaluator neither writes nor reads one. The body is
+                    the agent's, and is untrusted text.
                   properties:
                     body:
                       description: Body is the check's canonical JSON, at most MaxSavedCheckBytes
@@ -116,8 +118,9 @@ spec:
                       type: string
                     digest:
                       description: |-
-                        Digest is internal/checks.Digest of the body: what every dry run,
-                        confirmation, replay and review is recorded against.
+                        Digest is the body's digest, as the earlier release computed it:
+                        what its dry runs, confirmations, replays and reviews were recorded
+                        against.
                       pattern: ^sha256:[0-9a-f]{64}$
                       type: string
                     expect:
@@ -181,6 +184,7 @@ spec:
                 description: |-
                   ChecksDigest is the check store's digest
                   (status.acceptance.checks.digest). Set with Checks, and only with it.
+                  Retired with saved checks, as Checks is.
                 pattern: ^sha256:[0-9a-f]{64}$
                 type: string
               headSetDigest:
@@ -342,7 +346,9 @@ spec:
               rung:
                 description: |-
                   Rung is how much of an evaluation the round runs. Set on an outcome
-                  verification, and only on one.
+                  verification, and only on one. Retired with the cost ladder: the
+                  observed evaluator always writes full, which the schema's rules still
+                  require of an outcome verification. Removed in the next release.
                 enum:
                 - full
                 - replay
@@ -591,7 +597,10 @@ spec:
                 description: |-
                   Base is an agents verification's base side: whether its outcomes need
                   a base comparison, whether the base tree built, and each check's run
-                  at base. Unset on a slot verification.
+                  at base. Unset on a slot verification. Retired with saved checks: the
+                  agents host no longer writes it (a base-side call is context, marked
+                  on its ledger index entry). Kept for a rollback; removed in the next
+                  release.
                 properties:
                   required:
                     description: |-
@@ -610,17 +619,18 @@ spec:
                       properties:
                         assertionID:
                           description: |-
-                            AssertionID names which assertion of that step failed
-                            (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
-                            "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+                            AssertionID names which assertion of that step failed, as that check
+                            runner recorded it: "json <pointer>", "header <name>", "bodyContains",
+                            "marker <id>" or "expect". Set with AssertionStep.
                           maxLength: 512
                           type: string
                         assertionStep:
                           description: |-
                             AssertionStep is, for a failed run red by assertion, the step (1-based)
                             at which both attempts failed, an assertion of a check that otherwise
-                            ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
-                            timeout or a locator that resolved to nothing. Unset otherwise.
+                            ran, as an earlier release's check runner recorded it: never a check
+                            error, a timeout or a locator that resolved to nothing. Unset
+                            otherwise.
                           format: int32
                           maximum: 64
                           minimum: 1
@@ -756,24 +766,26 @@ spec:
               confirmations:
                 description: |-
                   Confirmations is each proposed check's confirmation run, alone with
-                  a fresh run token, after the evaluator finished.
+                  a fresh run token, after the evaluator finished. Retired with saved
+                  checks, as Replay is.
                 items:
                   description: CheckRun is one run of one check, as the ledger recorded
                     it.
                   properties:
                     assertionID:
                       description: |-
-                        AssertionID names which assertion of that step failed
-                        (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
-                        "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+                        AssertionID names which assertion of that step failed, as that check
+                        runner recorded it: "json <pointer>", "header <name>", "bodyContains",
+                        "marker <id>" or "expect". Set with AssertionStep.
                       maxLength: 512
                       type: string
                     assertionStep:
                       description: |-
                         AssertionStep is, for a failed run red by assertion, the step (1-based)
                         at which both attempts failed, an assertion of a check that otherwise
-                        ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
-                        timeout or a locator that resolved to nothing. Unset otherwise.
+                        ran, as an earlier release's check runner recorded it: never a check
+                        error, a timeout or a locator that resolved to nothing. Unset
+                        otherwise.
                       format: int32
                       maximum: 64
                       minimum: 1
@@ -855,12 +867,13 @@ spec:
                   Confirmed are the proposed checks that passed their confirmation,
                   their bodies read from the verified ledger (never from the
                   evaluator's report): what intent-controller may store once reviewed.
+                  Retired with saved checks, as Replay is.
                 items:
                   description: |-
-                    SavedCheck is one confirmed, reviewed check of an approved outcome: its
-                    canonical JSON (internal/checks.Canonical) and digest. The body is the
-                    agent's, validated by internal/checks before it was ever run, and is
-                    untrusted text: it is shown only as quoted data.
+                    SavedCheck is one confirmed, reviewed check of an approved outcome an
+                    earlier release saved: its canonical JSON and digest. Retired with saved
+                    checks: the observed evaluator neither writes nor reads one. The body is
+                    the agent's, and is untrusted text.
                   properties:
                     body:
                       description: Body is the check's canonical JSON, at most MaxSavedCheckBytes
@@ -870,8 +883,9 @@ spec:
                       type: string
                     digest:
                       description: |-
-                        Digest is internal/checks.Digest of the body: what every dry run,
-                        confirmation, replay and review is recorded against.
+                        Digest is the body's digest, as the earlier release computed it:
+                        what its dry runs, confirmations, replays and reviews were recorded
+                        against.
                       pattern: ^sha256:[0-9a-f]{64}$
                       type: string
                     expect:
@@ -1116,9 +1130,30 @@ spec:
                           - runner
                           - relay
                           type: string
+                        noAnswer:
+                          description: |-
+                            NoAnswer reports one of the evaluator's calls that got nothing back
+                            from what it exercised: an http request that got no response (DNS,
+                            refused, timeout, TLS, reset), a run whose program did not compile
+                            and so never ran, or an exec or run whose program the sandbox could
+                            not start (its output is maul's "[maul: could not start ...]" alone,
+                            at exit 127 or 126). It showed nothing, so it is never evidence for an
+                            outcome. Unset on every other entry, and on an index written before
+                            the field.
+                          type: boolean
+                        ranNothing:
+                          description: |-
+                            RanNothing reports a refusal the relay made before the call reached
+                            anything that runs: a call without the per-evaluation key, or one past
+                            maxToolCalls. Nothing ran. Unset on every other entry, and on an index
+                            written before the field: a refusal that may have run something.
+                          type: boolean
                         refused:
-                          description: 'Refused reports that nothing ran: the call
-                            was refused.'
+                          description: |-
+                            Refused reports that the call was refused: what it asked for did not
+                            run as asked, and it is never evidence. A refusal may still come after
+                            the call was sent (the sandbox did not answer, or refused it part
+                            way), so it does not show that nothing ran; RanNothing does.
                           type: boolean
                         resultSHA256:
                           description: ResultSHA256 is the hex sha256 of its full
@@ -1131,6 +1166,16 @@ spec:
                           maximum: 512
                           minimum: 1
                           type: integer
+                        side:
+                          description: |-
+                            Side is the tree an agents tool pod ran the call against: base for
+                            the merge base, unset for the head (and for every slot entry), the
+                            ledger's own encoding (toolwire.Side.Recorded). A base-side entry is
+                            context, never evidence for an outcome.
+                          enum:
+                          - head
+                          - base
+                          type: string
                         verb:
                           description: Verb is the tool it records.
                           enum:
@@ -1294,24 +1339,26 @@ spec:
               replay:
                 description: |-
                   Replay is each saved check's replay at the start of the round, in
-                  spec order.
+                  spec order. Retired with saved checks: the tool hosts no longer write
+                  it. Kept for a rollback; removed in the next release.
                 items:
                   description: CheckRun is one run of one check, as the ledger recorded
                     it.
                   properties:
                     assertionID:
                       description: |-
-                        AssertionID names which assertion of that step failed
-                        (toolwire.StepRecord.AssertionID): "json <pointer>", "header <name>",
-                        "bodyContains", "marker <id>" or "expect". Set with AssertionStep.
+                        AssertionID names which assertion of that step failed, as that check
+                        runner recorded it: "json <pointer>", "header <name>", "bodyContains",
+                        "marker <id>" or "expect". Set with AssertionStep.
                       maxLength: 512
                       type: string
                     assertionStep:
                       description: |-
                         AssertionStep is, for a failed run red by assertion, the step (1-based)
                         at which both attempts failed, an assertion of a check that otherwise
-                        ran (toolwire.CheckRunRecord.AssertionStep): never a check error, a
-                        timeout or a locator that resolved to nothing. Unset otherwise.
+                        ran, as an earlier release's check runner recorded it: never a check
+                        error, a timeout or a locator that resolved to nothing. Unset
+                        otherwise.
                       format: int32
                       maximum: 64
                       minimum: 1

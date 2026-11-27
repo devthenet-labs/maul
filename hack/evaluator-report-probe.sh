@@ -6,9 +6,14 @@
 # the REAL claude CLI at the version Dockerfile.claude-agent-runner pins
 # (hack/claude-cli.sh), is given the real evaluate prompt (and, in a second
 # session, the out-of-turns repair prompt) for a tiny synthetic round with a
-# stand-in maul-tool, and the report it writes is held to the evaluate
-# stage's strict decoder. It fails, printing the decoder's errors and the
-# report, when maul would refuse what the model wrote. The e2e suite's
+# stand-in maul-tool that keeps a ledger of the calls the model makes. The
+# report it writes is held to the evaluate stage's strict decoder, then to
+# maul's judge (acceptance.Judge) over that ledger: on the evaluate prompt
+# the working outcome must be judged seen to hold and the broken one seen not
+# to hold, each on a cited call that exercised the application; no report
+# may contradict the fake application or cite only calls that never count.
+# It fails, printing the decoder's errors or the judgement and the report,
+# when maul would refuse or misjudge what the model wrote. The e2e suite's
 # scripted claude always writes the format exactly; only this shows whether
 # the prompt teaches it.
 #
@@ -31,13 +36,13 @@ watched=(
   Dockerfile.claude-agent-runner
   internal/templates/prompt_evaluate.md.tmpl
   internal/templates/prompt_evaluate_parts.md.tmpl
-  internal/templates/prompt_evaluate_cover.md.tmpl
-  internal/templates/evaluate_cover.go
   internal/templates/evaluate_prompts.go
   internal/templates/prompt_repair.md.tmpl
   internal/templates/repair.go
   internal/report/evaluation.go
   internal/report/frontmatter.go
+  internal/acceptance/judge.go
+  internal/agentrun/evaluate.go
   internal/agentrun/evaluate_tools.go
   internal/agentrun/evaluate_report_probe_test.go
   internal/harness/claude.go
@@ -48,7 +53,7 @@ watched=(
 if [[ "${1:-}" == "--if-changed" ]]; then
   ref="${2:?--if-changed needs a git ref}"
   if git diff --quiet "$ref" HEAD -- "${watched[@]}"; then
-    echo "evaluator-report-probe: neither the evaluator's prompts, its report schema nor the claude CLI pin changed since $ref; skipping"
+    echo "evaluator-report-probe: neither the evaluator's prompts, its report schema, maul's judge nor the claude CLI pin changed since $ref; skipping"
     exit 0
   fi
 fi

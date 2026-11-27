@@ -83,11 +83,10 @@ func TestAvailableVerbsParse(t *testing.T) {
 const (
 	verifyLine = "- `/maul verify [fix|stop|--reset|explore]`: check the change against the plan's acceptance " +
 		"criteria now; `fix` also lets maul fix failures again, `stop` only stops maul fixing failures on its own, " +
-		"`--reset` first restarts the preview with fresh data, `explore` has the evaluator look again even where " +
-		"maul's saved checks alone could settle it"
+		"`--reset` first restarts the preview with fresh data, `explore` is a plain verify (kept for older comments)"
 	acceptLine = "- `/maul accept <id>|all`: accept, at the current commits, a manual outcome or " +
-		"criterion, one maul could not confirm or found failing, or one that passed only on retry; `all` accepts " +
-		"every one of them, and a note may follow on the lines below"
+		"criterion, or one maul's evaluator did not see hold; `all` accepts every one of them, and a note may " +
+		"follow on the lines below"
 	previewLine = "- `/maul preview`: show the preview link now, before maul has finished checking the change; " +
 		"nothing else changes"
 )

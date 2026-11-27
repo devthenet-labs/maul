@@ -12,11 +12,6 @@ import (
 	"github.com/devthenet-labs/maul/internal/report"
 )
 
-const (
-	digestA = "sha256:aa00000000000000000000000000000000000000000000000000000000000000"
-	digestB = "sha256:bb00000000000000000000000000000000000000000000000000000000000000"
-)
-
 const evaluationReport = `---
 verdicts:
   - id: rate-battle
@@ -25,10 +20,6 @@ verdicts:
     note: "  Rating moved by 16.  "
   - id: leaderboard
     verdict: unsure
-proposed:
-  - id: own-rows
-    outcome: leaderboard
-    digest: "` + digestB + `"
 anomalies:
   - summary: "Console error"
     route: /battles
@@ -63,8 +54,8 @@ func TestFromEvaluation(t *testing.T) {
 		got.Verdicts[1].Verdict != report.VerdictUnsure {
 		t.Errorf("Verdicts = %+v, want the report's", got.Verdicts)
 	}
-	if len(got.Proposed) != 1 || got.Proposed[0].Digest != digestB || len(got.Anomalies) != 1 {
-		t.Errorf("FromEvaluation() = %+v, want the report's proposals and anomalies", got)
+	if len(got.Anomalies) != 1 {
+		t.Errorf("FromEvaluation() = %+v, want the report's anomalies", got)
 	}
 	if !slices.Equal(got.Cited, []int32{14, 20}) {
 		t.Errorf("Cited = %v, want the runner's choice", got.Cited)
@@ -103,64 +94,6 @@ func TestFromEvaluationFailures(t *testing.T) {
 			}
 			if got == nil || got.Stage == nil || got.Report != "" || got.Verdicts != nil || got.Cited != nil {
 				t.Errorf("FromEvaluation() = %+v, want the stage alone", got)
-			}
-		})
-	}
-}
-
-func TestFromCheckReview(t *testing.T) {
-	ev := &envelope.CheckReview{Stage: okStage(), Answers: []envelope.ReviewAnswer{
-		{CheckDigest: digestA, OutcomeDigest: digestB, Answer: "proves", Reason: "  rates its own battle  "},
-		{CheckDigest: digestB, OutcomeDigest: digestB, Answer: "unclear", Reason: "no rule"},
-	}}
-	got, err := FromCheckReview(ev)
-	if err != nil {
-		t.Fatalf("FromCheckReview() error = %v", err)
-	}
-	if len(got.Answers) != 2 || got.Answers[0] != (ReviewAnswer{CheckDigest: digestA, OutcomeDigest: digestB,
-		Answer: report.AnswerProves, Reason: "rates its own battle"}) || got.Answers[1].Answer != report.AnswerUnclear {
-		t.Errorf("Answers = %+v", got.Answers)
-	}
-	if got.Stage == nil || got.Stage.Outcome != "ok" {
-		t.Errorf("Stage = %+v", got.Stage)
-	}
-}
-
-func TestFromCheckReviewFailures(t *testing.T) {
-	if _, err := FromCheckReview(nil); err == nil {
-		t.Error("FromCheckReview(nil) error = nil, want an error")
-	}
-	got, err := FromCheckReview(&envelope.CheckReview{Stage: envelope.Stage{Outcome: envelope.OutcomeRuntimeError},
-		Answers: []envelope.ReviewAnswer{{CheckDigest: digestA, OutcomeDigest: digestB, Answer: "proves", Reason: "r"}}})
-	if err != nil || got.Stage.Outcome != "runtime_error" || got.Answers != nil {
-		t.Errorf("FromCheckReview(runtime_error) = %+v, %v; want the stage alone", got, err)
-	}
-
-	valid := envelope.ReviewAnswer{CheckDigest: digestA, OutcomeDigest: digestB, Answer: "proves", Reason: "r"}
-	many := make([]envelope.ReviewAnswer, CheckReviewMaxAnswers+1)
-	for i := range many {
-		many[i] = valid
-		many[i].CheckDigest = "sha256:" + strings.Repeat("0", 62) + string("0123456789abcdef"[i/16]) +
-			string("0123456789abcdef"[i%16])
-	}
-	for name, answers := range map[string][]envelope.ReviewAnswer{
-		"none":        nil,
-		"bad answer":  {{CheckDigest: digestA, OutcomeDigest: digestB, Answer: "yes", Reason: "r"}},
-		"no reason":   {{CheckDigest: digestA, OutcomeDigest: digestB, Answer: "proves"}},
-		"bad check":   {{CheckDigest: "abc", OutcomeDigest: digestB, Answer: "proves", Reason: "r"}},
-		"bad outcome": {{CheckDigest: digestA, OutcomeDigest: "", Answer: "proves", Reason: "r"}},
-		"hidden reason": {{CheckDigest: digestA, OutcomeDigest: digestB, Answer: "proves",
-			Reason: "ok" + string(rune(0x202e))}},
-		"answered twice": {valid, valid},
-		"too many":       many,
-	} {
-		t.Run(name, func(t *testing.T) {
-			got, err := FromCheckReview(&envelope.CheckReview{Stage: okStage(), Answers: answers})
-			if err == nil {
-				t.Fatal("FromCheckReview() error = nil, want it refused")
-			}
-			if got == nil || got.Stage == nil || got.Answers != nil {
-				t.Errorf("FromCheckReview() = %+v, want the stage alone", got)
 			}
 		})
 	}

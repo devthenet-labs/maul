@@ -18,19 +18,20 @@ import (
 
 // TestOutcomeVerifyCommentOncePerRound twins TestVerifyCommentOncePerRound.
 func TestOutcomeVerifyCommentOncePerRound(t *testing.T) {
-	e, name, _, _ := outcomeEnv(t)
+	e, name := outcomeEnv(t)
 	if cs := e.verifyComments(name, 1); len(cs) != 0 {
 		t.Fatalf("posted while the round runs: %+v", cs)
 	}
-	e.evalRound(name, versionFails(t, healthCheck)...)
+	e.evalRound(name)
 	e.review(name, 8)
 	cs := e.verifyComments(name, 1)
 	if len(cs) != 1 || len(e.verifyComments(name, 2)) != 0 {
 		t.Fatalf("verification comments of round 1 = %d, want one and none of round 2", len(cs))
 	}
 	got := cs[0].Body
-	for _, want := range []string{"verification 1, attempt 1", "| `version-shown` | `change` | failed",
-		"| `still-healthy` | `keep` | confirmed", "| `looks-right` |", "only a human can close it"} {
+	for _, want := range []string{"verification 1, attempt 1",
+		"| `version-shown` | `change` | seen not to hold by maul's evaluator",
+		"| `still-healthy` | `keep` | seen to hold by maul's evaluator", "| `looks-right` |", "only a human can close it"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("comment lacks %q:\n%s", want, got)
 		}
@@ -62,9 +63,8 @@ func TestOutcomeVerifySectionOnThePreviewComment(t *testing.T) {
 	e.review(name, 3)
 	pr := e.get(name).Status.PullRequests[0]
 	body := e.onePreviewComment(name, pr.Number).Body
-	for _, want := range []string{"#### maul: acceptance checks", "- `version-shown` (`change`): failed; " +
-		"maul's check: `http to app: POST /notes, GET /version?q={{run}}; 3 expectations`. GET /version answers " +
-		"with the commit it runs", "Evaluation 1 failing:"} {
+	for _, want := range []string{"#### maul: acceptance checks", "- `version-shown` (`change`): seen not to hold by " +
+		"maul's evaluator; it cites call 2. GET /version answers with the commit it runs", "Evaluation 1 failing:"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("preview comment lacks %q:\n%s", want, body)
 		}
@@ -81,7 +81,6 @@ func TestOutcomeVerifyLogTailsOnlyWhereAllowed(t *testing.T) {
 	for _, postLogs := range []bool{false, true} {
 		e, name := newEvaluatorEnv(t, 0.4, func(p *v1alpha1.Project) { p.Spec.Verification.PostLogs = postLogs })
 		e.evaluateReporting(failingReport)
-		e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
 		e.review(name, 3)
 		pv := e.pvNamed(e.onlyVerification(name).Name)
 		// The tool pod's own part is never a component's log: never shown.
@@ -91,7 +90,7 @@ func TestOutcomeVerifyLogTailsOnlyWhereAllowed(t *testing.T) {
 		if err := e.c.Update(t.Context(), pv); err != nil {
 			t.Fatal(err)
 		}
-		e.evalRound(name, versionFails(t, healthCheck)...)
+		e.evalRound(name)
 		e.review(name, 8)
 		cs := e.verifyComments(name, 1)
 		if len(cs) != 1 || !strings.Contains(cs[0].Body, "panic: nil map") {
@@ -114,7 +113,7 @@ func TestOutcomeVerifyStatusLine(t *testing.T) {
 	e, name, _ := failingEvaluation(t)
 	e.review(name, 8)
 	if body := e.statusBody(); !strings.Contains(body,
-		"Evaluation 1 failing: 1/3 outcomes confirmed, 1 of 2 automatic fixes used, 1 for a human") {
+		"Evaluation 1 failing: 1/3 outcomes seen to hold, 1 of 2 automatic fixes used, 1 for a human") {
 		t.Fatalf("status comment:\n%s", body)
 	}
 }
@@ -140,7 +139,7 @@ func TestOutcomeVerifyStatusLineNotDeclared(t *testing.T) {
 // TestOutcomeVerifyCommentNumbering twins TestVerifyCommentNumbering.
 func TestOutcomeVerifyCommentNumbering(t *testing.T) {
 	e, name, _ := failingEvaluation(t)
-	e.fixedAndFailingAgain(name, versionFails(t, healthCheck)...)
+	e.fixedAndFailingAgain(name)
 	comments := e.gh.withMarker("verify-r2")
 	if len(comments) != 1 {
 		t.Fatalf("verification 2 comments = %d, want one", len(comments))
@@ -164,17 +163,14 @@ func TestOutcomeVerifyCommentNumbering(t *testing.T) {
 }
 
 // TestOutcomeVerifyCommentNamesWhatFailed twins
-// TestVerifyCommentNamesWhatFailed: an outcome's failure is named by the
-// failing check's step as the tools ledger recorded it, fenced and with its
-// mention made inert; a passing check's steps are not listed. (The criteria
-// test's per-matcher lines are criteria-only rendering, stepMismatches.)
+// TestVerifyCommentNamesWhatFailed: an outcome's failure is shown by the
+// call the evaluator's fail cites, what it sent and what came back as the
+// round's ledger recorded it, fenced and with its mention made inert.
 func TestOutcomeVerifyCommentNamesWhatFailed(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
-	e.failRound(name, failingReport, func(version string) []toolwire.LedgerEntry {
-		return []toolwire.LedgerEntry{
-			checkRunEntry(2, version, "version-shown", 1, `/note: expected "t1-v", got "p_4e1013 @octocat"`),
-			checkRunEntry(3, savedCheck(t, healthCheck).Digest, "still-healthy", 0, "never shown"),
-		}
+	e.failRound(name, failingReport, []toolwire.LedgerEntry{
+		httpEntry(2, "GET", "/version", `{"note":"p_4e1013 @octocat"}`),
+		httpEntry(3, "GET", "/healthz", "fine"),
 	})
 	e.review(name, 3)
 	pv := e.pvNamed(e.verification(name).Ref.Name)
@@ -184,15 +180,19 @@ func TestOutcomeVerifyCommentNamesWhatFailed(t *testing.T) {
 		t.Fatalf("verification comments = %d, want one", len(cs))
 	}
 	got := cs[0].Body
-	want := `attempt 1, step 2: /note: expected "t1-v", got "p_4e1013 @ octocat"`
-	i := strings.Index(got, want)
+	for _, want := range []string{"Call 2, an http request:", "it cites call 2"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("comment lacks %q:\n%s", want, got)
+		}
+	}
+	i := strings.Index(got, "p_4e1013")
 	if i < 0 {
-		t.Fatalf("comment lacks %q:\n%s", want, got)
+		t.Fatalf("comment lacks the cited call's output:\n%s", got)
 	}
 	if strings.Count(got[:i], "```")%2 != 1 {
 		t.Errorf("the application's value is not fenced:\n%s", got)
 	}
-	if strings.Contains(got, "@octocat") || strings.Contains(got, "never shown") {
-		t.Errorf("comment carries a live mention or lists the passing check's step:\n%s", got)
+	if strings.Contains(got, "@octocat") {
+		t.Errorf("comment carries a live mention:\n%s", got)
 	}
 }

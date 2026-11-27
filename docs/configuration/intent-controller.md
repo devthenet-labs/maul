@@ -57,14 +57,14 @@ other binary binds, so the shared kustomize ConfigMap cannot set one by accident
 | `--intent-verify-timeout-max`                   | `MAUL_INTENT_VERIFY_TIMEOUT_MAX`                      | `30m`                                      | No effect since slice 1's criteria no longer run (it was the most a Project's `verification.timeout` gave a tester Job); still validated (1m to 1h) until a later release removes it. Helm: `preview.verification.deadlineMaxSeconds`                                                                                                                                                                                                                                                                                                                                                                                                |
 | `--intent-evaluator`                            | `MAUL_INTENT_EVALUATOR`                               | `false`                                    | Verification's one switch: verify approved plans' [acceptance outcomes](../intents/acceptance.md#what-a-plan-declares-outcomes) with the [agent evaluator](../intents/evaluator.md) for Projects with `spec.verification.enabled`, create `PreviewVerification` requests and post the `maul/acceptance` status; plans then ask for outcomes. Needs `--intent-previews-enabled` (or `--intent-evaluator-agents`). Off, no intent is verified: each verifying Project carries `VerificationOff` (`EvaluatorOff`) and its intents' status comments say so. Helm: `intentController.verification.evaluator`                              |
 | `--intent-evaluate-model`                       | `MAUL_INTENT_EVALUATE_MODEL`                          | `anthropic/claude-sonnet-5-5`              | The model a claude Project's evaluate runs use; it must resolve to the harness intents plan and build on. Helm: `intentController.verification.evaluateModel`                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `--intent-checkreview-model`                    | `MAUL_INTENT_CHECKREVIEW_MODEL`                       | `anthropic/claude-sonnet-5-5`              | The model a claude Project's checkreview runs use. Helm: `intentController.verification.checkReviewModel`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `--intent-checkreview-model`                    | `MAUL_INTENT_CHECKREVIEW_MODEL`                       | `anthropic/claude-sonnet-5-5`              | **Retired** (hidden) with the check reviewer: accepted and ignored for one release, logging a startup warning; the chart's `checkReviewModel` is removed and fails the render. See [Migrating from saved checks](../intents/evaluator.md#migrating-from-saved-checks)                                                                                                                                                                                                                                                                                                                                                                |
 | `--intent-evaluate-timeout`                     | `MAUL_INTENT_EVALUATE_TIMEOUT`                        | `20m`                                      | An evaluate run's wall clock, 1m to 55m; its tool pod lives five minutes longer. Helm: `intentController.verification.evaluateTimeout`, which must be shorter than `preview.verification.deadlineMaxSeconds`                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `--intent-evaluate-max-turns`                   | `MAUL_INTENT_EVALUATE_MAX_TURNS`                      | `100`                                      | The most agent turns an evaluate run may take, 1 to 1000; a Project's `limits.evaluate.maxTurns` may only lower it. Every tool call is a turn, and agent-runner keeps the run's last few (a tenth, at most 6) for its report, so a run that reaches the cap still reports. Keep it the limit that binds first: the cost budget and the wall clock end a run with no report. Helm: `intentController.verification.evaluateMaxTurns`                                                                                                                                                                                                   |
-| `--intent-checkreview-max-turns`                | `MAUL_INTENT_CHECKREVIEW_MAX_TURNS`                   | `6`                                        | The most agent turns each check-review session may take, 1 to 1000; a Project's `limits.checkReview.maxTurns` may only lower it. Helm: `intentController.verification.checkReviewMaxTurns`                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `--intent-checkreview-max-turns`                | `MAUL_INTENT_CHECKREVIEW_MAX_TURNS`                   | `6`                                        | **Retired** (hidden) with the check reviewer: accepted and ignored for one release, logging a startup warning; the chart's `checkReviewMaxTurns` is removed and fails the render. See [Migrating from saved checks](../intents/evaluator.md#migrating-from-saved-checks)                                                                                                                                                                                                                                                                                                                                                             |
 | `--intent-default-handoff`                      | `MAUL_INTENT_DEFAULT_HANDOFF`                         | `gated`                                    | The [hand-off](../intents/evaluator.md#the-hand-off) of a Project that sets no `verification.handoff`: `gated` holds the preview link until the evaluation passes or gives up, `early` posts it at once. Helm: `intentController.verification.defaultHandoff`                                                                                                                                                                                                                                                                                                                                                                        |
 | `--intent-handoff-max`                          | `MAUL_INTENT_HANDOFF_MAX`                             | `60m`                                      | The most a gated hand-off waits, from CI green at the first pull request heads, for a Project that sets no `verification.handoffMax`; 10m to 4h. Helm: `intentController.verification.handoffMax`                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `--intent-evaluate-codex`                       | `MAUL_INTENT_EVALUATE_CODEX`                          | `false`                                    | Also evaluate codex Projects' intents on codex (needs `--intent-codex`); unverified live. Off, they are not evaluated, their hand-off is early, and each such Project carries `EvaluatorUnverified`. Helm: `intentController.verification.codexEvaluator`                                                                                                                                                                                                                                                                                                                                                                            |
-| `--intent-evaluation-cost-max`                  | `MAUL_INTENT_EVALUATION_COST_MAX`                     | `6000000`                                  | The most one intent's evaluate and checkreview runs may spend, in micro-USD, whatever its Project's `limits.maxEvaluateCostMicroUSD` says; counted apart from the per-intent ceiling. Helm: `intentController.verification.maxEvaluateCostUSD` (in USD)                                                                                                                                                                                                                                                                                                                                                                              |
+| `--intent-evaluation-cost-max`                  | `MAUL_INTENT_EVALUATION_COST_MAX`                     | `6000000`                                  | The most one intent's evaluate runs may spend, in micro-USD, whatever its Project's `limits.maxEvaluateCostMicroUSD` says; counted apart from the per-intent ceiling. Helm: `intentController.verification.maxEvaluateCostUSD` (in USD)                                                                                                                                                                                                                                                                                                                                                                                              |
 | `--intent-max-tool-calls`                       | `MAUL_INTENT_MAX_TOOL_CALLS`                          | `300`                                      | The most tool calls one evaluation round may make, 50 to 300, whatever its Project's `verification.maxToolCalls` says. Helm: `intentController.verification.maxToolCalls`                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `--intent-evaluator-agents`                     | `MAUL_INTENT_EVALUATOR_AGENTS`                        | `false`                                    | Also evaluate Projects with a `surfaces.cli` or `surfaces.library` and no Preview, through an agents-namespace tool pod that builds the pull request's head and its merge base in the repository's accepted runner image. Needs `--intent-evaluator`, not `--intent-previews-enabled`. Off, such a Project carries `VerificationOff` (`AgentsToolPodNotEnabled`). Helm: `intentController.verification.agents.enabled`                                                                                                                                                                                                               |
 | `--intent-tools-image`                          | `MAUL_INTENT_TOOLS_IMAGE`                             | `""`                                       | The digest-pinned preview-tools image the agents tool pod runs (required with `--intent-evaluator-agents`). Helm: `preview.verification.tools.image`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -167,10 +167,10 @@ Project that needs more.
   is not Ready (`RunBudgetOverHourlyLimit`, naming the stage): one such run could spend the cluster's hour alone. Lower
   the stage's budget (or the per-intent ceiling a stage without one uses) or raise the hourly limit.
 - Under the cost unit, a claude Project the evaluator verifies is not Ready (`RunBudgetUnderRequestReserve`, naming the
-  stage, its budget and the least it needs) when its evaluate or checkreview run budget is less than twice what the
-  broker reserves for each of that stage's requests: the stage's output bound (32000 tokens for evaluate, 8192 for
-  checkreview) at its model's output price ([cost limits](egress-broker.md#cost-limits)). Below that the run would be
-  refused its model traffic having spent less than half its budget. Raise the stage's `maxCostMicroUSD`.
+  stage, its budget and the least it needs) when its evaluate run budget is less than twice what the broker reserves for
+  each of that stage's requests: the stage's output bound (32000 tokens) at its model's output price
+  ([cost limits](egress-broker.md#cost-limits)). Below that the run would be refused its model traffic having spent less
+  than half its budget. Raise the stage's `maxCostMicroUSD`.
 
 Under the cost unit the chart renders admission policies that keep the budget the controller's alone: only
 intent-controller creates a Job carrying the annotation, and every Job it creates carries one; only the Job controller
@@ -323,16 +323,16 @@ spec:
     plan: anthropic/claude-opus-5 # the plan stage
     build: anthropic/claude-sonnet-5-5 # build, and every revise round: review, command, check-fix, acceptance-fix
     evaluate: anthropic/claude-sonnet-5-5 # the agent evaluator
-    checkReview: anthropic/claude-haiku-4-5 # the check reviewer
 ```
 
 A field left unset runs the stage flag, exactly as before: `--intent-plan-model`, `--intent-build-model`,
-`--intent-evaluate-model` and `--intent-checkreview-model`, or on codex `--intent-codex-plan-model` and
-`--intent-codex-build-model`. A codex Project's evaluate and check review runs (only under `--intent-evaluate-codex`)
-run its build model, chosen or the flag, unless it chooses theirs.
+`--intent-evaluate-model`, or on codex `--intent-codex-plan-model` and `--intent-codex-build-model`. A codex Project's
+evaluate runs (only under `--intent-evaluate-codex`) run its build model, chosen or the flag, unless it chooses theirs.
+`checkReview` is a retired field: nothing reads it, so it never keeps a Project from Ready
+([migrating from saved checks](../intents/evaluator.md#migrating-from-saved-checks)).
 
 A Project may choose only a model the controller admits for its harness: one of that harness's stage flag models (the
-evaluator's two only under `--intent-evaluator`), or one `--intent-model-allowlist` adds:
+evaluator's only under `--intent-evaluator`), or one `--intent-model-allowlist` adds:
 
 | Flag                       | Default | Meaning                                                                                                                                                      |
 | -------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -340,21 +340,20 @@ evaluator's two only under `--intent-evaluator`), or one `--intent-model-allowli
 
 At startup each allowlisted model must be in the model registry and resolve to claude (or the fake harness in dev), or
 to codex under `--intent-codex`; on brokered claude the provider's model map must cover it too. Otherwise the controller
-does not start. Without `--intent-evaluator` no evaluate or check review run is created, so `evaluate` and `checkReview`
-are not judged, and turning the evaluator off stops no Project. A Project naming a model that is not admitted for its
-harness is not Ready (`ModelNotAllowed`, the message naming the field, the model and what is admitted), so none of its
-intents is discovered. An intent of it already open is held `Blocked` (`ModelNotAllowed`) from whatever phase it is in,
-and no run of it is created. A Job already running finishes. The block lifts once the Project names an admitted model,
-or none.
+does not start. Without `--intent-evaluator` no evaluate run is created, so `evaluate` is not judged, and turning the
+evaluator off stops no Project. A Project naming a model that is not admitted for its harness is not Ready
+(`ModelNotAllowed`, the message naming the field, the model and what is admitted), so none of its intents is discovered.
+An intent of it already open is held `Blocked` (`ModelNotAllowed`) from whatever phase it is in, and no run of it is
+created. A Job already running finishes. The block lifts once the Project names an admitted model, or none.
 
 Each IntentRun records the model its Project chose for it when it was created (`spec.model`, immutable; empty when the
 Project chose none, so the run runs the stage flag), and launches on it, so changing a Project's models affects its new
 runs only. A recorded model the controller no longer admits (the allowlist changed at a restart) is not launched: the
 run ends `launch_refused`, and the next attempt runs what the Project chooses then. Usage is measured per model the
 broker observed, so each run's spend is priced at the model it ran. Under `--broker-limit-unit cost` the request-reserve
-check judges a Project's evaluate and check review budgets at the models it chose. `maul get projects -o wide` shows
-each Project's harness and chosen plan and build models, `maul get intentruns -o wide` each run's model, and
-`maul describe project` the whole choice.
+check judges a Project's evaluate budget at the model it chose. `maul get projects -o wide` shows each Project's harness
+and chosen plan and build models, `maul get intentruns -o wide` each run's model, and `maul describe project` the whole
+choice.
 
 If the egress broker restricts models (`egressBroker.limits.modelAllowlist`), list every allowlisted model there too, or
 the broker refuses its runs' requests.
@@ -446,16 +445,15 @@ preview-controller never touches such a request, and with the agents tool pod on
   timeout; only a profile the check actually refuses is `Stale`. No accepted image ends the round `Unconfirmed` before
   any pod exists.
 - **The pod.** One Job per round, named after its `PreviewVerification` when that is a DNS label of at most 57
-  characters (else `tools-` and a hash), with one Secret `<job>-tools` holding the relay's configuration, the outcomes,
-  the saved checks and the `:8090` key, mounted in `tools` alone. The init `prepare` (maul's preview-tools image,
-  UID 65532) fetches both trees from the artifact server, verifies each against its digest before unpacking it, extracts
-  it into a read-only pristine volume (refusing absolute or `..` paths, links leaving the tree, entries through a link,
-  devices, duplicates and oversize trees), copies `tool-exec` into a read-only `maul-bin` volume, and ends with the
-  strict sandbox probe over the internet, the API server, metadata and DNS (exit 78 on any open). `seed-head` and
-  `seed-base` copy each side's tree into that side's own work volume under its sandbox's UID. Then `tools` (UID 65532)
-  runs the relay, beside two native sidecars in the repository's accepted image, `sandbox-head` (UID 65540) and
-  `sandbox-base` (UID 65541), each running `tool-exec` from `maul-bin` with its own tree, caches, home, scratch, exec
-  socket and `/dev/shm`.
+  characters (else `tools-` and a hash), with one Secret `<job>-tools` holding the relay's configuration, the outcomes
+  and the `:8090` key, mounted in `tools` alone. The init `prepare` (maul's preview-tools image, UID 65532) fetches both
+  trees from the artifact server, verifies each against its digest before unpacking it, extracts it into a read-only
+  pristine volume (refusing absolute or `..` paths, links leaving the tree, entries through a link, devices, duplicates
+  and oversize trees), copies `tool-exec` into a read-only `maul-bin` volume, and ends with the strict sandbox probe
+  over the internet, the API server, metadata and DNS (exit 78 on any open). `seed-head` and `seed-base` copy each
+  side's tree into that side's own work volume under its sandbox's UID. Then `tools` (UID 65532) runs the relay, beside
+  two native sidecars in the repository's accepted image, `sandbox-head` (UID 65540) and `sandbox-base` (UID 65541),
+  each running `tool-exec` from `maul-bin` with its own tree, caches, home, scratch, exec socket and `/dev/shm`.
 - **What it holds, and what it does not.** No ServiceAccount token (the default ServiceAccount, nothing mounted or
   projected), no model credential or gateway variable, no `envFrom` and no Secret reference in an environment variable,
   no resolver (`dnsPolicy: None`; the artifact server and any profile proxy are host entries), no Service links, no
@@ -480,16 +478,13 @@ preview-controller never touches such a request, and with the agents tool pod on
   which the attribution Job policy requires of every Job intent-controller creates. At `--intent-max-tool-pods` live
   tool pods a round waits (`tool-pods-saturated`), and only past its own timeout is it `Infra`, never a verdict.
 - **The result.** Once the pod finishes, the agents host reads only the `tools` container's log, holds it to the count
-  and sha256 of its termination message, and writes the index, the two builds, the head's replay and confirmations, the
-  confirmed checks, `status.base` (each base run with `tree: base`) and the head build's fact, and keeps the full ledger
-  in `<verification>-ledger`. A log that does not hold, or that holds the round's key, is `Infra` (`ledger-mismatch`); a
-  head that did not build is `Infra` (`tools-build-failed`), never a fail: its relay finishes after the two builds
-  without ever becoming ready, so `status.tools` is never written and no evaluate run is launched. A tree that built but
-  whose sandbox could not keep the copy of its tree, build output and `HOME` every check run starts from (together over
-  768 MiB, or a full work volume) is `Infra` (`kept-copy-failed`) the same way: its relay finishes after the two builds.
-  A replay round whose relay finished before its replay's end (its wall clock, or its container told to stop) is `Infra`
-  (`replay-incomplete`). Only a base build that ran and failed marks the base unbuildable; a base timeout or a build
-  maul could not run does not.
+  and sha256 of its termination message, and writes the index (each call at the base marked `side: base`), the two
+  builds and the head build's fact, and keeps the full ledger in `<verification>-ledger`. A log that does not hold, or
+  that holds the round's key, is `Infra` (`ledger-mismatch`); a head that did not build is `Infra`
+  (`tools-build-failed`), never a fail: its relay finishes after the two builds without ever becoming ready, so
+  `status.tools` is never written and no evaluate run is launched. A base that did not build, or whose build erred,
+  refuses every exec and run at the base (its source can still be read), and changes nothing else: the base is
+  exploration only, and its calls never count.
 - **Teardown.** Once the round settles, its Job and Secret are deleted: at once for a pod still running, after 10
   minutes for a finished one, so the isolation probe can still read its ledger. A finished Job holds no
   `--intent-max-tool-pods` place while it lingers. A tool Secret left without its Job (written before a crash, say) goes
@@ -499,40 +494,40 @@ preview-controller never touches such a request, and with the agents tool pod on
 
 **Capacity.** Requests equal limits: `tools` 250m, 256Mi, 2Gi of ephemeral storage (prepare and the seeds run within it,
 so it holds both pristine trees), each sandbox 1 CPU, 2Gi, 8Gi (about 3.5 GB of Go caches for a large tree, plus the
-tree, its build output and the copy of both and of home its check runs start from in a 2Gi work volume, home and
-`/tmp`), about 2.25 CPU and 4.25 GiB a pod (`--intent-tool-resources`, chart
-`intentController.verification.agents.resources`). Measured on a 16-CPU desktop: a pod started in 3 seconds with its
-images cached; a mid-sized Go tree built cold at both sides in parallel in 13 seconds, warm in under 0.1, with `go vet`
-and the tests 6 to 10 seconds and a 383 MiB memory peak; a heavy cold build (`go build -a std cmd`) took 108 seconds per
-side at 1 CPU, with a 1.3 GiB working set. **CPU is the tight dimension**: two tool pods, an evaluator and three preview
-slots at their limits take 14.5 of 16 CPU, so a third tool pod does not fit, and the default `--intent-max-tool-pods`
-is 2. For big cold builds raise the sandbox CPU before the build timeout (a cold build scales about linearly with it).
-Each round's verification may take the evaluate timeout plus one build's timeout plus five minutes, at most 75 minutes.
+tree and its build output in a 2Gi work volume, home and `/tmp`), about 2.25 CPU and 4.25 GiB a pod
+(`--intent-tool-resources`, chart `intentController.verification.agents.resources`). Measured on a 16-CPU desktop: a pod
+started in 3 seconds with its images cached; a mid-sized Go tree built cold at both sides in parallel in 13 seconds,
+warm in under 0.1, with `go vet` and the tests 6 to 10 seconds and a 383 MiB memory peak; a heavy cold build
+(`go build -a std cmd`) took 108 seconds per side at 1 CPU, with a 1.3 GiB working set. **CPU is the tight dimension**:
+two tool pods, an evaluator and three preview slots at their limits take 14.5 of 16 CPU, so a third tool pod does not
+fit, and the default `--intent-max-tool-pods` is 2. For big cold builds raise the sandbox CPU before the build timeout
+(a cold build scales about linearly with it). Each round's verification may take the evaluate timeout plus one build's
+timeout plus five minutes, at most 75 minutes.
 
 **Rollback.** Set `intentController.verification.agents.enabled: false`. intent-controller restarts without the agents
 host, its sweep deletes every tool Job on its next pass, and each Project with a cli or library surface carries
 `VerificationOff` (`AgentsToolPodNotEnabled`) again; Projects with a preview are unaffected. A round left open settles
 `Unavailable`, never a pass or a fail and no fix round: its unsettled verification is deleted, its evaluator is
 cancelled, the issue's verification comment says maul could not run the checks, and the hand-off is released as "maul
-couldn't confirm this". An intent whose round had already settled at its current heads (passed, unconfirmed, failing,
+can't call this ready". An intent whose round had already settled at its current heads (passed, unconfirmed, failing,
 being fixed, out of fixes or unavailable) keeps that state; any other intent of the Project shows `Off` (no round yet,
 or its heads moved while the host was off). When the agents host is switched back on, nothing is re-verified that was
 already settled: an intent that kept its state goes on as if the host had never gone, and its next round starts only on
 the next push or an approver's `/maul verify`. That includes a round the rollback left `Unavailable`: it is not
-restarted by itself, for the hand-off was already released as "maul couldn't confirm this", nobody waits on it, and a
+restarted by itself, for the hand-off was already released as "maul can't call this ready", nobody waits on it, and a
 rollback is often taken because rounds were going wrong. An intent left `Off` starts over at its heads (a round is due
 as for heads never verified), which is also what an intent left `Off` by a release before 0.13.18 does once, whatever it
 had recorded. The `maul/acceptance` status reads "verification switched off" while the host is off and returns to the
 kept state's once it is back. The chart stops rendering the tool pod's admission policy, network policy and status
 grant. To keep the agents host and stop only the image its rounds build in, turn repository images off on
-intent-controller instead: each agents round then settles "maul couldn't confirm this" (no accepted runner image), never
+intent-controller instead: each agents round then settles "maul can't call this ready" (no accepted runner image), never
 a block. That needs `MAUL_NETWORK_PROFILES_ENABLED: "false"` beside `MAUL_REPOSITORY_IMAGES: "false"` while the egress
 proxy is on ([repository-declared images](#repository-declared-images)), or intent-controller does not start.
 
 While the agents host is off, a Project with a cli or library surface still has no preview, and its intents' views say
 so: the issue's status comment keeps its **Evaluation** line and each pull request keeps its evaluation comment, both
-link-less, saying "maul couldn't confirm this" (it could not run its checks) unless every outcome was confirmed at the
-pull request's current head, and nothing offers `/maul preview`. Nothing checks those intents then, so the status
+link-less, saying "maul can't call this ready" (it could not run its checks) unless every outcome was seen to hold at
+the pull request's current head, and nothing offers `/maul preview`. Nothing checks those intents then, so the status
 comment does not offer `/maul verify` or `/maul accept` either; a `/maul verify` sent all the same is answered that it
 did not run, and why.
 

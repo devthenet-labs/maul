@@ -21,14 +21,12 @@ import (
 	"testing"
 
 	"github.com/devthenet-labs/maul/internal/cdpshim"
-	"github.com/devthenet-labs/maul/internal/checks"
-	"github.com/devthenet-labs/maul/internal/checks/playwright"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // The browser relay against the real thing (`mise run live-browser`,
-// MAUL_LIVE_BROWSER=1): the pinned Playwright CLI and test runner from
-// node/ (npm ci), a real Chromium (MAUL_LIVE_CHROMIUM, default
+// MAUL_LIVE_BROWSER=1): the pinned Playwright CLI from node/ (npm ci), a
+// real Chromium (MAUL_LIVE_CHROMIUM, default
 // /usr/bin/chromium) behind the keyed CDP shim, and the battle fixture
 // (hack/testdata/battle) behind the preview front. CI's browser-tools job
 // runs it on every change to node/ (a renovate bump included).
@@ -291,36 +289,6 @@ func compareGolden(t *testing.T, text string) {
 	}
 }
 
-// TestFixtureTypechecks: maul's fixture, the runner's config, the support
-// module and a compiled check typecheck together with tsc --strict against
-// the pinned packages, as the runner writes them into a check's directory.
-func TestFixtureTypechecks(t *testing.T) {
-	e := newLiveEnv(t, "correct")
-	dir, err := os.MkdirTemp(e.nodeDir, "typecheck-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	c := parseLive(t, liveChecks["visible"])
-	spec, err := playwright.Compile(*c.Browser, playwright.Options{RunToken: "abc123"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, b := range map[string][]byte{specFile: spec, playwright.SupportFile: playwright.Support(),
-		fixtureFile: FixtureSource(), configFile: ConfigSource()} {
-		if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	cmd := exec.Command(e.node, filepath.Join(e.nodeDir, "node_modules", "typescript", "bin", "tsc"), "--noEmit",
-		"--strict", "--target", "es2022", "--module", "nodenext", "--moduleResolution", "nodenext", "--lib",
-		"es2022,dom", "--types", "node", "--skipLibCheck", specFile, playwright.SupportFile, fixtureFile, configFile)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("tsc: %v\n%s", err, out)
-	}
-}
-
 // yamlBlock is the body of a snapshot's ```yaml block.
 func yamlBlock(s string) (string, bool) {
 	_, after, ok := strings.Cut(s, "```yaml\n")
@@ -331,133 +299,18 @@ func yamlBlock(s string) (string, bool) {
 	return strings.TrimRight(body, "\n"), ok
 }
 
-// liveChecks are hand-written checks of the trial's matrix.
-var liveChecks = map[string]string{
-	"clickable": `{"id":"vote-a.clickable","outcome":"vote","form":"browser","browser":{"steps":[` +
-		`{"goto":"/battles/1"},{"expect":{"assert":"clickable","locator":{"testid":"vote-a"}}}]}}`,
-	"visible": `{"id":"score-b.visible","outcome":"score","form":"browser","browser":{"steps":[` +
-		`{"goto":"/battles/1"},{"click":{"testid":"vote-b"}},` +
-		`{"expect":{"assert":"visible","locator":{"testid":"score-b"}}}]}}`,
-	"side-by-side": `{"id":"cards.side-by-side","outcome":"layout","form":"browser","browser":{"steps":[` +
-		`{"goto":"/battles/1"},{"expect":{"assert":"no-overlap","locator":{"css":"article[data-side=a]"},` +
-		`"other":{"css":"article[data-side=b]"}}}]}}`,
-}
-
-// liveFailStep is the step (0-based) each live check fails at when it
-// fails: its expect.
-var liveFailStep = map[string]int{"clickable": 1, "visible": 2, "side-by-side": 1}
-
-// TestLiveBrowser reproduces the browser trial's matrix with no model: the
-// overlap build fails clickable (and the cards overlap), the invisible
-// build fails visible, the correct build passes every check; each check
-// alone, through the relay, three replays each, zero flakes. It also
-// drives the relay's own session: open, a goto, a click by ref with its
-// locator recorded, a screenshot kept by digest.
+// TestLiveBrowser drives the relay's own session against the real CLI and
+// Chromium, as an evaluator does: open, a goto, a snapshot, a click by ref
+// with its locator recorded, a screenshot kept by digest, and a goto to
+// another origin refused. (The trial's matrix of compiled checks, each
+// replayed three times, went with the check runner.)
 func TestLiveBrowser(t *testing.T) {
-	want := map[string]map[string]toolwire.RunResult{
-		"correct":   {"clickable": toolwire.RunPass, "visible": toolwire.RunPass, "side-by-side": toolwire.RunPass},
-		"overlap":   {"clickable": toolwire.RunFail, "visible": toolwire.RunPass, "side-by-side": toolwire.RunFail},
-		"invisible": {"clickable": toolwire.RunPass, "visible": toolwire.RunFail, "side-by-side": toolwire.RunPass},
-	}
-	for _, variant := range []string{"correct", "overlap", "invisible"} {
-		t.Run(variant, func(t *testing.T) {
-			e := newLiveEnv(t, variant)
-			h, k := e.relay(t)
-			for _, name := range []string{"clickable", "visible", "side-by-side"} {
-				c := parseLive(t, liveChecks[name])
-				for i := range 3 {
-					rec := h.relay.runCheck(context.Background(), c, toolwire.ModeReplay)
-					if i == 0 && rec.Result != toolwire.RunPass {
-						t.Logf("%s: %s %+v", name, rec.Result, rec.Attempts[0].Steps)
-					}
-					if rec.Result != want[variant][name] {
-						t.Errorf("%s replay %d: %s, want %s (%+v)", name, i+1, rec.Result, want[variant][name],
-							rec.Attempts)
-					}
-					// Review finding 4: a maul assertion throws in maul's
-					// support module; the failing step is still the spec's
-					// own. (These checks are not keyed by a run token, so
-					// they are never red by assertion: F3.)
-					if rec.Result == toolwire.RunFail {
-						for _, a := range rec.Attempts {
-							if last := a.Steps[len(a.Steps)-1]; last.Index != liveFailStep[name] {
-								t.Errorf("%s replay %d: failed at step %d, want step %d (%+v)", name, i+1, last.Index,
-									liveFailStep[name], a.Steps)
-							}
-						}
-					}
-				}
-			}
-			if variant == "correct" {
-				e.driveSession(t, h, k)
-			}
-		})
-	}
-}
-
-// TestLiveBrowserText (D-B4): the pinned test runner's own messages for a
-// failed text assertion. On an element that was there, its text is kept as
-// received, apart from maul's words, for every text matcher; with no
-// element, maul says so and keeps nothing. The expected text names {{run}},
-// so each failure stays an assertion about the run's data.
-func TestLiveBrowserText(t *testing.T) {
 	e := newLiveEnv(t, "correct")
-	h, _ := e.relay(t)
-	text := func(locator, match string) string {
-		return `{"id":"vote-a.text","outcome":"vote","form":"browser","browser":{"steps":[{"goto":"/battles/1"},` +
-			`{"expect":{"assert":"text","locator":` + locator + `,"text":` + match + `}}]}}`
-	}
-	for _, tc := range []struct {
-		name, check, detail, received string
-		assertion                     bool
-	}{
-		{"equals", text(`{"testid":"vote-a"}`, `{"equals":"Vote {{run}}"}`),
-			"the text expectation was not met", "Vote", true},
-		{"contains", text(`{"testid":"vote-a"}`, `{"contains":"Voted {{run}}"}`),
-			"the text expectation was not met", "Vote", true},
-		{"matches", text(`{"testid":"vote-a"}`, `{"matches":"^Voted {{run}}$"}`),
-			"the text expectation was not met", "Vote", true},
-		// A card of several elements, each on a line of its own in the
-		// markup, as a row a server renders: the runner prints a diff, read
-		// back with its whitespace collapsed.
-		{"a card's markup over lines", text(`{"css":"article[data-side=a]"}`, `{"contains":"Voted {{run}}"}`),
-			"the text expectation was not met", "Four on the floor Play Vote 0", true},
-		{"a card's markup over lines, a pattern", text(`{"css":"article[data-side=a]"}`,
-			`{"matches":"^Voted {{run}}$"}`), "the text expectation was not met", "Four on the floor Play Vote 0", true},
-		{"no element", text(`{"testid":"gone"}`, `{"equals":"Vote {{run}}"}`),
-			"the text expectation was not met: no element matched its locator", "", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rec := h.relay.runCheck(context.Background(), parseLive(t, tc.check), toolwire.ModeDryRun)
-			if rec.Result != toolwire.RunFail || len(rec.Attempts) != 2 {
-				t.Fatalf("got %+v", rec)
-			}
-			for _, a := range rec.Attempts {
-				last := a.Steps[len(a.Steps)-1]
-				if last.Index != 1 || last.Assertion != tc.assertion || last.Detail != tc.detail ||
-					last.Received != tc.received {
-					t.Errorf("step %+v; want step 1, assertion %v, detail %q, received %q", last, tc.assertion,
-						tc.detail, tc.received)
-				}
-			}
-		})
-	}
+	h, k := e.relay(t)
+	e.driveSession(t, h, k)
 }
 
-func parseLive(t *testing.T, src string) checks.Check {
-	t.Helper()
-	c, err := checks.Parse([]byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := checks.Preview{Paths: []string{"/api", "/"}, Components: []string{"api", "web"}}
-	if err := checks.Validate(c, checks.Context{Preview: &p}); err != nil {
-		t.Fatalf("%s: %v", c.ID, err)
-	}
-	return c
-}
-
-// relay is a relay over the live env: the real CLI and runner.
+// relay is a relay over the live env: the real CLI.
 func (e *liveEnv) relay(t *testing.T) (*harness, *DirArtifacts) {
 	t.Helper()
 	k := &DirArtifacts{Dir: t.TempDir()}
@@ -470,9 +323,7 @@ func (e *liveEnv) relay(t *testing.T) (*harness, *DirArtifacts) {
 		o.Browser = &BrowserOptions{
 			CLI: PlaywrightCLI{Node: e.node, NodeDir: e.nodeDir, Dir: session, Session: "maul-live-" +
 				filepath.Base(session)},
-			Dir: session,
-			Runner: NodeRunner{Node: e.node, NodeDir: e.nodeDir, TmpDir: t.TempDir(), CDPURL: e.shimURL,
-				KeyFile: e.keyFile, BaseURL: e.frontURL},
+			Dir:        session,
 			Base:       e.frontURL,
 			ConfigFile: cfgFile,
 		}
@@ -524,44 +375,5 @@ func (e *liveEnv) driveSession(t *testing.T, h *harness, k *DirArtifacts) {
 	}
 	if l.Entries[len(l.Entries)-1].Verb != toolwire.VerbFinish || l.Entries[0].Verb != toolwire.VerbSession {
 		t.Errorf("entries do not start with the session and end with finish")
-	}
-}
-
-// TestLiveBrowserMaulFailures (code review 2026-11-18, relay finding 9):
-// with the pinned test runner, maul's own failures to reach the browser
-// (the shim refusing the connection, an unreadable key file) are check
-// errors, never a fail, while an assertion that ran against the real
-// page and did not hold still fails red by assertion. The reports in
-// testdata/browser-reports were captured from this runner the same way.
-func TestLiveBrowserMaulFailures(t *testing.T) {
-	e := newLiveEnv(t, "correct")
-	c := parseCheck(t, reportedTextCheck)
-	for _, tc := range []struct {
-		name            string
-		cdpURL, keyFile string
-		result          toolwire.RunResult
-		asserted        bool
-	}{
-		{name: "the shim refuses the connection", cdpURL: "http://127.0.0.1:1", keyFile: e.keyFile,
-			result: toolwire.RunError},
-		{name: "the key file is unreadable", cdpURL: e.shimURL, keyFile: filepath.Join(t.TempDir(), "absent"),
-			result: toolwire.RunError},
-		{name: "an assertion that did not hold", cdpURL: e.shimURL, keyFile: e.keyFile, result: toolwire.RunFail,
-			asserted: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h, _ := e.relay(t)
-			h.relay.br.Runner = NodeRunner{Node: e.node, NodeDir: e.nodeDir, TmpDir: t.TempDir(), CDPURL: tc.cdpURL,
-				KeyFile: tc.keyFile, BaseURL: e.frontURL}
-			rec := h.relay.runCheck(context.Background(), c, toolwire.ModeReplay)
-			if rec.Result != tc.result {
-				t.Fatalf("result %s, want %s (%+v)", rec.Result, tc.result, rec.Attempts)
-			}
-			for _, a := range rec.Attempts {
-				if last := a.Steps[len(a.Steps)-1]; last.Assertion != tc.asserted {
-					t.Errorf("attempt ends %+v, want assertion %v", last, tc.asserted)
-				}
-			}
-		})
 	}
 }

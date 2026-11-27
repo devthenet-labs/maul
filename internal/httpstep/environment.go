@@ -26,7 +26,7 @@ const (
 )
 
 // Clean reports an environment a hand-off may be ready on: EnvOK only.
-// Decide's HandoffReady and every later reading of a recorded judgement
+// Judge's HandoffReady and every later reading of a recorded judgement
 // (review H2) ask this one question; an unknown class is never clean.
 func (c EnvClass) Clean() bool { return c == EnvOK }
 

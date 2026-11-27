@@ -98,11 +98,11 @@ writing it again.
 ### Acceptance outcomes
 
 This Project's changes are evaluated before a human reviews them: an agent uses each pull request's change, running
-in a live preview, to check that the outcomes the approved plan states hold, and saves the checks it writes. Add one
-more frontmatter field after `estimated_token_budget`, `acceptance`, a list of at most 20 outcomes: each one thing the
-change must make true, or must leave true, in plain words a person could check by using the running application.
-Write no steps, requests or checks: the evaluator decides how to check each outcome. Omit the field when nothing the
-change does can be seen running.
+in a live preview, the way its reviewers would, and reports whether each outcome the approved plan states holds,
+citing what it saw. Add one more frontmatter field after `estimated_token_budget`, `acceptance`, a list of at most 20
+outcomes: each one thing the change must make true, or must leave true, in plain words a person could check by using
+the running application. Write no steps, requests or checks: the evaluator decides how to try each outcome. Omit the
+field when nothing the change does can be seen running.
 
 ```yaml
 acceptance:
@@ -148,15 +148,14 @@ Rules the outcomes keep to:
 
 How to word an outcome so the evaluator can show it:
 
-- The evaluator checks every outcome again in each later round, on a preview whose data persists and is shared by
-  every check: maul never resets it. So write each outcome about an item the person checking creates in that check,
-  never about data that is already there: no "every", "each", "all", "other", "existing" or "saved before", and no
-  global rank, count, or first or last row. Where the request says "each X", write the outcome for an X the check
-  creates. Name two such items where the outcome compares them ("a vote for one of two beats you create moves only
-  that beat").
-- One outcome is one claim a single check can show. Split "X and Y", "on the page and in the API" and "before and
-  after" into separate outcomes; several outcomes may share one `from` line. Aim for about 200 characters, 300 for one
-  that states a rule with its example.
+- The evaluator tries every outcome again in each later round, on a preview whose data persists and is shared by
+  every round: maul never resets it. So write each outcome about an item the person checking creates, never about
+  data that is already there: no "every", "each", "all", "other", "existing" or "saved before", and no global rank,
+  count, or first or last row. Where the request says "each X", write the outcome for an X the person creates. Name
+  two such items where the outcome compares them ("a vote for one of two beats you create moves only that beat").
+- One outcome is one claim the evaluator can see hold or not. Split "X and Y", "on the page and in the API" and
+  "before and after" into separate outcomes; several outcomes may share one `from` line. Aim for about 200
+  characters, 300 for one that states a rule with its example.
 - State concrete values: what a person enters, other than the defaults, and what they then see ("a beat you save at
   90 BPM shows 90 bpm (2.7 s)"). Where the request states a rule, those values are an example of it, never the whole
   outcome (next).
@@ -190,16 +189,17 @@ How to word an outcome so the evaluator can show it:
   with a tolerance ("48 by 48 px, within 1 px"), or the bound the request gives ("at least 48 by 48 px", "at most 320
   px wide"). The rule against a first or last row is about rows of data, not the page's fixed markup. The browser's
   window is always 1280 by 800 CSS pixels.
-- Do not promise a colour: a check cannot assert one. State the visible state a check can read (the step shows as on,
-  its label reads On, its text can be read against its background), or mark the outcome manual.
-- An outcome only data a check cannot create can show (rows the application seeds or makes in the background) is
-  `manual: true`, with that as its reason.
-- A list the application cuts to its first rows (a top 10, the newest 20) holds every check's items, so an item a
-  check creates need not be in it. Read the code to see whether a list is cut. State an outcome about such a list,
-  `keep` ones too, through what a check sees of its own item: its own page or API path, a filter or search the
-  application offers narrowed to it, or what an action on it changes. An outcome about the list itself (its order, its
-  cut, which items it holds) that no such filter narrows to a check's own items, and one the request promises nothing
-  a check can see that way, is `manual: true`, with that as its reason.
+- Do not promise a colour: whether a shade is right is a person's call. State the visible state a person can read
+  (the step shows as on, its label reads On, its text can be read against its background), or mark the outcome
+  manual.
+- An outcome only data the person checking cannot create can show (rows the application seeds or makes in the
+  background) is `manual: true`, with that as its reason.
+- A list the application cuts to its first rows (a top 10, the newest 20) holds every round's items, so an item the
+  person checking creates need not be in it. Read the code to see whether a list is cut. State an outcome about such a
+  list, `keep` ones too, through what the person sees of their own item: its own page or API path, a filter or search
+  the application offers narrowed to it, or what an action on it changes. An outcome about the list itself (its
+  order, its cut, which items it holds) that no such filter narrows to the person's own items, and one the request
+  promises nothing a person can see that way, is `manual: true`, with that as its reason.
 - Name where a person sees each outcome, a page's route or an API path, in the application's own words, with the
   API's name in brackets where it differs from the page's ("a beat (a pattern, /api/patterns)").
 

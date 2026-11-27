@@ -37,9 +37,8 @@ import (
 // finish with automatic fixes halted.
 
 // keyVerifySignature is an acceptance-fix round's input record of the
-// failure it was started for (acceptance.EvaluationFingerprint of its
-// evaluation's fix request):
-// a later verification failing the same way after the round completed
+// failure it was started for (acceptance.OutcomeFingerprint of its
+// evaluation's fix request): a later verification failing the same way after the round completed
 // halts automatic fixes (RepeatedFailure). Never part of the Job's input.
 const keyVerifySignature = "verify-signature"
 
@@ -161,13 +160,12 @@ func (p *pass) guardVerifyFix(ctx context.Context, pv *v1alpha1.PreviewVerificat
 // startVerifyWork is startRound's last steps, once no human's or CI's
 // round started: while a human's feedback is pending (humanPending, its
 // quiet window included) maul starts nothing of its own, and a held preview
-// link is released for it (releaseForHuman), a dispute's follow-up and an
-// escalation (followUpDue) waiting too; then an acceptance-fix round
+// link is released for it (releaseForHuman); then an acceptance-fix round
 // when one is due (startVerifyFix), and last the verification's gate
 // (startVerification).
 func (p *pass) startVerifyWork(ctx context.Context, prs []v1alpha1.IntentPullRequest) (bool, error) {
 	if v := p.in.Status.Verification; p.verifies() && p.mode() != modeMismatch &&
-		(verifyWorkPending(v) || p.linkHeld() || (v != nil && p.followUpDue(v))) {
+		(verifyWorkPending(v) || p.linkHeld()) {
 		if wrote, pending, err := p.releaseForHuman(ctx, prs); wrote || pending || err != nil {
 			// The human's round starts once its quiet window ends, on a
 			// later poll; a held preview link is released now.
@@ -460,7 +458,7 @@ func (p *pass) verifyRoundInput(ctx context.Context, run *v1alpha1.IntentRun) (f
 		return "", verifyFailure{}, fmt.Errorf("%w: verification %s shows no failure to fix", errInputUnavailable,
 			ref.Name)
 	}
-	feedback, err = p.reproduction(ctx, pv, acc, fix, j.checks)
+	feedback, err = p.reproduction(ctx, pv, acc, fix, j)
 	if err != nil {
 		return "", verifyFailure{}, err
 	}

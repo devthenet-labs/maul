@@ -34,13 +34,13 @@ type Type string
 // could not produce a stage result at all. An intent's build stage reports
 // with TypeRemediation — it produces the same changeset payload — and its
 // plan stage with TypePlan; the evaluator's evaluate stage reports with
-// TypeEvaluation and its check reviewer with TypeCheckReview.
+// TypeEvaluation. An earlier release's check reviewer reported with type
+// checkreview, which nothing reads now.
 const (
 	TypeInvestigation Type = "investigation"
 	TypeRemediation   Type = "remediation"
 	TypePlan          Type = "plan"
 	TypeEvaluation    Type = "evaluation"
-	TypeCheckReview   Type = "checkreview"
 	TypeFatal         Type = "fatal"
 )
 
@@ -247,13 +247,7 @@ type Evaluation struct {
 	Stage
 	ReportMarkdown string           `json:"report_markdown,omitempty"`
 	Verdicts       []OutcomeVerdict `json:"verdicts,omitempty"`
-	Disputes       []Dispute        `json:"disputes,omitempty"`
-	// Proposed names the checks the agent asks maul to save: an id, the
-	// outcome it is bound to and the digest of its body. Bodies never
-	// travel here; the tools ledger holds the one that was dry-run.
-	Proposed  []ProposedCheck `json:"proposed,omitempty"`
-	Retire    []Retire        `json:"retire,omitempty"`
-	Anomalies []Anomaly       `json:"anomalies,omitempty"`
+	Anomalies      []Anomaly        `json:"anomalies,omitempty"`
 	// Cited are the ledger seqs, among those the report cites, whose
 	// screenshots agent-runner asked the tools container to emit.
 	Cited []int32 `json:"cited,omitempty"`
@@ -268,61 +262,12 @@ type OutcomeVerdict struct {
 	Note    string  `json:"note,omitempty"`
 }
 
-// Dispute is the evaluator's claim that a failing saved check is not a
-// defect, naming the proposed check that should replace it.
-type Dispute struct {
-	CheckDigest string  `json:"check_digest"`
-	Reason      string  `json:"reason"`
-	Replacement string  `json:"replacement,omitempty"`
-	Ledger      []int32 `json:"ledger,omitempty"`
-}
-
-// ProposedCheck names one check the evaluator proposes to save.
-type ProposedCheck struct {
-	ID      string `json:"id"`
-	Outcome string `json:"outcome"`
-	Digest  string `json:"digest"`
-	// Expect is fail for a check proposed to show a defect.
-	Expect string `json:"expect,omitempty"`
-}
-
-// Retire is the evaluator's request to retire a saved check.
-type Retire struct {
-	CheckDigest string `json:"check_digest"`
-	Reason      string `json:"reason"`
-}
-
 // Anomaly is something the look-around found outside the outcomes, with
 // the ledger entries that show it.
 type Anomaly struct {
 	Summary string  `json:"summary"`
 	Route   string  `json:"route"`
 	Ledger  []int32 `json:"ledger,omitempty"`
-}
-
-// CheckReview is an intent checkreview stage's event payload: one answer
-// per new check, each from its own fresh session, keyed by the check's and
-// its outcome's digests (agent-runner's, from its handoff; the agent never
-// writes them). The answers are the reviewer's claims, held to their
-// grammar by agentresult.FromCheckReview.
-type CheckReview struct {
-	Stage
-	Answers []ReviewAnswer `json:"answers,omitempty"`
-}
-
-// ReviewAnswer is the reviewer's answer on whether one check proves one
-// outcome: proves, does_not_prove or unclear.
-//
-// Unreviewed marks an answer agent-runner wrote itself, unclear, for a
-// check whose review session ended without a report it accepts (refused
-// after its repairs, or the session failed): the check is not saved this
-// round, and the answer is not the reviewer's to cache.
-type ReviewAnswer struct {
-	CheckDigest   string `json:"check_digest"`
-	OutcomeDigest string `json:"outcome_digest"`
-	Answer        string `json:"answer"`
-	Reason        string `json:"reason"`
-	Unreviewed    bool   `json:"unreviewed,omitempty"`
 }
 
 // Event is one envelope line.
@@ -339,7 +284,6 @@ type Event struct {
 	Remediation   *Remediation   `json:"remediation,omitempty"`
 	Plan          *Plan          `json:"plan,omitempty"`
 	Evaluation    *Evaluation    `json:"evaluation,omitempty"`
-	CheckReview   *CheckReview   `json:"checkreview,omitempty"`
 	// Error is set on fatal events.
 	Error string `json:"error,omitempty"`
 }

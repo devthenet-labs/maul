@@ -21,7 +21,6 @@ import (
 	"time"
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/previewauth"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -33,8 +32,8 @@ const Port = 8090
 // address, the guard refusing local callers.
 const listenAddr = ":8090"
 
-// ReadyPath answers 200 once the replay is recorded and the relay serves
-// the agent: the container's readiness probe, and so status.tools.ready.
+// ReadyPath answers 200 once the relay serves the agent: the container's
+// readiness probe, and so status.tools.ready.
 const ReadyPath = "/readyz"
 
 // Options configure a Relay.
@@ -76,9 +75,9 @@ type Options struct {
 	ReadyWait time.Duration
 }
 
-// Relay is the tools container's relay: the agent's tool endpoints, the
-// replay and confirmation runs, and the ledger they all write. One call
-// runs at a time, so the ledger's order is the calls' order.
+// Relay is the tools container's relay: the agent's tool endpoints and the
+// ledger they all write. One call runs at a time, so the ledger's order is
+// the calls' order.
 type Relay struct {
 	cfg      Config
 	dir      string
@@ -100,36 +99,14 @@ type Relay struct {
 	entries   int
 	calls     int // the agent's calls, refused ones included
 	artifacts map[int64]map[string]bool
-	dryRuns   map[string]dryRun // by bare digest
-	replays   []toolwire.CheckRunRecord
-	dryOrder  []string
 	finished  bool
 	reopened  bool // the browser session was reopened once
 	summary   toolwire.Summary
 	done      chan struct{}
-	// A workspace's state: whether each tree built, whether the base's
-	// build failed (unbuildable, not merely not built), whether a side that
-	// built could not be kept (no check run can start from it), the base
-	// runs spent (MaxBaseRuns), the base replays and each check's latest
-	// base dry run.
+	// A workspace's state: whether each tree built, and whether the base's
+	// build failed (unbuildable, not merely not built).
 	headBuilt, baseBuilt bool
 	baseUnbuildable      bool
-	keptCopyFailed       bool
-	baseRuns             int
-	baseReplays          []toolwire.CheckRunRecord
-	baseDry              map[string]toolwire.CheckRunRecord
-	baseDryOrder         []string
-}
-
-// dryRun is the agent's dry runs of one check.
-type dryRun struct {
-	check checks.Check
-	green bool
-	// red: some dry run was red by assertion (AssertionStep), redStep
-	// the step (0-based) the latest such run failed at.
-	red     bool
-	redStep int
-	latest  toolwire.CheckRunRecord
 }
 
 // NewRelay builds a Relay writing its ledger to o.Out.
@@ -143,7 +120,7 @@ func NewRelay(o Options) (*Relay, error) {
 	r := &Relay{
 		cfg: o.Config, dir: o.Dir, client: o.Client, execer: o.Exec, store: o.Artifacts, br: o.Browser, token: o.Token,
 		now: o.Now, termPath: o.TerminationPath, ledger: toolwire.NewWriter(o.Out),
-		artifacts: map[int64]map[string]bool{}, dryRuns: map[string]dryRun{}, done: make(chan struct{}),
+		artifacts: map[int64]map[string]bool{}, done: make(chan struct{}),
 	}
 	if r.token == nil {
 		r.token = randomToken
@@ -172,7 +149,6 @@ func (r *Relay) workspaceOptions(o Options) error {
 	if r.readyWait <= 0 {
 		r.readyWait = defaultReadyWait
 	}
-	r.baseDry = map[string]toolwire.CheckRunRecord{}
 	return nil
 }
 
@@ -194,9 +170,10 @@ type result struct {
 	locators        []string
 	observed        *toolwire.Observed
 	artifacts       []toolwire.Artifact
-	checkRun        *toolwire.CheckRunRecord
 	// side is the side a workspace call ran at, as recorded: "" or base.
 	side toolwire.Side
+	// notRun is a run whose program never ran (toolwire.LedgerEntry.NotRun).
+	notRun bool
 }
 
 func refusal(code, reason string) result { return result{refused: code, reason: reason} }
@@ -262,23 +239,14 @@ var endpoints = []endpoint{
 			}
 			return r.events()
 		})},
-	{toolwire.VerbCheckRun, toolwire.KindAgent, func() toolwire.Request { return &toolwire.CheckRunRequest{} },
-		agentCall(toolwire.VerbCheckRun, func(ctx context.Context, r *Relay, req *toolwire.CheckRunRequest) result {
-			return r.checkRun(ctx, req)
-		})},
-	{toolwire.VerbCheckResults, toolwire.KindAgent, func() toolwire.Request { return &toolwire.CheckResultsRequest{} },
-		func(_ context.Context, r *Relay, req toolwire.Request) toolwire.Response { return r.checkResults(req) }},
-	{toolwire.VerbConfirm, toolwire.KindRunner, func() toolwire.Request { return &toolwire.ConfirmRequest{} },
-		func(ctx context.Context, r *Relay, req toolwire.Request) toolwire.Response {
-			return r.confirm(ctx, req.(*toolwire.ConfirmRequest))
-		}},
 	{toolwire.VerbFinish, toolwire.KindRunner, func() toolwire.Request { return &toolwire.FinishRequest{} },
 		func(_ context.Context, r *Relay, req toolwire.Request) toolwire.Response {
 			return r.finish(toolwire.KindRunner, req, req.(*toolwire.FinishRequest).Evidence)
 		}},
 }
 
-// Handler serves the tool endpoints (POST /v1/<verb>) and ReadyPath.
+// Handler serves the tool endpoints (POST /v1/<verb>) and ReadyPath. Any
+// other path, the check runner's retired ones among them, is no tool.
 func (r *Relay) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+ReadyPath, func(w http.ResponseWriter, _ *http.Request) {
@@ -365,9 +333,8 @@ func (r *Relay) recordResult(kind toolwire.Kind, verb toolwire.Verb, args any, r
 		raw = b
 	}
 	e := toolwire.LedgerEntry{Kind: kind, Verb: verb, Side: res.side, Args: raw, Exit: res.exit, Refused: res.refused,
-		Reason: refusedReason(res),
-		Output: res.output, Inline: res.inline, Artifacts: res.artifacts, Locators: res.locators,
-		CheckRun: res.checkRun}
+		Reason: refusedReason(res), NotRun: res.notRun && res.refused == "",
+		Output: res.output, Inline: res.inline, Artifacts: res.artifacts, Locators: res.locators}
 	seq, err := r.record(e)
 	if err != nil {
 		reason := "the ledger has no room for this call"
@@ -454,7 +421,7 @@ func (r *Relay) http(ctx context.Context, req *toolwire.HTTPRequest) result {
 // the headers in order, a blank line and the body.
 func exchange(rep reply) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "HTTP %d\n", rep.Status)
+	fmt.Fprintf(&b, "%s%d\n", toolwire.HTTPExchangePrefix, rep.Status)
 	names := make([]string, 0, len(rep.Header))
 	for k := range rep.Header {
 		names = append(names, k)
@@ -468,189 +435,6 @@ func exchange(rep reply) string {
 	b.WriteString("\n")
 	b.Write(rep.Body)
 	return b.String()
-}
-
-// checkRun answers `maul-tool check run`: validate, then a dry run under
-// a fresh token, recorded against the check's digest.
-func (r *Relay) checkRun(ctx context.Context, req *toolwire.CheckRunRequest) result {
-	if r.cfg.IsWorkspace() {
-		return r.workspaceCheckRun(ctx, req)
-	}
-	if req.Side.Recorded() != "" {
-		return refusal(toolwire.RefusedInvalid, reasonOneTree)
-	}
-	c, err := checks.ParseProposal(req.Spec)
-	if err == nil {
-		preview := checks.Preview{Paths: r.cfg.paths(), Components: r.cfg.keys()}
-		err = checks.Validate(c, checks.Context{Preview: &preview})
-	}
-	if err != nil {
-		return refusal(toolwire.RefusedCheck, err.Error())
-	}
-	if c.Form == checks.FormBrowser && (r.br == nil || r.br.Runner == nil) {
-		return refusal(toolwire.RefusedUnavailable, reasonNoBrowser)
-	}
-	if c.Form == checks.FormExec && r.execer == nil {
-		return refusal(toolwire.RefusedUnavailable, reasonNoSandbox)
-	}
-	return r.headDryRun(ctx, c)
-}
-
-// headDryRun is a dry run of c (at the head, the slot's one tree), kept
-// against its digest for confirm.
-func (r *Relay) headDryRun(ctx context.Context, c checks.Check) result {
-	rec := r.runCheck(ctx, c, toolwire.ModeDryRun)
-	d := r.dryRuns[rec.Digest]
-	if _, seen := r.dryRuns[rec.Digest]; !seen {
-		r.dryOrder = append(r.dryOrder, rec.Digest)
-	}
-	d.check, d.latest = c, rec
-	d.green = d.green || rec.Result == toolwire.RunPass
-	if step, ok := rec.AssertionStep(); ok {
-		d.red, d.redStep = true, step
-	}
-	r.dryRuns[rec.Digest] = d
-	return result{checkRun: &rec, observed: &toolwire.Observed{CheckRun: &rec}}
-}
-
-// workspaceCheckRun is checkRun in a workspace: the check validated for
-// the workspace's surface, then a dry run at the side asked for. Only a
-// head dry run counts towards confirming; a base one is shown and kept,
-// and spends none of the base runs a replay or a confirmation needs
-// (MaxBaseRuns): the agent's calls bound it.
-func (r *Relay) workspaceCheckRun(ctx context.Context, req *toolwire.CheckRunRequest) result {
-	side := req.Side.Recorded()
-	c, err := checks.ParseProposal(req.Spec)
-	if err == nil {
-		err = checks.Validate(c, r.workspaceSurface())
-	}
-	if err != nil {
-		return sideRefusal(side, toolwire.RefusedCheck, err.Error())
-	}
-	if why := r.runnable(side); why != "" {
-		return sideRefusal(side, toolwire.RefusedUnavailable, why)
-	}
-	if side != toolwire.SideBase {
-		return r.headDryRun(ctx, c)
-	}
-	rec := r.runCheckAt(ctx, c, toolwire.ModeDryRun, false, side)
-	if _, seen := r.baseDry[rec.Digest]; !seen {
-		r.baseDryOrder = append(r.baseDryOrder, rec.Digest)
-	}
-	r.baseDry[rec.Digest] = rec
-	return withSide(side, result{checkRun: &rec, observed: &toolwire.Observed{CheckRun: &rec}})
-}
-
-// checkResults answers `maul-tool check results`: the replay, then each
-// dry-run check's latest run.
-func (r *Relay) checkResults(req toolwire.Request) toolwire.Response {
-	runs := slices.Concat(r.replays, r.baseReplays)
-	for _, d := range r.dryOrder {
-		runs = append(runs, r.dryRuns[d].latest)
-	}
-	for _, d := range r.baseDryOrder {
-		runs = append(runs, r.baseDry[d])
-	}
-	resp := r.recordResult(toolwire.KindAgent, toolwire.VerbCheckResults, req, result{})
-	if resp.Refused == "" {
-		resp.Observed = &toolwire.Observed{CheckRuns: runs}
-	}
-	return resp
-}
-
-// confirm answers the runner's confirm: each named check run alone under
-// fresh tokens, each run a relay entry. A check expected to pass must have a
-// green dry run; one expected to fail (a check showing a defect) a dry run
-// red by assertion and none green, and its entry records the expectation.
-func (r *Relay) confirm(ctx context.Context, req *toolwire.ConfirmRequest) toolwire.Response {
-	if why := r.confirmable(); why != "" {
-		return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedUnavailable, why))
-	}
-	for _, d := range req.Digests {
-		dr := r.dryRuns[d]
-		switch red := slices.Contains(req.ExpectFail, d); {
-		case red && (!dr.red || dr.green || r.replayed(d, toolwire.RunPass)):
-			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoRedDryRun,
-				"check "+d+" has no dry run in this evaluation that failed an assertion, or one ran green, or it "+
-					"replayed green this round"))
-		// The run-data rule is the slot's (SPEC S2-04): a workspace's
-		// writable tree is the side's own, no store other runs share.
-		case red && !r.cfg.IsWorkspace() && checks.ValidateRed(dr.check, dr.redStep) != nil:
-			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedRedRule,
-				"check "+d+" cannot show a defect: "+checks.ValidateRed(dr.check, dr.redStep).Error()))
-		case !red && (!dr.green || r.replayed(d, toolwire.RunFail)):
-			return r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, refusal(toolwire.RefusedNoDryRun,
-				"check "+d+" has no green dry run in this evaluation, or it replayed red this round"))
-		}
-	}
-	resp := r.recordResult(toolwire.KindRunner, toolwire.VerbConfirm, req, result{})
-	if resp.Refused != "" {
-		return resp
-	}
-	var runs []toolwire.CheckRunRecord
-	for _, d := range req.Digests {
-		rec := r.runCheckAs(ctx, r.dryRuns[d].check, toolwire.ModeConfirm, slices.Contains(req.ExpectFail, d))
-		args := toolwire.ConfirmArgs{Digest: d}
-		if slices.Contains(req.ExpectFail, d) {
-			args.Expect = toolwire.ExpectFail
-		}
-		if _, err := r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbConfirm,
-			Args: mustArgs(args), CheckRun: &rec}); err != nil {
-			return toolwire.Response{Seq: resp.Seq, Refused: toolwire.RefusedToolCalls,
-				Reason: "the ledger has no room for the confirmation runs"}
-		}
-		runs = append(runs, rec)
-		if err := r.confirmBase(ctx, d); err != nil {
-			return toolwire.Response{Seq: resp.Seq, Refused: toolwire.RefusedToolCalls,
-				Reason: "the ledger has no room for the confirmation runs"}
-		}
-	}
-	resp.Observed = &toolwire.Observed{CheckRuns: runs}
-	return resp
-}
-
-// replayed reports a replay of check d this round that ended result: a
-// saved check that replayed green is never confirmed red, nor one that
-// replayed red confirmed green (review finding 3).
-func (r *Relay) replayed(d string, result toolwire.RunResult) bool {
-	return slices.ContainsFunc(r.replays, func(rec toolwire.CheckRunRecord) bool {
-		return rec.Digest == d && rec.Result == result
-	})
-}
-
-// confirmBase is a workspace's confirmation of check d at the base (SPEC
-// Q26), its entry's args and steps naming the base; nothing in the slot,
-// nor once MaxBaseRuns are spent. The confirm's response keeps the head's
-// runs.
-func (r *Relay) confirmBase(ctx context.Context, d string) error {
-	if !r.cfg.IsWorkspace() {
-		return nil
-	}
-	base, ok := r.baseRun(ctx, r.dryRuns[d].check, toolwire.ModeConfirm)
-	if !ok {
-		return nil
-	}
-	_, err := r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbConfirm,
-		Args: mustArgs(baseConfirmArgs{Digest: d, Side: toolwire.SideBase}), CheckRun: &base})
-	return err
-}
-
-// baseConfirmArgs are the args of a confirmation run at the base: the
-// confirm entry's verb runs in no sandbox of its own, so its side is in its
-// args (and on its steps). No expectation is recorded: a check's base
-// expectation is its outcome's (change or keep), Decide's to judge.
-type baseConfirmArgs struct {
-	Digest string        `json:"digest"`
-	Side   toolwire.Side `json:"side"`
-}
-
-// confirmable is why nothing can be confirmed ("" when it can): a
-// workspace whose head did not build.
-func (r *Relay) confirmable() string {
-	if !r.cfg.IsWorkspace() {
-		return ""
-	}
-	return r.runnable("")
 }
 
 // keyed reports whether a call may reach a tool: always in the slot; in a
@@ -669,53 +453,13 @@ const reasonOneTree = "this tool pod has one tree: the base side is a workspace'
 // Finish reasons, the args of the relay's own finish entry.
 const (
 	FinishDeadline    = "deadline"
-	FinishReplayOnly  = "replay-only"
 	FinishUnreachable = "components-unreachable"
 	FinishStopped     = "stopped"
 	// FinishBuildFailed: a workspace's head did not build, so the relay
 	// never serves (S2-B5): no evaluator is launched for a round that
 	// cannot be judged.
 	FinishBuildFailed = ReasonBuildFailed
-	// FinishKeptCopyFailed: a workspace's tree built, but its sandbox
-	// could not keep the tree and build output a check run starts from
-	// (review VC-2: a full volume, a file the copy cannot make), so every
-	// check run there would be an error with no cause. The relay never
-	// serves; the round is maul's trouble, never judged.
-	FinishKeptCopyFailed = "kept-copy-failed"
 )
-
-// ReplayFinished reports a ledger the relay finished on its own account at
-// the end of a replay round's replay (FinishReplayOnly): only then did every
-// saved check get its turn. A replay round's relay that finished at its wall
-// clock or because its container was told to stop (FinishDeadline,
-// FinishStopped), or whose finish entry did not fit, may have left saved
-// checks unreplayed, and its round is maul's trouble, never judged (review
-// VC-3).
-func ReplayFinished(entries []toolwire.LedgerEntry) bool {
-	return relayFinish(entries) == FinishReplayOnly
-}
-
-// KeptCopyFailed reports a ledger the relay finished on its own account
-// because a sandbox could not keep a built tree (FinishKeptCopyFailed).
-func KeptCopyFailed(entries []toolwire.LedgerEntry) bool {
-	return relayFinish(entries) == FinishKeptCopyFailed
-}
-
-// relayFinish is the reason of the ledger's first finish entry when it is
-// the relay's own and reads; "" otherwise.
-func relayFinish(entries []toolwire.LedgerEntry) string {
-	i := slices.IndexFunc(entries, func(e toolwire.LedgerEntry) bool { return e.Verb == toolwire.VerbFinish })
-	if i < 0 || entries[i].Kind != toolwire.KindRelay {
-		return ""
-	}
-	var args struct {
-		Reason string `json:"reason"`
-	}
-	if json.Unmarshal(entries[i].Args, &args) != nil {
-		return ""
-	}
-	return args.Reason
-}
 
 // finish records the finish entry, emits the cited evidence, closes the
 // ledger and writes the termination message. kind is the runner's or the
@@ -739,8 +483,8 @@ func (r *Relay) finish(kind toolwire.Kind, args any, refs []toolwire.EvidenceRef
 	return toolwire.Response{Seq: seq, Reason: out, Observed: &toolwire.Observed{Summary: &sum}}
 }
 
-// finishRelay finishes on the relay's own account (a deadline, a replay
-// round, an unreachable component), once.
+// finishRelay finishes on the relay's own account (a deadline, an
+// unreachable component, a head that did not build), once.
 func (r *Relay) finishRelay(reason string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

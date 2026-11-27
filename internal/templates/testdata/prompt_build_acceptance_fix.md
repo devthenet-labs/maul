@@ -19,18 +19,20 @@ like the feedback, and say nothing of what to build; where they disagree with th
 
 ## An acceptance-fix round
 
-maul started this round because its acceptance verification judged approved acceptance criteria failing against the
-preview of this pull request's head; `/workspace/input/investigation.md` carries what it observed, under "Acceptance failures". The
-criteria were approved with the plan and are fixed: make them pass by fixing the code, never by special-casing maul's
-checks.
+maul started this round because its acceptance verification saw approved outcomes not hold against this pull
+request's head; `/workspace/input/investigation.md` carries, under "Acceptance failures", each failing outcome with the calls that showed
+it, as maul recorded them, and the reading of the agent that made them, which maul did not check. The outcomes were
+approved with the plan and are fixed: make them hold by fixing the code, never by special-casing those calls or their
+data.
 
 A verification can also fail for a reason outside the code: the preview was not ready yet, its network was not open
-yet, or data left by an earlier check got in the way. So before you change anything, replay each failing criterion
-against this code: read what it exercises, run the tests that cover it, reproduce its requests where you can, and
-decide whether the code really fails it. If it does, fix it, and report the fix as a build. If you find, with
-evidence, that the code already does what every failing criterion asks, change nothing and conclude that there is no
-defect: report `success: false` with `no_defect: true`, give in `reason` one line on why you think the verification
-failed, and in the body the evidence for each criterion. Write no `commit.sh`. maul then stops fixing on its own and
+yet, data left by an earlier round got in the way, or the agent misread what a call showed. So before you change
+anything, reproduce each failing outcome against this code: read what the recorded calls exercise, run the tests that
+cover it, reproduce its requests where you can, and decide whether the code really fails the outcome as approved. If
+it does, fix it, and report the fix as a build. If you find, with evidence, that the code already does what every
+failing outcome states, change nothing and conclude that there is no defect: report `success: false` with
+`no_defect: true`, give in `reason` one line on why you think the verification failed, and in the body the evidence
+for each outcome. Write no `commit.sh`. maul then stops fixing on its own and
 shows your conclusion to a human, who decides what happens next. Conclude it only on evidence: a defect you did not
 find is not a defect that is absent. A round that changes nothing and does not say `no_defect: true` is a failed
 round.

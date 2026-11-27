@@ -17,266 +17,24 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/envelope"
-	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/jobs"
-	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
-	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
-// TestFailedStepsKeepTheProgramsLine (gate D-B1): the app output a failure
-// shows carries what a marked program printed, attempt by attempt, as the
-// step's detail recorded it.
-func TestFailedStepsKeepTheProgramsLine(t *testing.T) {
-	const d = "the program printed its assertion marker: busy-full: Busy returned 45, want 48"
-	step := toolwire.StepRecord{Result: toolwire.ResultFail, Detail: d, Assertion: true,
-		AssertionID: "marker busy-full"}
-	r := &toolwire.CheckRunRecord{Result: toolwire.RunFail, Attempts: []toolwire.Attempt{
-		{Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{step}},
-		{Result: toolwire.ResultFail, Steps: []toolwire.StepRecord{step}}}}
-	want := "attempt 1, step 1: " + d + "\nattempt 2, step 1: " + d
-	if got := failedSteps(r); got != want {
-		t.Errorf("failedSteps = %q, want %q", got, want)
-	}
-}
-
-// outcomesPlan's outcomes, as Decide answers for them.
+// outcomesPlan's outcomes.
 const (
 	oVersion = "version-shown"
 	oHealthy = "still-healthy"
 	oManual  = "looks-right"
 )
 
-// judged is Decide's result for one outcome.
-func judged(id string, r acceptance.Result, reason, basis string) acceptance.OutcomeResult {
-	return acceptance.OutcomeResult{ID: id, Result: r, Reason: reason, Basis: basis}
-}
-
-// judgeRoute is one route of TestJudgementRoutes: a decision, what the
-// humans did, and what each view must say.
+// judgeRoute is what the humans did around a round's judgement
+// (routeRecords).
 type judgeRoute struct {
-	name                   string
-	version                acceptance.OutcomeResult
-	healthy                acceptance.OutcomeResult
-	fix, replay, anomaly   bool
-	env                    httpstep.EnvClass
-	noDefect, acceptManual bool
-	acceptVersion          bool
+	acceptManual, acceptVersion, noDefect bool
 	// rearm is when an approver's /maul verify fix re-armed automatic
 	// fixes, relative to the no-defect conclusion (zero: none did).
-	rearm                       time.Duration
-	state                       v1alpha1.IntentVerificationState
-	progress, status, held, why string
-	disputed                    int
-	// doubted counts the outcomes the hand-off says the evaluator judged
-	// not to hold, unproven (gate D-B6).
-	doubted                     int32
-	versionResult, manualResult v1alpha1.OutcomeResultValue
-	// description is the maul/acceptance description and line a sentence
-	// of the verification comment, each checked when given (review H2).
-	description, line string
-}
-
-// TestJudgementRoutes: every route a round's decision can take, to the
-// state the Intent records, the issue's progress clause, the maul/acceptance
-// status and the hand-off: ready only with every outcome confirmed or
-// accepted (a manual one by an approver); a fix request Failing with the
-// link held; a fix at heads a fix round found no defect in Exhausted
-// (D3); a dispute's replay round held and Unconfirmed; an anomaly, a
-// failing environment, a quarantined or a model-only outcome released as
-// "couldn't confirm" with maul's reason, its maul/acceptance a final error
-// (S1-29); an approver's acceptance of the failing outcome closes it.
-func TestJudgementRoutes(t *testing.T) {
-	check := savedCheck(t, versionCheck)
-	pass := func(id string) acceptance.OutcomeResult {
-		return judged(id, acceptance.ResultPassed, acceptance.ReasonConfirmed, check.Digest)
-	}
-	fail := judged(oVersion, acceptance.ResultFailed, acceptance.ReasonReproduced, "")
-	for _, tc := range []judgeRoute{
-		{name: "ready", version: pass(oVersion), healthy: pass(oHealthy), acceptManual: true,
-			state: v1alpha1.VerificationPassed, progress: templates.VerifyPassed, status: statusSuccess,
-			held: templates.HandoffReady, versionResult: v1alpha1.OutcomePassed, manualResult: v1alpha1.OutcomeAccepted},
-		{name: "manual open", version: pass(oVersion), healthy: pass(oHealthy),
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyUnsure, versionResult: v1alpha1.OutcomePassed,
-			manualResult: v1alpha1.OutcomeUnsure},
-		{name: "fix", version: fail, healthy: pass(oHealthy), fix: true, acceptManual: true,
-			state: v1alpha1.VerificationFailing, progress: templates.VerifyFailing, status: statusFailure,
-			held: templates.HandoffHeld, versionResult: v1alpha1.OutcomeFailed, manualResult: v1alpha1.OutcomeAccepted},
-		{name: "fix after no defect", version: fail, healthy: pass(oHealthy), fix: true, noDefect: true,
-			state: v1alpha1.VerificationExhausted, progress: templates.VerifyExhausted, status: statusFailure,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyRounds, versionResult: v1alpha1.OutcomeFailed,
-			manualResult: v1alpha1.OutcomeUnsure},
-		// The human always wins: an approver's /maul verify fix after the
-		// no-defect conclusion lets maul fix the failure again; one before
-		// it does not outlive it.
-		{name: "fix after no defect and a re-arm", version: fail, healthy: pass(oHealthy), fix: true,
-			noDefect: true, rearm: time.Minute, acceptManual: true, state: v1alpha1.VerificationFailing,
-			progress: templates.VerifyFailing, status: statusFailure, held: templates.HandoffHeld,
-			versionResult: v1alpha1.OutcomeFailed, manualResult: v1alpha1.OutcomeAccepted},
-		{name: "fix after a re-arm and then no defect", version: fail, healthy: pass(oHealthy), fix: true,
-			noDefect: true, rearm: -time.Hour, state: v1alpha1.VerificationExhausted,
-			progress: templates.VerifyExhausted, status: statusFailure, held: templates.HandoffUnconfirmed,
-			why: templates.HandoffWhyRounds, versionResult: v1alpha1.OutcomeFailed,
-			manualResult: v1alpha1.OutcomeUnsure},
-		{name: "fix accepted", version: fail, healthy: pass(oHealthy), fix: true, acceptManual: true,
-			acceptVersion: true, state: v1alpha1.VerificationPassed, progress: templates.VerifyPassed,
-			status: statusSuccess, held: templates.HandoffReady, versionResult: v1alpha1.OutcomeAccepted,
-			manualResult: v1alpha1.OutcomeAccepted},
-		{name: "dispute replays", version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonDisputed, ""),
-			healthy: pass(oHealthy), replay: true, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
-			progress: templates.VerifyUnconfirmed, status: statusPending, held: templates.HandoffHeld, disputed: 1,
-			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
-		// A look-around anomaly is a note for the reviewer: it holds nothing.
-		{name: "anomaly", version: pass(oVersion), healthy: pass(oHealthy), anomaly: true, acceptManual: true,
-			state: v1alpha1.VerificationPassed, progress: templates.VerifyPassed, status: statusSuccess,
-			held: templates.HandoffReady, versionResult: v1alpha1.OutcomePassed,
-			manualResult: v1alpha1.OutcomeAccepted},
-		{name: "environment failed",
-			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonEnvFailed, ""),
-			healthy: pass(oHealthy), env: httpstep.EnvAppFailure, acceptManual: true,
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment,
-			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
-		{name: "machinery failed",
-			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonInfra, ""),
-			healthy: pass(oHealthy), env: httpstep.EnvInfra, acceptManual: true,
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyInfra,
-			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
-		// The H2 follow-up: every outcome passed, no anomaly, but the
-		// environment was not clean, which Decide never hands off ready on:
-		// neither does any view, the outcomes' results notwithstanding.
-		{name: "every outcome passed in a failing environment", version: pass(oVersion), healthy: pass(oHealthy),
-			env: httpstep.EnvAppFailure, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
-			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
-			why: templates.HandoffWhyEnvironment, versionResult: v1alpha1.OutcomePassed,
-			manualResult: v1alpha1.OutcomeAccepted,
-			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but the preview failed while it was " +
-				"checked",
-			line: "Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: the preview failed while it " +
-				"was checked; 0 of 2 automatic fixes used."},
-		// Review H3: maul's own machinery failing is never called the
-		// preview failing.
-		{name: "every outcome passed on failing machinery", version: pass(oVersion), healthy: pass(oHealthy),
-			env: httpstep.EnvInfra, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
-			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
-			why: templates.HandoffWhyInfra, versionResult: v1alpha1.OutcomePassed,
-			manualResult: v1alpha1.OutcomeAccepted,
-			description: "maul couldn't confirm this: 3/3 outcomes confirmed, but its own checking environment " +
-				"failed while it checked",
-			line: "Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: its own checking environment " +
-				"failed while it checked; 0 of 2 automatic fixes used."},
-		{name: "quarantined",
-			version: judged(oVersion, acceptance.ResultQuarantined, acceptance.ReasonQuarantined, ""),
-			healthy: pass(oHealthy), acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
-			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
-			why: templates.HandoffWhyUnsure, versionResult: v1alpha1.OutcomeQuarantined,
-			manualResult: v1alpha1.OutcomeAccepted},
-		{name: "model only",
-			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyPass, ""),
-			healthy: pass(oHealthy), acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
-			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
-			why: templates.HandoffWhyUnsure, versionResult: v1alpha1.OutcomeUnsure,
-			manualResult: v1alpha1.OutcomeAccepted},
-		// Gate D-B6: outcomes the evaluator judged not to hold, with no check
-		// maul re-ran showing it, lead the hand-off, counted and never
-		// called failing; an anomaly beside them is a note the hand-off does
-		// not name.
-		{name: "model only fail with an anomaly",
-			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail, ""),
-			healthy: pass(oHealthy), anomaly: true, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
-			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
-			why: templates.HandoffWhyEvaluatorDoubts, doubted: 1,
-			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
-		{name: "model only fail on two outcomes",
-			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail, ""),
-			healthy: judged(oHealthy, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail, ""), acceptManual: true,
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEvaluatorDoubts, doubted: 2,
-			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
-		{name: "unsure with an anomaly",
-			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyPass, ""),
-			healthy: pass(oHealthy), anomaly: true, acceptManual: true, state: v1alpha1.VerificationUnconfirmed,
-			progress: templates.VerifyUnconfirmed, status: statusError, held: templates.HandoffUnconfirmed,
-			why: templates.HandoffWhyUnsure, versionResult: v1alpha1.OutcomeUnsure,
-			manualResult: v1alpha1.OutcomeAccepted},
-		{name: "environment failed with an anomaly",
-			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonEnvFailed, ""),
-			healthy: pass(oHealthy), env: httpstep.EnvAppFailure, anomaly: true, acceptManual: true,
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment,
-			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
-		// A failing environment may be why the evaluator judged an outcome
-		// not to hold: it stays the reason.
-		{name: "model only fail in a failing environment",
-			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail, ""),
-			healthy: pass(oHealthy), env: httpstep.EnvAppFailure, anomaly: true, acceptManual: true,
-			state: v1alpha1.VerificationUnconfirmed, progress: templates.VerifyUnconfirmed, status: statusError,
-			held: templates.HandoffUnconfirmed, why: templates.HandoffWhyEnvironment,
-			versionResult: v1alpha1.OutcomeUnsure, manualResult: v1alpha1.OutcomeAccepted},
-		// An outcome an approver accepted is in no doubt: with every one
-		// confirmed or accepted, the round passes beside its note.
-		{name: "model only fail accepted with an anomaly",
-			version: judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyFail, ""),
-			healthy: pass(oHealthy), anomaly: true, acceptManual: true, acceptVersion: true,
-			state: v1alpha1.VerificationPassed, progress: templates.VerifyPassed, status: statusSuccess,
-			held: templates.HandoffReady, versionResult: v1alpha1.OutcomeAccepted,
-			manualResult: v1alpha1.OutcomeAccepted},
-	} {
-		t.Run(tc.name, func(t *testing.T) { checkJudgeRoute(t, tc, check) })
-	}
-}
-
-// checkJudgeRoute drives one route: an evaluation in flight, the decision
-// written as a judgement is, then every view of it.
-func checkJudgeRoute(t *testing.T, tc judgeRoute, check v1alpha1.SavedCheck) {
-	t.Helper()
-	e, name := newEvaluatorEnv(t, 0.4)
-	e.review(name, 3)
-	if v := e.verification(name); v.State != v1alpha1.VerificationEvaluating || v.Handoff == nil {
-		t.Fatalf("verification = %+v, want an evaluation in flight with its hand-off recorded", v)
-	}
-	j := routeJudgement(tc, check)
-	p := e.prVerifyPass(name)
-	e.setStatus(name, func(in *v1alpha1.Intent) {
-		routeRecords(in, tc, e.clock.Now())
-		applyJudgement(in, j, time.Now())
-		p.releaseIfDue(in)
-	})
-	v := e.verification(name)
-	if v.State != tc.state || len(v.Disputed) != tc.disputed {
-		t.Fatalf("state = %s, disputed %v; want %s, %d", v.State, v.Disputed, tc.state, tc.disputed)
-	}
-	if r := v.Outcomes[0]; r.Result != tc.versionResult || (r.Result == v1alpha1.OutcomePassed &&
-		!strings.HasPrefix(r.Line, "http to app: POST /notes, GET /version")) {
-		t.Errorf("version outcome = %+v, want %s with maul's check line", r, tc.versionResult)
-	}
-	if r := v.Outcomes[2]; r.Result != tc.manualResult {
-		t.Errorf("manual outcome = %+v, want %s", r, tc.manualResult)
-	}
-	checkRouteViews(t, e.prVerifyPass(name), tc)
-}
-
-// routeJudgement is the judgement tc's decision makes.
-func routeJudgement(tc judgeRoute, check v1alpha1.SavedCheck) roundJudgement {
-	d := acceptance.Decision{PerOutcome: []acceptance.OutcomeResult{tc.version, tc.healthy,
-		judged(oManual, acceptance.ResultUnsure, acceptance.ReasonManual, "")}, Env: httpstep.EnvOK}
-	if tc.env != "" {
-		d.Env = tc.env
-	}
-	if tc.fix {
-		d.Fix = &acceptance.FixRequest{Failures: []acceptance.FixFailure{{Outcome: oVersion,
-			CheckDigest: check.Digest, Seq: 2}}, Fingerprint: "sha256:" + strings.Repeat("f", 64)}
-	}
-	if tc.replay {
-		d.ReplayRound, d.Retire = true, []string{check.Digest}
-	}
-	j := roundJudgement{decision: d, checks: []v1alpha1.SavedCheck{check}}
-	if tc.anomaly {
-		j.anomalies = []v1alpha1.AnomalyRecord{{Summary: "a console error on /", Ledger: []int32{4}}}
-	}
-	return j
+	rearm time.Duration
 }
 
 // routeRecords writes what tc's humans did onto in: their acceptances at
@@ -305,69 +63,8 @@ func routeRecords(in *v1alpha1.Intent, tc judgeRoute, now time.Time) {
 	}
 }
 
-// checkRouteViews holds p's views of the judgement to tc: the progress
-// clause, the maul/acceptance status, the hand-off and the comment.
-func checkRouteViews(t *testing.T, p *pass, tc judgeRoute) {
-	t.Helper()
-	if prog := p.verifyProgress(); prog == nil || prog.State != tc.progress || !prog.Outcomes {
-		t.Errorf("progress = %+v, want %s", prog, tc.progress)
-	}
-	st, _, ok := p.acceptanceStatus()
-	if !ok || st.state != tc.status || len(st.description) > 140 {
-		t.Errorf("maul/acceptance = %+v (posted %v), want %s within 140 bytes", st, ok, tc.status)
-	}
-	// S1-29: maul's own words while it is still checking (a replay round
-	// due) and once it could not confirm an outcome (final, never pending).
-	switch {
-	case tc.state == v1alpha1.VerificationUnconfirmed && tc.held == templates.HandoffHeld:
-		if !strings.HasPrefix(st.description, "maul is checking this") {
-			t.Errorf("maul/acceptance description %q, want maul is checking this", st.description)
-		}
-	case tc.state == v1alpha1.VerificationUnconfirmed:
-		if !strings.HasPrefix(st.description, "maul couldn't confirm this") {
-			t.Errorf("maul/acceptance description %q, want maul couldn't confirm this", st.description)
-		}
-	}
-	checkRouteHandoff(t, p, tc)
-	v := p.in.Status.Verification
-	section := p.verifySection(context.Background(), nil)
-	body, err := templates.RenderVerifyComment(templates.VerifyComment{Namespace: testNS, Intent: p.in.Name,
-		Round: v.Round, Attempt: v.Attempt, Section: *section})
-	if err != nil || len(section.Outcomes) != 3 || !strings.Contains(body, "`"+oVersion+"`") {
-		t.Errorf("verification comment = %q, %v", body, err)
-	}
-	// S2 demo run 5: each row shows its outcome's own kind, unset as change.
-	for id, kind := range map[string]string{oVersion: "change", oHealthy: "keep", oManual: "change"} {
-		if row := "| `" + id + "` | `" + kind + "` |"; !strings.Contains(body, row) {
-			t.Errorf("verification comment has no row %q:\n%s", row, body)
-		}
-	}
-	checkRouteWords(t, tc, st.description, body)
-}
-
-// checkRouteHandoff holds p's hand-off to tc: its state, its reason, the
-// outcomes it counts in doubt (gate D-B6).
-func checkRouteHandoff(t *testing.T, p *pass, tc judgeRoute) {
-	t.Helper()
-	if h := p.handoffView(); h == nil || h.State != tc.held || h.Why != tc.why || h.Doubted != tc.doubted {
-		t.Errorf("hand-off = %+v, want %s %s, %d doubted", h, tc.held, tc.why, tc.doubted)
-	}
-}
-
-// checkRouteWords holds the maul/acceptance description and the
-// verification comment's body to the exact words tc gives (review H2).
-func checkRouteWords(t *testing.T, tc judgeRoute, description, body string) {
-	t.Helper()
-	if tc.description != "" && description != tc.description {
-		t.Errorf("maul/acceptance description %q, want %q", description, tc.description)
-	}
-	if tc.line != "" && !strings.Contains(body, tc.line) {
-		t.Errorf("verification comment does not say %q:\n%s", tc.line, body)
-	}
-}
-
 // failingReport is an evaluator's report that the version outcome fails,
-// citing the failing replay.
+// citing the call it saw fail.
 const failingReport = `---
 verdicts:
   - id: version-shown
@@ -379,35 +76,6 @@ verdicts:
 ---
 The version endpoint answers with the wrong note.
 `
-
-// storeChecks gives intent name a check store holding cs, each reviewed
-// proves for its outcome's text.
-func (e *env) storeChecks(name string, cs ...v1alpha1.SavedCheck) {
-	e.t.Helper()
-	for range 3 {
-		if e.get(name).Status.Acceptance != nil {
-			break
-		}
-		e.mustIntent(name)
-	}
-	p := e.prVerifyPass(name)
-	if err := p.writeCheckStore(context.Background(), cs); err != nil {
-		e.t.Fatal(err)
-	}
-	in := e.get(name)
-	e.setStatus(name, func(cur *v1alpha1.Intent) {
-		cur.Status.Acceptance.Checks = in.Status.Acceptance.Checks
-		for _, c := range cs {
-			for _, o := range cur.Status.Acceptance.Outcomes {
-				if o.ID == c.Outcome {
-					cur.Status.Acceptance.Reviews = append(cur.Status.Acceptance.Reviews, v1alpha1.CheckReviewRecord{
-						CheckDigest: c.Digest, OutcomeDigest: outcomeDigest(o), Answer: v1alpha1.ReviewProves,
-						Run: name + "-cr-r0-a1"})
-				}
-			}
-		}
-	})
-}
 
 // evaluateReporting makes e's evaluate Jobs report text.
 func (e *env) evaluateReporting(text string) {
@@ -421,30 +89,18 @@ func (e *env) evaluateReporting(text string) {
 	}
 }
 
-// replayed plays preview-controller collecting pv with runs as its replays.
-func (e *env) replayed(pvName string, runs ...v1alpha1.CheckRun) {
-	e.t.Helper()
-	e.playTools(pvName, v1alpha1.VerificationObserved, toolPodIP, true)
-	pv := e.pvNamed(pvName)
-	pv.Status.Replay = runs
-	if err := e.c.Update(context.Background(), pv); err != nil {
-		e.t.Fatal(err)
-	}
-}
-
-// TestEvaluationConfirmsAndHandsOver: a full round whose stored checks
-// replay clean, reviewed proves, with the evaluator's cited passes, and
-// the manual outcome accepted by an approver, is judged ready: Passed, every
-// outcome resting on its check with maul's line, the link released ready in
-// the judgement's own write, and the status comment shows it labelled.
+// TestEvaluationConfirmsAndHandsOver: a round whose evaluator sees every
+// outcome hold, each verdict citing a call of its own maul counts, with the
+// manual outcome accepted by an approver, is judged ready: Passed, every
+// outcome seen to hold with the call it cites recorded, the link released
+// ready in the judgement's own write, and the status comment shows it
+// labelled.
 func TestEvaluationConfirmsAndHandsOver(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
-	if len(pv.Spec.Checks) != 2 || pv.Spec.Rung != v1alpha1.RungFull {
-		t.Fatalf("verification checks = %+v, want the stored two on a full round", pv.Spec.Checks)
+	if len(pv.Spec.Checks) != 0 || pv.Spec.ChecksDigest != "" || pv.Spec.Rung != v1alpha1.RungFull {
+		t.Fatalf("verification checks = %+v, rung %s; want none, full", pv.Spec.Checks, pv.Spec.Rung)
 	}
 	if body := e.statusBody(); strings.Contains(body, previewHostOf(name)) {
 		t.Errorf("the link is shown while held:\n%s", body)
@@ -458,8 +114,7 @@ func TestEvaluationConfirmsAndHandsOver(t *testing.T) {
 	e.review(name, 1)
 	e.runRuns()
 	e.runRuns()
-	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: version.Digest, Result: v1alpha1.CheckRunPass, Token: "t1",
-		Seq: 1}, v1alpha1.CheckRun{CheckDigest: health.Digest, Result: v1alpha1.CheckRunPass, Token: "t2", Seq: 2})
+	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
 	e.settleReviews(name)
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationPassed || v.Passed != 2 {
@@ -468,13 +123,13 @@ func TestEvaluationConfirmsAndHandsOver(t *testing.T) {
 	if v.Handoff == nil || !v.Handoff.Released || v.Handoff.Reason != v1alpha1.HandoffReasonReady {
 		t.Errorf("hand-off = %+v, want released ready with the judgement", v.Handoff)
 	}
-	for _, r := range v.Outcomes[:2] {
-		if r.Basis == "" || r.Line == "" {
-			t.Errorf("outcome %+v rests on no check", r)
+	for i, r := range v.Outcomes[:2] {
+		if r.Reason != acceptance.ReasonSeenToHold || !slices.Equal(r.Cites, []int32{int32(i + 3)}) {
+			t.Errorf("outcome %+v, want seen to hold on the call it cites", r)
 		}
 	}
 	e.reviewUntil(name, func() bool { return strings.Contains(e.statusBody(), "**Preview:** Ready") })
-	if body := e.statusBody(); !strings.Contains(body, "Ready: maul checked the approved outcomes.") ||
+	if body := e.statusBody(); !strings.Contains(body, templates.ReadyLabel) ||
 		!strings.Contains(body, previewHostOf(name)) {
 		t.Errorf("status comment does not hand over the link labelled ready:\n%s", body)
 	}
@@ -495,14 +150,12 @@ func (e *env) reviewUntil(name string, done func() bool) {
 }
 
 // TestEvaluationEnvFailedWithoutLedgerDetail: preview-controller drops an
-// EnvFailed round's ledger, replays and confirmations when its status is
-// over the size cap, keeping the phase and the facts. Judged so, with the
-// evaluator reporting every outcome holds, no outcome passes (no check
-// maul re-ran shows it, and the preview failed) and none fails (no check
-// failed): unconfirmed, never a pass or a defect.
+// EnvFailed round's ledger when its status is over the size cap, keeping the phase and the facts. Judged so, with the
+// evaluator reporting every outcome holds, no outcome passes or fails: each
+// is unsure on the application's failure (env-failed, never maul's infra,
+// though no index verified), and the hand-off says the environment failed.
 func TestEvaluationEnvFailedWithoutLedgerDetail(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
-	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
@@ -512,7 +165,7 @@ func TestEvaluationEnvFailedWithoutLedgerDetail(t *testing.T) {
 	e.playTools(pv.Name, v1alpha1.VerificationEnvFailed, toolPodIP, true)
 	got := e.pvNamed(pv.Name)
 	got.Status.Reason = v1alpha1.VerificationReasonComponentCrashed
-	got.Status.Ledger, got.Status.Replay, got.Status.Confirmations, got.Status.Confirmed = nil, nil, nil, nil
+	got.Status.Ledger = nil
 	got.Status.Environment = []v1alpha1.PartFact{{Name: "app", Role: v1alpha1.PreviewRoleComponent, Ready: true,
 		CrashedDuring: true, Restarts: 1}}
 	if err := e.c.Update(context.Background(), got); err != nil {
@@ -527,27 +180,30 @@ func TestEvaluationEnvFailedWithoutLedgerDetail(t *testing.T) {
 		if r.Result == v1alpha1.OutcomePassed || r.Result == v1alpha1.OutcomeFailed {
 			t.Errorf("outcome %s is %s with no ledger detail in a failing environment", r.ID, r.Result)
 		}
+		if r.ID != oManual && r.Reason != acceptance.ReasonEnvFailed {
+			t.Errorf("outcome %+v, want env-failed", r)
+		}
+	}
+	if got := environmentWhy(v); got != templates.HandoffWhyEnvironment {
+		t.Errorf("hand-off why = %q, want the environment's", got)
 	}
 }
 
-// TestEvaluationFailureStartsAFix: a stored check failing its replay, with
-// the evaluator's cited fail, is a reproduced failure: the verification is
-// Failing and the kept machinery starts one acceptance-fix round on it,
-// handed the failing outcome's text and the check by its id, never the
-// check's digest or the store; the link stays held while it runs.
+// TestEvaluationFailureStartsAFix: the evaluator's fail, citing a call maul
+// counts, is a failure: the verification is Failing and the kept machinery
+// starts one acceptance-fix round on it, handed the failing outcome's text
+// by its id, never the evaluator's report or an earlier release's check
+// store; the link stays held while it runs.
 func TestEvaluationFailureStartsAFix(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.evaluateReporting(failingReport)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
 	e.review(name, 1)
 	e.runRuns()
 	e.runRuns()
-	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: version.Digest, Result: v1alpha1.CheckRunFail, Token: "t1",
-		Seq: 2}, v1alpha1.CheckRun{CheckDigest: health.Digest, Result: v1alpha1.CheckRunPass, Token: "t2", Seq: 3})
+	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
 	e.settleReviews(name)
 	if v := e.verification(name); v.State != v1alpha1.VerificationFailing || v.Failed != 1 {
 		t.Fatalf("verification = %s %+v, want Failing on the version outcome", v.State, v.Outcomes)
@@ -584,7 +240,7 @@ func TestEvaluationFailureStartsAFix(t *testing.T) {
 		"`version-shown`") {
 		t.Errorf("the fix round's input lacks the failing outcome:\n%s", all)
 	}
-	for _, f := range []string{version.Digest, health.Digest, "-checks-", version.Body, "wrong note"} {
+	for _, f := range []string{"-checks-", "wrong note"} {
 		if strings.Contains(all, f) {
 			t.Errorf("the fix round's input carries %q", f)
 		}
@@ -592,8 +248,10 @@ func TestEvaluationFailureStartsAFix(t *testing.T) {
 }
 
 // liveShapedFailingReport is failingReport as the live evaluators wrote
-// reports on 0.13.7 (S1 bug 5): each verdict names its outcome as outcome,
-// and the proposal names the file it ran as file, with no digest.
+// reports on 0.13.7 (S1 bug 5): each verdict names its outcome as outcome.
+// (Its disputes, proposal naming a file and retire lists are gone: a report
+// writing a retired key, even as an empty list, now claims nothing,
+// TestRetiredReportKeysNeverPass.)
 const liveShapedFailingReport = `---
 verdicts:
   - outcome: "version-shown"
@@ -603,12 +261,6 @@ verdicts:
   - outcome: "still-healthy"
     verdict: pass
     ledger: [3]
-disputes: []
-proposed:
-  - id: "still-healthy.again"
-    outcome: "still-healthy"
-    file: "/work/scratch/checks/still-healthy-again.json"
-retire: []
 anomalies: []
 ---
 The version endpoint answers with the wrong note.
@@ -621,146 +273,20 @@ The version endpoint answers with the wrong note.
 func TestLiveShapedReportIsJudged(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.evaluateReporting(liveShapedFailingReport)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
 	e.playTools(pv.Name, v1alpha1.VerificationRunning, toolPodIP, true)
 	e.review(name, 1)
 	e.runRuns()
 	e.runRuns()
-	e.replayed(pv.Name, v1alpha1.CheckRun{CheckDigest: version.Digest, Result: v1alpha1.CheckRunFail, Token: "t1",
-		Seq: 2}, v1alpha1.CheckRun{CheckDigest: health.Digest, Result: v1alpha1.CheckRunPass, Token: "t2", Seq: 3})
+	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
 	e.settleReviews(name)
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationFailing || v.Failed != 1 {
 		t.Fatalf("verification = %s %+v, want Failing on the version outcome", v.State, v.Outcomes)
 	}
 	if r := v.Outcomes[1]; r.ID != oHealthy || r.Result != v1alpha1.OutcomePassed {
-		t.Errorf("health outcome = %+v, want passed on its check", r)
+		t.Errorf("health outcome = %+v, want passed on the call it cites", r)
 	}
 	e.reviewUntil(name, func() bool { return len(e.runsOf(name, v1alpha1.IntentStageRevise)) > 0 })
-}
-
-// TestResolvedDisputesByFile: a dispute's replacement names a proposal by
-// its id; a proposal giving its digest resolves to it, one giving only its
-// file to the check of that id and outcome the round's ledger confirmed,
-// and to none when the ledger confirmed no such check.
-func TestResolvedDisputesByFile(t *testing.T) {
-	again := v1alpha1.SavedCheck{ID: "still-healthy.again", Outcome: oHealthy, Digest: "sha256:" +
-		strings.Repeat("a", 64)}
-	other := v1alpha1.SavedCheck{ID: "still-healthy.again", Outcome: oVersion, Digest: "sha256:" +
-		strings.Repeat("b", 64)}
-	given := "sha256:" + strings.Repeat("c", 64)
-	for _, tt := range []struct {
-		name      string
-		proposed  report.ProposedCheck
-		confirmed []v1alpha1.SavedCheck
-		want      string
-	}{
-		{"by digest", report.ProposedCheck{ID: again.ID, Outcome: oHealthy, Digest: given}, nil, given},
-		{"by file, confirmed", report.ProposedCheck{ID: again.ID, Outcome: oHealthy, File: "a.json"},
-			[]v1alpha1.SavedCheck{other, again}, again.Digest},
-		{"by file, unconfirmed", report.ProposedCheck{ID: again.ID, Outcome: oHealthy, File: "a.json"},
-			[]v1alpha1.SavedCheck{other}, ""},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			ev := &report.Evaluation{Proposed: []report.ProposedCheck{tt.proposed},
-				Disputes: []report.Dispute{{CheckDigest: "sha256:" + strings.Repeat("d", 64), Reason: "r",
-					Replacement: again.ID, Ledger: []int32{1}}}}
-			pv := &v1alpha1.PreviewVerification{Status: v1alpha1.PreviewVerificationStatus{Confirmed: tt.confirmed}}
-			if got := resolvedDisputes(ev, pv); len(got) != 1 || got[0].Replacement != tt.want {
-				t.Errorf("resolvedDisputes() = %+v, want the replacement %q", got, tt.want)
-			}
-		})
-	}
-}
-
-// TestCheckLine: maul's line for each form names what the check asks of
-// the preview and how much it asserts, on one line within its bound; an
-// unparseable body has none.
-func TestCheckLine(t *testing.T) {
-	exec := `{"id":"version-shown.cli","outcome":"version-shown","form":"exec","exec":{"argv":["node","t.js"],
-	 "files":[{"path":"t.js","content":"console.log(1)"}],"expect":{"exit":0,"stdoutContains":"{{run}}"}}}`
-	browser := `{"id":"looks-right.row","outcome":"looks-right","form":"browser","browser":{"steps":[
-	 {"goto":"/board"},{"click":{"role":"button","name":"Rate"}},
-	 {"expect":{"assert":"visible","locator":{"role":"row","hasText":"{{run}}-alice"}}}]}}`
-	for _, tc := range []struct{ raw, want string }{
-		{versionCheck, "http to app: POST /notes, GET /version?q={{run}}; 3 expectations"},
-		{healthCheck, "http to app: GET /healthz; 2 expectations"},
-		{exec, "exec: node; expects exit 0, stdout"},
-		{browser, "browser: goto /board, click, expect visible"},
-	} {
-		if got := checkLine(savedCheck(t, tc.raw)); got != tc.want {
-			t.Errorf("checkLine = %q, want %q", got, tc.want)
-		}
-	}
-	if got := checkLine(v1alpha1.SavedCheck{Body: "{"}); got != "" {
-		t.Errorf("checkLine of garbage = %q", got)
-	}
-}
-
-// TestDecideInputCarriesContrary (S1 demo bug 13): the seqs where the
-// evaluator saw an outcome as worded fail reach Decide as it wrote them,
-// even one the round's ledger does not hold: they can only withhold a pass,
-// so the evaluator's word is enough, and nothing it cites is believed as
-// evidence for a result.
-func TestDecideInputCarriesContrary(t *testing.T) {
-	o := v1alpha1.AcceptanceOutcome{ID: "round-trip", Outcome: "Posting back the exact body GET returned gives 201",
-		Kind: v1alpha1.OutcomeKindKeep}
-	acc := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{o}}
-	pv := &v1alpha1.PreviewVerification{Status: v1alpha1.PreviewVerificationStatus{
-		Ledger: &v1alpha1.LedgerSummary{Count: 40}}}
-	ev := &report.Evaluation{Verdicts: []report.OutcomeVerdict{{ID: "round-trip", Verdict: report.VerdictPass,
-		Ledger: []int32{38, 47}, Contrary: []int32{37, 39, 90}}}}
-	in := decideInput(acc, pv, nil, ev)
-	if len(in.Verdicts) != 1 || !slices.Equal(in.Verdicts[0].Ledger, []int32{38}) ||
-		!slices.Equal(in.Verdicts[0].Contrary, []int32{37, 39, 90}) {
-		t.Fatalf("verdicts = %+v, want ledger [38] and contrary [37 39 90]", in.Verdicts)
-	}
-}
-
-// TestJudgeRoundNeedsEveryReplay (review VC-3): a round whose copy of the
-// store holds two checks of an outcome, and whose ledger replayed only one
-// green (the round cut short before the other, the regression check), does
-// not pass the outcome on the one: it is unsure not-replayed, and the
-// hand-off is not ready.
-func TestJudgeRoundNeedsEveryReplay(t *testing.T) {
-	o := v1alpha1.AcceptanceOutcome{ID: oVersion, Outcome: "The build page shows the version"}
-	version, regression := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	regression.Outcome = oVersion
-	acc := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{o}}
-	for _, c := range []v1alpha1.SavedCheck{version, regression} {
-		acc.Reviews = append(acc.Reviews, v1alpha1.CheckReviewRecord{CheckDigest: c.Digest,
-			OutcomeDigest: outcomeDigest(o), Answer: v1alpha1.ReviewProves, Run: "r1", Check: c.ID, Reason: "yes"})
-	}
-	replay := []v1alpha1.CheckRun{{CheckDigest: version.Digest, Result: v1alpha1.CheckRunPass, Token: "t1", Seq: 1}}
-	for _, tc := range []struct {
-		name   string
-		replay []v1alpha1.CheckRun
-		result acceptance.Result
-		reason string
-	}{
-		{name: "one of two replayed", replay: replay, result: acceptance.ResultUnsure,
-			reason: acceptance.ReasonNotReplayed},
-		{name: "both replayed", replay: append(slices.Clone(replay), v1alpha1.CheckRun{CheckDigest: regression.Digest,
-			Result: v1alpha1.CheckRunPass, Token: "t2", Seq: 2}), result: acceptance.ResultPassed,
-			reason: acceptance.ReasonConfirmed},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			pv := &v1alpha1.PreviewVerification{
-				Spec: v1alpha1.PreviewVerificationSpec{Rung: v1alpha1.RungReplay,
-					Checks: []v1alpha1.SavedCheck{version, regression}},
-				Status: v1alpha1.PreviewVerificationStatus{Replay: tc.replay},
-			}
-			j := judgeRound(acc, pv, []v1alpha1.SavedCheck{version, regression}, nil)
-			got := j.decision.PerOutcome[0]
-			if got.Result != tc.result || got.Reason != tc.reason {
-				t.Fatalf("outcome = %+v, want %s %s", got, tc.result, tc.reason)
-			}
-			if tc.result != acceptance.ResultPassed && j.decision.Handoff == acceptance.HandoffReady {
-				t.Error("ready with an outcome not passed")
-			}
-		})
-	}
 }

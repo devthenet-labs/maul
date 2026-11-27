@@ -115,3 +115,7 @@ func (o *Options) StringList(key string) []string {
 
 // Bool reads an extra controller-specific boolean value.
 func (o *Options) Bool(key string) bool { return o.viper.GetBool(key) }
+
+// IsSet reports whether an extra controller-specific value was set on the
+// command line or in the environment, rather than left at its default.
+func (o *Options) IsSet(key string) bool { return o.viper.IsSet(key) }

@@ -198,8 +198,7 @@ func fitStatus(pv *v1alpha1.PreviewVerification) {
 	if n := jsonSize(pv); n >= 0 && n <= maxObject {
 		return
 	}
-	pv.Status.Ledger, pv.Status.Replay, pv.Status.Confirmations, pv.Status.Confirmed = nil, nil, nil, nil
-	pv.Status.Base = nil
+	pv.Status.Ledger = nil
 	if pv.Status.Phase == v1alpha1.VerificationObserved {
 		pv.Status.Phase = v1alpha1.VerificationInfra
 		pv.Status.Reason = v1alpha1.VerificationReasonLedgerMismatch

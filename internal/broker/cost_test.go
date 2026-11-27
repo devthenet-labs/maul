@@ -292,10 +292,10 @@ func TestCostPerPodWithBudgetAnnotation(t *testing.T) {
 	}
 }
 
-// TestSmallBudgetStageNotStarved (S1 bug 6): a checkreview pod making ten
-// small sonnet calls, each about $0.007, is refused none of them at the
-// stage's output bound (provider.CheckReviewMaxOutputTokens), though the
-// reservation rule is unchanged. At the CLI's default bound of 64000 tokens
+// TestSmallBudgetStageNotStarved (S1 bug 6): a small-budget stage's pod
+// (the retired check reviewer's, whose bound was 8192 tokens) making ten
+// small sonnet calls, each about $0.007, is refused none of them at its
+// output bound, though the reservation rule is unchanged. At the CLI's default bound of 64000 tokens
 // ($0.64 reserved per request) the same pod is refused its fifth call having
 // spent under $0.03: what starved the reviewer live. The live pod had $1 at
 // the $15 per million output sonnet 5 was then priced at; the budget here,
@@ -315,7 +315,7 @@ func TestSmallBudgetStageNotStarved(t *testing.T) {
 		maxTokens int
 		served    int // calls served before the first refusal, of ten
 	}{
-		{"the stage's bound", provider.CheckReviewMaxOutputTokens, 10},
+		{"the stage's bound", 8192, 10},
 		{"the CLI's default bound", 64000, 4},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

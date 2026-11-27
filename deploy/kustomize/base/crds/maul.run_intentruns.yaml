@@ -176,7 +176,10 @@ spec:
                   and on no other (CEL-enforced); immutable with the rest of the spec.
                 properties:
                   rung:
-                    description: Rung is the verification's rung.
+                    description: |-
+                      Rung is the verification's rung. Retired with the cost ladder: the
+                      observed evaluator always writes full (the field is required).
+                      Removed in the next release.
                     enum:
                     - full
                     - replay

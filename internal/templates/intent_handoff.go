@@ -3,17 +3,26 @@
 
 package templates
 
-import (
-	"fmt"
-	"strings"
-)
-
 // The gated hand-off (agent evaluator, DESIGN 7.1, 7.2): how a live
-// preview's link is shown while maul checks the approved outcomes. Held, the
-// link is not shown at all; once released it is labelled: ready when maul
-// confirmed every outcome, "maul couldn't confirm this" (with maul's reason)
-// when it gave up, and "still checking" when a human asked for it first. The
-// early hand-off passes no PreviewHandoff, and its text is slice 1's.
+// preview's link is shown while maul's evaluator looks at the approved
+// outcomes. Held, the link is not shown at all; once released it is
+// labelled: ready when the evaluator saw every outcome hold, citing calls
+// maul recorded, "maul can't call this ready" (NotReadyLead, with maul's
+// reason) when it gave up, and "still looking" when a human asked for it
+// first. None of it says maul checked or confirmed an outcome: maul checks
+// only that a verdict cites calls it recorded (FA 3), save a judgement an
+// earlier release's rules reached (PreviewHandoff.Earlier), which keeps
+// that release's words. The early hand-off passes no PreviewHandoff, and
+// its text is slice 1's.
+
+// NotReadyLead opens every hand-off label and commit status of a round maul
+// gave up on, before its reason: the one spelling, which the controller's
+// maul/acceptance descriptions use too.
+const NotReadyLead = "maul can't call this ready: "
+
+// EvaluatingLead opens the pending maul/acceptance description of a round
+// under way.
+const EvaluatingLead = "maul is evaluating this: "
 
 // Hand-off states.
 const (
@@ -40,12 +49,6 @@ const (
 	HandoffWhyEnvironment = "environment"
 	HandoffWhyUnavailable = "unavailable"
 
-	// HandoffWhyEvaluatorDoubts: the evaluator judged outcomes not to
-	// hold that no check maul re-ran shows failing (gate D-B6); the
-	// hand-off counts them (PreviewHandoff.Doubted) and never calls them
-	// failing.
-	HandoffWhyEvaluatorDoubts = "evaluator-doubts"
-
 	// The agents-namespace tool pod's (SPEC-S2): its build of the head did
 	// not finish, the repository has no accepted image to build in, or a
 	// tree could not be fetched.
@@ -54,18 +57,15 @@ const (
 	HandoffWhyTree         = "tree"
 
 	// HandoffWhyReplay: a replay round's tool pod finished before the end
-	// of its replay, so a saved check may never have run (review VC-3).
+	// of its replay (review VC-3): the words of a cause an earlier
+	// release's record may still carry (SettleReplayIncomplete, a retired
+	// spelling); no round of this release replays.
 	HandoffWhyReplay = "replay"
 
 	// HandoffWhyInfra: the environment failed for maul's own reasons (its
 	// tools, the cluster), never the change's (review H3); the change's
 	// own failure is HandoffWhyEnvironment.
 	HandoffWhyInfra = "infra"
-
-	// HandoffWhySuspected: maul suspects a defect in outcomes
-	// (PreviewHandoff.Suspected) and waits for a person to confirm it
-	// (gate D-B11): it leads, before outcomes in doubt.
-	HandoffWhySuspected = "suspected"
 )
 
 // handoffWhyWords are the reasons in maul's words; one not listed shows as
@@ -78,13 +78,9 @@ var handoffWhyWords = map[string]string{
 	HandoffWhyBudget:      "it spent its evaluation budget",
 	HandoffWhyTime:        "it ran out of time",
 	HandoffWhySandbox:     "its sandbox was not enforced",
-	HandoffWhyEnvironment: "the preview failed while it was checked",
-	HandoffWhyInfra:       "its own checking environment failed while it checked",
+	HandoffWhyEnvironment: "the preview failed during the evaluation",
+	HandoffWhyInfra:       "its own evaluation environment failed during the evaluation",
 	HandoffWhyUnavailable: "it could not run its checks",
-	// Gate D-B6; the words without a count, which doubtedWords gives.
-	HandoffWhyEvaluatorDoubts: "the evaluator judged some outcomes not to hold, but no check maul re-ran shows it",
-	// Gate D-B11; the words without the outcomes, which suspectedWhy gives.
-	HandoffWhySuspected: "it suspects a defect, which a person should confirm",
 	// The agents-namespace tool pod's (SPEC-S2).
 	HandoffWhyBuildFailed:  "its own build of the pull request did not finish",
 	HandoffWhySandboxImage: "the repository has no accepted runner image to build the pull request in",
@@ -96,8 +92,8 @@ var handoffWhyWords = map[string]string{
 // workspaceWhyWords are the reasons whose words differ on a Project with
 // no preview: what fails there is maul's own tool pod, never a preview.
 var workspaceWhyWords = map[string]string{
-	HandoffWhyEnvironment: "its own checking tools failed while it checked",
-	HandoffWhyInfra:       "its own checking tools failed while it checked",
+	HandoffWhyEnvironment: "its own tools failed during the evaluation",
+	HandoffWhyInfra:       "its own tools failed during the evaluation",
 }
 
 // whyWords are why's words, on a Project with no preview when workspace;
@@ -130,55 +126,53 @@ func UnconfirmedCause(why string, workspace bool) string {
 // for HandoffUnconfirmed one of the HandoffWhy constants.
 type PreviewHandoff struct {
 	State, Why string
-	// Doubted counts the outcomes the evaluator judged not to hold (gate
-	// D-B6): the reason itself for HandoffWhyEvaluatorDoubts, named after
-	// the outcomes maul suspects for HandoffWhySuspected.
-	Doubted int32
-	// Suspected are, for HandoffWhySuspected, the outcomes maul suspects a
-	// defect in (gate D-B11).
-	Suspected []string
+	// Earlier marks a judgement an earlier release's rules reached (no
+	// IntentVerification.Judge marker): an intent that ended before this
+	// release keeps it, since the supersede runs only on open ones. Its
+	// ready and unconfirmed labels keep that release's words, which are
+	// true of it (that release checked the outcomes with saved checks)
+	// where this release's are not, and are what that release wrote, so an
+	// upgrade edits no comment of it for wording alone.
+	Earlier bool
+}
+
+// EarlierReadyLabel is ReadyLabel of a judgement an earlier release's rules
+// reached (PreviewHandoff.Earlier): that release's words.
+const EarlierReadyLabel = "Ready: maul checked the approved outcomes."
+
+// earlierNotReadyLead is NotReadyLead of an Earlier judgement.
+const earlierNotReadyLead = "maul couldn't confirm this: "
+
+// earlierWhyWords are the reasons an earlier release worded otherwise, by
+// whether the Project has no preview; every other reason's words are
+// unchanged.
+var earlierWhyWords = map[bool]map[string]string{
+	false: {
+		HandoffWhyEnvironment: "the preview failed while it was checked",
+		HandoffWhyInfra:       "its own checking environment failed while it checked",
+	},
+	true: {
+		HandoffWhyEnvironment: "its own checking tools failed while it checked",
+		HandoffWhyInfra:       "its own checking tools failed while it checked",
+	},
 }
 
 // handoffWhy is why maul could not confirm, in its words (on a Project
-// with no preview when workspace): the reason, then the outcomes in doubt
-// after a suspected defect.
+// with no preview when workspace); a reason not listed is the generic one.
 func handoffWhy(h PreviewHandoff, workspace bool) string {
-	w, ok := whyWords(h.Why, workspace)
-	switch {
-	case !ok:
-		w = handoffWhyWords[HandoffWhyUnsure]
-	case h.Why == HandoffWhyEvaluatorDoubts && h.Doubted > 0:
-		w = doubtedWords(h.Doubted)
-	case h.Why == HandoffWhySuspected:
-		w = suspectedWhy(h.Suspected)
-		if h.Doubted > 0 {
-			w += ", and " + doubtedWords(h.Doubted)
-		}
+	if w, ok := earlierWhyWords[workspace][h.Why]; ok && h.Earlier {
+		return w
 	}
-	return w
+	if w, ok := whyWords(h.Why, workspace); ok {
+		return w
+	}
+	return handoffWhyWords[HandoffWhyUnsure]
 }
 
-// doubtedWords are HandoffWhyEvaluatorDoubts' words for n outcomes: the
-// evaluator's judgement, counted, and that maul did not prove it.
-func doubtedWords(n int32) string {
-	return fmt.Sprintf("the evaluator judged %d %s not to hold, but no check maul re-ran shows it", n,
-		plural(n, "outcome", "outcomes"))
-}
-
-// suspectedWhy are HandoffWhySuspected's words naming the outcomes, each
-// shown as code; the words without them when none can be shown.
-func suspectedWhy(outcomes []string) string {
-	ids := make([]string, 0, len(outcomes))
-	for _, id := range outcomes {
-		if c := shown(id); c != "" {
-			ids = append(ids, code(c))
-		}
-	}
-	if len(ids) == 0 {
-		return handoffWhyWords[HandoffWhySuspected]
-	}
-	return "it suspects a defect in " + strings.Join(ids, ", ") + ", which a person should confirm"
-}
+// ReadyLabel is the label of a link released ready: what is true of it
+// (the evaluator saw the outcomes hold, citing calls maul recorded), never
+// that maul checked them.
+const ReadyLabel = "Ready: maul's evaluator saw every approved outcome hold, citing calls maul recorded."
 
 // handoffLabel is the label a released link carries, ending in a full
 // stop; "" for a held one.
@@ -188,11 +182,17 @@ func handoffLabel(h PreviewHandoff) string { return labelIn(h, false) }
 func labelIn(h PreviewHandoff, workspace bool) string {
 	switch h.State {
 	case HandoffReady:
-		return "Ready: maul checked the approved outcomes."
+		if h.Earlier {
+			return EarlierReadyLabel
+		}
+		return ReadyLabel
 	case HandoffUnconfirmed:
-		return "maul couldn't confirm this: " + handoffWhy(h, workspace) + "."
+		if h.Earlier {
+			return earlierNotReadyLead + handoffWhy(h, workspace) + "."
+		}
+		return NotReadyLead + handoffWhy(h, workspace) + "."
 	case HandoffChecking:
-		return "Shown while maul is still checking the approved outcomes."
+		return "Shown while maul's evaluator is still looking at the approved outcomes."
 	}
 	return ""
 }
@@ -202,7 +202,8 @@ func labelIn(h PreviewHandoff, workspace bool) string {
 // (haltHuman, releaseForPush, and /maul preview): an approver's round on a
 // pull request, not any comment and not /maul verify.
 func handoffHeld(subject string) string {
-	return subject + " is live, and maul holds its link until it has checked the approved outcomes. An approver's " +
+	return subject + " is live, and maul holds its link until its evaluator has looked at the approved outcomes. " +
+		"An approver's " +
 		"review asking for changes or " + slashCommand("revise") + " on a pull request, a push maul did not make " +
 		"or " + slashCommand("preview") + " shows it now."
 }
@@ -248,7 +249,8 @@ func workspaceRelease() string {
 // (workspaceWhyWords); "" for a held one.
 func workspaceLabel(h PreviewHandoff) string {
 	if h.State == HandoffChecking {
-		return "Handed to its reviewers while maul is still checking the approved outcomes " + workspaceBuild + "."
+		return "Handed to its reviewers while maul's evaluator is still looking at the approved outcomes " +
+			workspaceBuild + "."
 	}
 	return labelIn(h, true)
 }
@@ -257,13 +259,13 @@ func workspaceLabel(h PreviewHandoff) string {
 // under h; nil (the early hand-off) says only what maul does.
 func workspaceStatusSentence(h *PreviewHandoff) string {
 	if h == nil {
-		return "maul checks the approved outcomes " + workspaceBuild + "."
+		return "maul's evaluator looks at the approved outcomes " + workspaceBuild + "."
 	}
 	if label := workspaceLabel(*h); label != "" {
 		return label
 	}
-	return "maul is checking the approved outcomes " + workspaceBuild + ", and holds its hand-off to the " +
-		"reviewers until it has. " + workspaceRelease()
+	return "maul's evaluator is looking at the approved outcomes " + workspaceBuild + ", and maul holds its " +
+		"hand-off to the reviewers until it has. " + workspaceRelease()
 }
 
 // workspaceCommentSentence is a pull request's evaluation sentence under h:
@@ -275,6 +277,6 @@ func workspaceCommentSentence(h *PreviewHandoff, rev string) string {
 	if label := workspaceLabel(*h); label != "" {
 		return label + " This pull request's head is " + rev + "."
 	}
-	return "This pull request's head, " + rev + ", is being checked: maul holds its hand-off to the reviewers " +
-		"until it has checked the approved outcomes " + workspaceBuild + ". " + workspaceRelease()
+	return "This pull request's head, " + rev + ", is being evaluated: maul holds its hand-off to the reviewers " +
+		"until its evaluator has looked at the approved outcomes " + workspaceBuild + ". " + workspaceRelease()
 }

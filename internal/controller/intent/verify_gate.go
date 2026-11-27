@@ -107,10 +107,15 @@ const (
 	// maxVerifications spent: a request bypasses the interval, never the
 	// cap, so it is consumed without a run.
 	verifyRequestRefused
+	// verifySupersede: the upgrade withdrew an earlier release's result
+	// (verify_migrate.go); one fresh round is due, a new round's first
+	// attempt, charged to neither maxVerifications nor the spacing.
+	verifySupersede
 )
 
 // verifyDue is why a verification is due at the recorded head set, if it
-// is: a retry of an unjudged attempt; else an approver's request, once the
+// is: the fresh round of a supersede (verify_migrate.go); a retry of an
+// unjudged attempt; else an approver's request, once the
 // latest attempt settled and none ran by request within verifyInterval;
 // else, for a head set never verified, an automatic one within the bounds
 // (verifyBounded). The bounds and the spacing are read from v and from the
@@ -122,6 +127,9 @@ func (p *pass) verifyDue(ctx context.Context, v *v1alpha1.IntentVerification) (v
 	}
 	if v.Ref != nil && (v.State == v1alpha1.VerificationVerifying || v.State == v1alpha1.VerificationEvaluating) {
 		return verifyNotDue, nil // in flight
+	}
+	if supersedePending(p.in) {
+		return verifySupersede, nil
 	}
 	if retryOwed(v) {
 		return verifyRetry, nil

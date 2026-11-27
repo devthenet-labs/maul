@@ -16,7 +16,7 @@ import (
 // Every figure comes from the method that judges runs (a seeded test pins
 // each): the models modelRefusal admits, the stage flags' models, the
 // ceilings grant clamps to, the hourly bound budgetOverHourly holds a run
-// budget under, the floors budgetUnderReserve holds an evaluator stage's
+// budget under, the floors budgetUnderReserve holds the evaluate stage's
 // budget over, the delegation grant records for a Project that opts in,
 // and the operator's resource classes. It depends on the spec
 // and the settings only, so an unchanged Project is never written again,
@@ -46,31 +46,29 @@ func (s Settings) admits(p *v1alpha1.Project, classes resourceclass.Set) *v1alph
 	}
 	if evaluator {
 		a.DefaultModels.Evaluate = boundedModel(s.flagModel(h, v1alpha1.IntentStageEvaluate))
-		a.DefaultModels.CheckReview = boundedModel(s.flagModel(h, v1alpha1.IntentStageCheckReview))
-		a.Stages.Evaluate, a.Stages.CheckReview = publishCeiling(s.Evaluate), publishCeiling(s.CheckReview)
+		a.Stages.Evaluate = publishCeiling(s.Evaluate)
 	}
 	// budgetOverHourly refuses 2*b > hourly, so the largest budget it lets
 	// through is exactly half the limit, rounded down.
 	if s.CostBudgets && s.BrokerCostPerHour > 0 {
 		a.MaxRunCostMicroUSD = s.BrokerCostPerHour / 2
 	}
-	// budgetUnderReserve judges only a claude Project's evaluator stages,
-	// and only under the cost unit.
+	// budgetUnderReserve judges only a claude Project's evaluate stage, and
+	// only under the cost unit.
 	if s.CostBudgets && s.Evaluator && !h.IsCodex() {
 		for _, id := range a.Models {
-			eval, okE := outputReserve(id, roleOutputBounds[v1alpha1.IntentStageEvaluate])
-			review, okR := outputReserve(id, roleOutputBounds[v1alpha1.IntentStageCheckReview])
-			if !okE || !okR {
+			eval, ok := outputReserve(id, roleOutputBounds[v1alpha1.IntentStageEvaluate])
+			if !ok {
 				continue
 			}
 			a.RunBudgetFloors = append(a.RunBudgetFloors, v1alpha1.ProjectRunBudgetFloor{Model: id,
-				EvaluateMicroUSD: max(2*eval, 0), CheckReviewMicroUSD: max(2*review, 0)})
+				EvaluateMicroUSD: max(2*eval, 0)})
 		}
 	}
 	return a
 }
 
-// evaluatorRuns reports whether s creates evaluate and checkreview runs for
+// evaluatorRuns reports whether s creates evaluate runs for
 // a Project on harness h: the agent evaluator is on, and for codex
 // --intent-evaluate-codex is too (evaluatorUnverified otherwise).
 func (s Settings) evaluatorRuns(h v1alpha1.ProjectHarness) bool {

@@ -4,72 +4,74 @@
 package intent
 
 import (
+	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // G-B-LIB-1 (defect gate 2) and the owner's decision of 2026-11-14: a
 // finding about an OUTCOME at heads H holds every later round at H (an
-// outcome found failing or suspected there stays held-finding), while a
-// look-around anomaly is a note for the human reviewer and holds nothing:
-// a round whose outcomes all pass is Passed with its notes shown.
+// outcome seen not to hold there stays held-finding), while a look-around
+// anomaly is a note for the human reviewer and holds nothing: a round whose
+// outcomes all pass is Passed with its notes shown.
 
-// passingJudgement is a judgement every outcome of which passed, the
-// manual one accepted, in a clean environment: Passed on its own.
-func passingJudgement(t *testing.T, anomalies ...v1alpha1.AnomalyRecord) roundJudgement {
-	t.Helper()
-	check := savedCheck(t, versionCheck)
-	pass := func(id string) acceptance.OutcomeResult {
-		return judged(id, acceptance.ResultPassed, acceptance.ReasonConfirmed, check.Digest)
+// observedReport is an evaluator's report: each outcome of claims (id to
+// pass, fail or unsure) citing the head http call its position numbers
+// (version-shown 1, still-healthy 2), and the anomalies given.
+func observedReport(claims map[string]report.Verdict, anomalies ...report.Anomaly) *report.Evaluation {
+	ev := &report.Evaluation{Anomalies: anomalies}
+	for i, id := range []string{oVersion, oHealthy} {
+		if c, ok := claims[id]; ok {
+			ev.Verdicts = append(ev.Verdicts, report.OutcomeVerdict{ID: id, Verdict: c, Ledger: []int32{int32(i + 1)}})
+		}
 	}
-	d := acceptance.Decision{PerOutcome: []acceptance.OutcomeResult{pass(oVersion), pass(oHealthy),
-		judged(oManual, acceptance.ResultUnsure, acceptance.ReasonManual, "")}, Env: httpstep.EnvOK}
-	return roundJudgement{decision: d, checks: []v1alpha1.SavedCheck{check}, anomalies: anomalies,
-		evaluation: &report.Evaluation{}, clear: true}
+	return ev
 }
 
+// passing is every evaluable outcome seen to hold.
+var passing = map[string]report.Verdict{oVersion: report.VerdictPass, oHealthy: report.VerdictPass}
+
 // heldAnomaly is round 1's look-around anomaly, naming the defect.
-var heldAnomaly = v1alpha1.AnomalyRecord{Summary: "Likely defect in synth/shift.go: the hat track rotates the " +
+var heldAnomaly = report.Anomaly{Summary: "Likely defect in synth/shift.go: the hat track rotates the " +
 	"wrong way", Route: "synth.Shift", Ledger: []int32{4}}
 
-// judgeAt writes j as round's judgement at headSet on intent name, the
-// manual outcome accepted there, and returns the verification.
-func (e *env) judgeAt(name string, round int32, headSet string, j roundJudgement) *v1alpha1.IntentVerification {
+// judgeAt writes ev's judgement as round's at headSet on intent name, its
+// ledger five head http calls of the evaluator's, the manual outcome
+// accepted there, and returns the verification.
+func (e *env) judgeAt(name string, round int32, headSet string, ev *report.Evaluation) *v1alpha1.IntentVerification {
 	e.t.Helper()
 	p := e.prVerifyPass(name)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		v := in.Status.Verification
 		v.Round, v.Attempt, v.HeadSetDigest, v.State = round, 1, headSet, v1alpha1.VerificationEvaluating
 		routeRecords(in, judgeRoute{acceptManual: true}, e.clock.Now())
-		applyJudgement(in, j, time.Now())
+		pv := &v1alpha1.PreviewVerification{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("%s-v%d", name, round)},
+			Spec:   v1alpha1.PreviewVerificationSpec{Round: round, Attempt: 1, HeadSetDigest: headSet},
+			Status: v1alpha1.PreviewVerificationStatus{Ledger: observedLedger(5)}}
+		applyJudgement(in, judgeRound(v, in.Status.Acceptance, pv, ev))
 		p.releaseIfDue(in)
 	})
 	return e.verification(name)
 }
 
-// TestAnomalyIsANote: a round whose every outcome is confirmed is Passed
-// with its look-around anomaly recorded as a note, maul/acceptance success
-// and a clear model round; a later round at the same heads keeps the note
-// (round 1's) and passes too; at moved heads it is gone.
+// TestAnomalyIsANote: a round whose every outcome is seen to hold is Passed
+// with its look-around anomaly recorded as a note and maul/acceptance
+// success; a later round at the same heads keeps the note (round 1's) and
+// passes too; at moved heads it is gone.
 func TestAnomalyIsANote(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	heads := e.verification(name).HeadSetDigest
-	v := e.judgeAt(name, 1, heads, passingJudgement(t, heldAnomaly))
+	v := e.judgeAt(name, 1, heads, observedReport(passing, heldAnomaly))
 	if v.State != v1alpha1.VerificationPassed || len(v.Anomalies) != 1 {
 		t.Fatalf("round 1 = %s, anomalies %+v; want Passed with the note", v.State, v.Anomalies)
-	}
-	if v.ModelRound == nil || !v.ModelRound.Clear {
-		t.Errorf("model round = %+v, want clear: a note is no objection", v.ModelRound)
 	}
 	p := e.prVerifyPass(name)
 	if st, _, ok := p.acceptanceStatus(); !ok || st.state != statusSuccess {
@@ -80,7 +82,7 @@ func TestAnomalyIsANote(t *testing.T) {
 	}
 
 	// Round 2 at the same heads: its evaluator raised nothing.
-	v = e.judgeAt(name, 2, heads, passingJudgement(t))
+	v = e.judgeAt(name, 2, heads, observedReport(passing))
 	if v.State != v1alpha1.VerificationPassed {
 		t.Errorf("round 2 at the same heads = %s, want Passed", v.State)
 	}
@@ -90,22 +92,22 @@ func TestAnomalyIsANote(t *testing.T) {
 
 	// Round 3 after the heads moved: the note was about other commits.
 	moved := "sha256:" + strings.Repeat("1", 64)
-	v = e.judgeAt(name, 3, moved, passingJudgement(t))
+	v = e.judgeAt(name, 3, moved, observedReport(passing))
 	if v.State != v1alpha1.VerificationPassed || len(v.Anomalies) != 0 {
 		t.Errorf("round 3 at moved heads = %s, anomalies %+v; want Passed, none carried", v.State, v.Anomalies)
 	}
 }
 
 // TestNoteDoesNotHoldAnAcceptance: a round left Unconfirmed by an outcome
-// maul could not confirm, beside a note, is ready once an approver accepts
+// maul could not count, beside a note, is ready once an approver accepts
 // that outcome: the note holds nothing.
 func TestNoteDoesNotHoldAnAcceptance(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	heads := e.verification(name).HeadSetDigest
-	j := passingJudgement(t, heldAnomaly)
-	j.decision.PerOutcome[0] = judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonModelOnlyPass, "")
-	if v := e.judgeAt(name, 1, heads, j); v.State != v1alpha1.VerificationUnconfirmed {
+	ev := observedReport(map[string]report.Verdict{oVersion: report.VerdictUnsure, oHealthy: report.VerdictPass},
+		heldAnomaly)
+	if v := e.judgeAt(name, 1, heads, ev); v.State != v1alpha1.VerificationUnconfirmed {
 		t.Fatalf("round 1 = %s, want Unconfirmed (the case's premise)", v.State)
 	}
 	replies := e.request(name, "issue", "/maul accept "+oVersion)
@@ -129,111 +131,137 @@ func TestCarriedNoteRecords(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	heads := e.verification(name).HeadSetDigest
-	e.judgeAt(name, 1, heads, passingJudgement(t, heldAnomaly))
-	v := e.judgeAt(name, 2, heads, passingJudgement(t, heldAnomaly))
+	e.judgeAt(name, 1, heads, observedReport(passing, heldAnomaly))
+	v := e.judgeAt(name, 2, heads, observedReport(passing, heldAnomaly))
 	if len(v.Anomalies) != 1 || v.Anomalies[0].Round != 1 {
 		t.Fatalf("round 2 repeating it: anomalies %+v, want round 1's alone", v.Anomalies)
 	}
-	other := v1alpha1.AnomalyRecord{Summary: "a second oddity", Ledger: []int32{2}}
-	e.judgeAt(name, 2, heads, passingJudgement(t, other))
-	v = e.judgeAt(name, 2, heads, passingJudgement(t, other))
+	other := report.Anomaly{Summary: "a second oddity", Ledger: []int32{2}}
+	e.judgeAt(name, 2, heads, observedReport(passing, other))
+	v = e.judgeAt(name, 2, heads, observedReport(passing, other))
 	if len(v.Anomalies) != 2 || v.Anomalies[0].Round != 1 || v.Anomalies[1].Round != 2 {
 		t.Fatalf("round 2 judged twice: anomalies %+v, want round 1's then round 2's, once each", v.Anomalies)
 	}
 
 	// A record of a release before rounds were stamped: its judgement's.
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		in.Status.Verification.Anomalies = []v1alpha1.AnomalyRecord{heldAnomaly}
+		in.Status.Verification.Anomalies = []v1alpha1.AnomalyRecord{{Summary: heldAnomaly.Summary,
+			Route: heldAnomaly.Route, Ledger: heldAnomaly.Ledger}}
 	})
-	if v = e.judgeAt(name, 3, heads, passingJudgement(t)); v.State != v1alpha1.VerificationPassed ||
+	if v = e.judgeAt(name, 3, heads, observedReport(passing)); v.State != v1alpha1.VerificationPassed ||
 		len(v.Anomalies) != 1 || v.Anomalies[0].Round != 2 {
 		t.Fatalf("round 3 over an unstamped record: %s, anomalies %+v; want Passed, round 2's", v.State,
 			v.Anomalies)
 	}
 }
 
-// TestNoteHoldsNeitherDecideNorTheRung: a round whose evaluator reported
-// only a look-around anomaly, every outcome confirmed, is ready and a clear
-// model round, with the note recorded.
-func TestNoteHoldsNeitherDecideNorTheRung(t *testing.T) {
+// TestNoteHoldsNothing: a round whose evaluator reported a look-around
+// anomaly, every outcome seen to hold, is ready, with the note recorded;
+// an anomaly citing no call maul counts (a relay's, or no seq the ledger
+// holds) is not recorded: it needs evidence, by the verdicts' own rule.
+func TestNoteHoldsNothing(t *testing.T) {
 	o := v1alpha1.AcceptanceOutcome{ID: oVersion, Outcome: "The build page shows the version"}
-	version := savedCheck(t, versionCheck)
-	acc := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{o},
-		Reviews: []v1alpha1.CheckReviewRecord{{CheckDigest: version.Digest, OutcomeDigest: outcomeDigest(o),
-			Answer: v1alpha1.ReviewProves, Run: "r1", Check: version.ID, Reason: "yes"}}}
+	acc := &v1alpha1.IntentAcceptance{Outcomes: []v1alpha1.AcceptanceOutcome{o}}
 	heads := "sha256:" + strings.Repeat("a", 64)
-	pv := &v1alpha1.PreviewVerification{
-		Spec: v1alpha1.PreviewVerificationSpec{Round: 1, HeadSetDigest: heads,
-			Checks: []v1alpha1.SavedCheck{version}},
-		Status: v1alpha1.PreviewVerificationStatus{Ledger: &v1alpha1.LedgerSummary{Count: 4},
-			Replay: []v1alpha1.CheckRun{{CheckDigest: version.Digest, Result: v1alpha1.CheckRunPass, Token: "t1",
-				Seq: 1}}},
-	}
+	ledger := observedLedger(4)
+	ledger.Entries[2].Kind = v1alpha1.LedgerKindRelay
+	pv := &v1alpha1.PreviewVerification{Spec: v1alpha1.PreviewVerificationSpec{Round: 1, HeadSetDigest: heads},
+		Status: v1alpha1.PreviewVerificationStatus{Ledger: ledger}}
 	ev := &report.Evaluation{
-		Verdicts:  []report.OutcomeVerdict{{ID: oVersion, Verdict: report.VerdictPass, Ledger: []int32{1}}},
-		Anomalies: []report.Anomaly{{Summary: heldAnomaly.Summary, Route: heldAnomaly.Route, Ledger: []int32{2}}}}
-	j := judgeRound(acc, pv, []v1alpha1.SavedCheck{version}, ev)
-	if j.decision.Handoff != acceptance.HandoffReady || !j.clear || len(j.anomalies) != 1 {
-		t.Errorf("hand-off %s, clear %v, notes %+v; want ready, clear, the note recorded", j.decision.Handoff,
-			j.clear, j.anomalies)
+		Verdicts: []report.OutcomeVerdict{{ID: oVersion, Verdict: report.VerdictPass, Ledger: []int32{1}}},
+		Anomalies: []report.Anomaly{{Summary: heldAnomaly.Summary, Route: heldAnomaly.Route, Ledger: []int32{2}},
+			{Summary: "on the relay's call", Ledger: []int32{3}}, {Summary: "on no call", Ledger: []int32{9}}}}
+	j := judgeRound(nil, acc, pv, ev)
+	if j.judgement.Handoff != acceptance.HandoffReady || len(j.anomalies) != 1 ||
+		j.anomalies[0].Summary != heldAnomaly.Summary {
+		t.Errorf("hand-off %s, notes %+v; want ready, the evidenced note alone recorded", j.judgement.Handoff,
+			j.anomalies)
 	}
 }
 
-// TestHeldFindingOutcome: an outcome a round found failing, or suspected a
-// defect in, at heads H, on a saved check, is unsure (held-finding) in a
-// later round at H that finds it passing (a check that failed at the same
-// commits and now passes is no evidence the defect is gone), through any
-// number of rounds there; it passes once its check is retired through a
-// dispute, once an approver accepts it, or once the heads move.
+// TestHeldFindingOutcome: an outcome a round saw not to hold at heads H,
+// citing a call maul counts, is unsure (held-finding) in every later round
+// at H, whether that round sees it hold, is unsure of it or does not report
+// it (the hold is kept on record, so an unsure round does not free it for
+// the next); a new fail there is failed again. It passes once the heads
+// move, once an approver accepts it, or once the fix round it was handed
+// concludes no defect at H.
 func TestHeldFindingOutcome(t *testing.T) {
-	check := savedCheck(t, versionCheck)
-	for _, tc := range []struct {
-		name  string
-		first acceptance.OutcomeResult
-	}{
-		{"failed", judged(oVersion, acceptance.ResultFailed, acceptance.ReasonReproduced, check.Digest)},
-		{"suspected", judged(oVersion, acceptance.ResultUnsure, acceptance.ReasonSuspectedDefect, check.Digest)},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			e, name := newEvaluatorEnv(t, 0.4)
-			e.review(name, 3)
-			heads := e.verification(name).HeadSetDigest
-			first := passingJudgement(t)
-			first.decision.PerOutcome[0] = tc.first
-			e.judgeAt(name, 1, heads, first)
-			for round := int32(2); round <= 3; round++ {
-				v := e.judgeAt(name, round, heads, passingJudgement(t))
-				if r := v.Outcomes[0]; v.State == v1alpha1.VerificationPassed || r.Result != v1alpha1.OutcomeUnsure ||
-					r.Reason != acceptance.ReasonHeldFinding || r.Basis != check.Digest {
-					t.Fatalf("round %d at the same heads: %s, %+v; want unsure, held on its check", round, v.State, r)
-				}
-			}
-			retired := passingJudgement(t)
-			// Retired through a dispute: gone from the store as read.
-			retired.stored = []v1alpha1.SavedCheck{savedCheck(t, healthCheck)}
-			if v := e.judgeAt(name, 4, heads, retired); v.State != v1alpha1.VerificationPassed {
-				t.Errorf("round 4 retiring the check: %s %+v, want Passed", v.State, v.Outcomes[0])
-			}
-			e.judgeAt(name, 5, heads, first)
-			e.setStatus(name, func(in *v1alpha1.Intent) {
-				in.Status.Acceptance.Accepted = append(in.Status.Acceptance.Accepted, v1alpha1.AcceptanceRecord{
-					ID: oVersion, By: approver, ByID: 7, At: metav1.NewTime(e.clock.Now()), CommentID: 98,
-					HeadSetDigest: heads})
-			})
-			if v := e.judgeAt(name, 6, heads, passingJudgement(t)); v.State != v1alpha1.VerificationPassed ||
-				v.Outcomes[0].Result != v1alpha1.OutcomeAccepted {
-				t.Errorf("round 6 after the acceptance: %s %+v, want Passed, accepted", v.State, v.Outcomes[0])
-			}
-			moved := "sha256:" + strings.Repeat("2", 64)
-			if v := e.judgeAt(name, 7, moved, passingJudgement(t)); v.State != v1alpha1.VerificationPassed ||
-				v.Outcomes[0].Result != v1alpha1.OutcomePassed {
-				t.Errorf("round 7 at moved heads: %s %+v, want Passed", v.State, v.Outcomes[0])
-			}
-		})
+	failing := map[string]report.Verdict{oVersion: report.VerdictFail, oHealthy: report.VerdictPass}
+	start := func(t *testing.T) (*env, string, string) {
+		e, name := newEvaluatorEnv(t, 0.4)
+		e.review(name, 3)
+		heads := e.verification(name).HeadSetDigest
+		if v := e.judgeAt(name, 1, heads, observedReport(failing)); v.State != v1alpha1.VerificationFailing ||
+			v.Outcomes[0].Reason != acceptance.ReasonSeenNotToHold {
+			t.Fatalf("round 1 = %s %+v, want Failing, seen not to hold", v.State, v.Outcomes[0])
+		}
+		return e, name, heads
 	}
+	held := func(t *testing.T, v *v1alpha1.IntentVerification, round int32) {
+		t.Helper()
+		if r := v.Outcomes[0]; v.State == v1alpha1.VerificationPassed || r.Result != v1alpha1.OutcomeUnsure ||
+			r.Reason != acceptance.ReasonHeldFinding {
+			t.Fatalf("round %d at the same heads: %s, %+v; want unsure, held", round, v.State, r)
+		}
+	}
+
+	t.Run("held through later rounds", func(t *testing.T) {
+		e, name, heads := start(t)
+		held(t, e.judgeAt(name, 2, heads, observedReport(passing)), 2)
+		held(t, e.judgeAt(name, 3, heads, observedReport(map[string]report.Verdict{oVersion: report.VerdictUnsure,
+			oHealthy: report.VerdictPass})), 3)
+		held(t, e.judgeAt(name, 4, heads, observedReport(map[string]report.Verdict{oHealthy: report.VerdictPass})), 4)
+		held(t, e.judgeAt(name, 5, heads, observedReport(passing)), 5)
+		if v := e.judgeAt(name, 6, heads, observedReport(failing)); v.State != v1alpha1.VerificationFailing ||
+			v.Outcomes[0].Result != v1alpha1.OutcomeFailed {
+			t.Errorf("round 6 seeing it fail again: %s %+v, want Failing", v.State, v.Outcomes[0])
+		}
+	})
+	t.Run("released by moved heads", func(t *testing.T) {
+		e, name, heads := start(t)
+		held(t, e.judgeAt(name, 2, heads, observedReport(passing)), 2)
+		moved := "sha256:" + strings.Repeat("2", 64)
+		if v := e.judgeAt(name, 3, moved, observedReport(passing)); v.State != v1alpha1.VerificationPassed ||
+			v.Outcomes[0].Result != v1alpha1.OutcomePassed {
+			t.Errorf("round 3 at moved heads: %s %+v, want Passed", v.State, v.Outcomes[0])
+		}
+	})
+	t.Run("released by an acceptance", func(t *testing.T) {
+		e, name, heads := start(t)
+		e.setStatus(name, func(in *v1alpha1.Intent) {
+			in.Status.Acceptance.Accepted = append(in.Status.Acceptance.Accepted, v1alpha1.AcceptanceRecord{
+				ID: oVersion, By: approver, ByID: 7, At: metav1.NewTime(e.clock.Now()), CommentID: 98,
+				HeadSetDigest: heads})
+		})
+		if v := e.judgeAt(name, 2, heads, observedReport(passing)); v.State != v1alpha1.VerificationPassed ||
+			v.Outcomes[0].Result != v1alpha1.OutcomeAccepted {
+			t.Errorf("round 2 after the acceptance: %s %+v, want Passed, accepted", v.State, v.Outcomes[0])
+		}
+	})
+	t.Run("released by the fix round's no defect", func(t *testing.T) {
+		e, name, heads := start(t)
+		e.setStatus(name, func(in *v1alpha1.Intent) {
+			in.Status.Verification.NoDefect = &v1alpha1.NoDefectRecord{Run: name + "-rev-r2-a1",
+				Reason: "the endpoint is right", HeadSetDigest: heads, Round: 1, At: metav1.NewTime(e.clock.Now())}
+		})
+		if v := e.judgeAt(name, 2, heads, observedReport(passing)); v.State != v1alpha1.VerificationPassed ||
+			v.Outcomes[0].Result != v1alpha1.OutcomePassed {
+			t.Errorf("round 2 after the no-defect conclusion: %s %+v, want Passed", v.State, v.Outcomes[0])
+		}
+	})
+	t.Run("a no defect about another round releases nothing", func(t *testing.T) {
+		e, name, heads := start(t)
+		held(t, e.judgeAt(name, 2, heads, observedReport(passing)), 2)
+		e.setStatus(name, func(in *v1alpha1.Intent) {
+			in.Status.Verification.NoDefect = &v1alpha1.NoDefectRecord{Run: name + "-rev-r2-a1",
+				Reason: "the endpoint is right", HeadSetDigest: heads, Round: 1, At: metav1.NewTime(e.clock.Now())}
+		})
+		held(t, e.judgeAt(name, 3, heads, observedReport(passing)), 3)
+	})
 }
 
-// TestNoteRoundPasses: a round whose evaluator confirms every outcome and
+// TestNoteRoundPasses: a round whose evaluator sees every outcome hold and
 // reports a look-around anomaly is Passed and maul/acceptance success; a
 // /maul verify fix over it says nothing of anomalies, and /maul accept
 // anomalies, a command no longer offered, gets the reply any id the plan
@@ -242,9 +270,8 @@ func TestHeldFindingOutcome(t *testing.T) {
 func TestNoteRoundPasses(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.evaluateReporting(anomalyReport)
-	e.storeChecks(name, savedCheck(t, versionCheck), savedCheck(t, healthCheck))
 	e.acceptManual(name)
-	e.modelRound(name, 1, v1alpha1.CheckRunPass)
+	e.observedRound(name, 1)
 	v := e.verification(name)
 	if v.State != v1alpha1.VerificationPassed || len(v.Anomalies) != 1 {
 		t.Fatalf("round 1 = %s, anomalies %+v; want Passed with the note", v.State, v.Anomalies)
@@ -269,55 +296,5 @@ func TestNoteRoundPasses(t *testing.T) {
 		verb: "accept", body: "/maul accept anomalies"})
 	if again.Outcome == templates.VerifyAccepted {
 		t.Errorf("recorded reply %+v for an old /maul accept anomalies, want nothing accepted", again)
-	}
-}
-
-// TestOpenFindingMakesTheRoundFull: the next round at heads a held outcome
-// still holds is full (openFindingAt), so no replay round is spent on what
-// a replay could never pass; accepted, or at other heads, it holds nothing,
-// and a look-around note never does.
-func TestOpenFindingMakesTheRoundFull(t *testing.T) {
-	heads, other := "sha256:"+strings.Repeat("d", 64), "sha256:"+strings.Repeat("e", 64)
-	acc := &v1alpha1.IntentAcceptance{}
-	held := &v1alpha1.IntentVerification{HeadSetDigest: heads, OutcomesHeadSetDigest: heads, OutcomesRound: 1,
-		Outcomes: []v1alpha1.OutcomeResult{{ID: oVersion, Result: v1alpha1.OutcomeUnsure,
-			Reason: acceptance.ReasonHeldFinding}}}
-	if !openFindingAt(held, acc, heads) || openFindingAt(held, acc, other) {
-		t.Error("a held outcome: want an open finding at its heads alone")
-	}
-	// A fix round handed the reproduction concluded no defect at the heads:
-	// its recorded reason releases the outcome it was handed, the suspected
-	// defect an approver confirmed (TestIntentEvaluateFixFindsNoDefect), and
-	// nothing it was not handed.
-	noDefect := held.DeepCopy()
-	noDefect.NoDefect = &v1alpha1.NoDefectRecord{Run: "x-rev-r2-a1", Reason: "fine", HeadSetDigest: heads,
-		Round: 1}
-	if !openFindingAt(noDefect, acc, heads) {
-		t.Error("a no-defect conclusion released an outcome held from an earlier round, never handed to it")
-	}
-	noDefect.Outcomes[0].Reason = acceptance.ReasonSuspectedDefect
-	if !openFindingAt(noDefect, acc, heads) {
-		t.Error("a no-defect conclusion released a suspected defect no approver confirmed")
-	}
-	noDefect.Suspected = &v1alpha1.SuspectedDefect{Verification: "x-v-r1", HeadSetDigest: heads,
-		Outcomes: []string{oVersion}, Confirmed: &v1alpha1.Rearm{By: approver, ByID: 7}}
-	if openFindingAt(noDefect, acc, heads) || len(heldOutcomes(noDefect, heads, 2)) != 0 {
-		t.Error("a confirmed suspected defect after a no-defect conclusion at its heads still holds them")
-	}
-	for _, round := range []int32{0, 2} {
-		noDefect.NoDefect.Round = round
-		if !openFindingAt(noDefect, acc, heads) {
-			t.Errorf("a no-defect conclusion about round %d released round 1's judgement", round)
-		}
-	}
-	acc.Accepted = []v1alpha1.AcceptanceRecord{{ID: oVersion, By: approver, ByID: 7, CommentID: 1,
-		HeadSetDigest: heads}}
-	if openFindingAt(held, acc, heads) {
-		t.Error("an accepted held outcome is still an open finding")
-	}
-	anomaly := &v1alpha1.IntentVerification{HeadSetDigest: heads, OutcomesHeadSetDigest: heads, OutcomesRound: 1,
-		Anomalies: []v1alpha1.AnomalyRecord{{Summary: "odd", Round: 1}}}
-	if openFindingAt(anomaly, acc, heads) {
-		t.Error("a look-around note is an open finding: it holds nothing")
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"io"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -65,9 +64,7 @@ const usage = `usage:
   maul-tool files read [--base] [--] <path>
   maul-tool run <dir> [--base] [-- <args>...]
   maul-tool logs <component>
-  maul-tool events
-  maul-tool check run [--base] <file>
-  maul-tool check results`
+  maul-tool events`
 
 // usageError is a command line that is not a call.
 type usageError struct{ msg string }
@@ -163,8 +160,6 @@ func parse(args []string, sc scratch) (toolwire.Verb, toolwire.Request, error) {
 			return "", nil, usagef("events takes no arguments")
 		}
 		v, req = toolwire.VerbEvents, &toolwire.EventsRequest{}
-	case "check":
-		v, req, err = parseCheck(rest, sc)
 	default:
 		return "", nil, usagef("unknown command %q", verb)
 	}
@@ -229,28 +224,6 @@ func parseExec(rest []string, sc scratch) (toolwire.Verb, toolwire.Request, erro
 		req.Files = append(req.Files, toolwire.File{Name: rel, Content: data})
 	}
 	return "", nil, usagef("exec needs -- before its argv")
-}
-
-func parseCheck(rest []string, sc scratch) (toolwire.Verb, toolwire.Request, error) {
-	if len(rest) > 0 && rest[0] == "run" {
-		side, args, err := takeBase(rest[1:])
-		if err != nil || len(args) != 1 {
-			return "", nil, usagef("check takes `run [--base] <file>` or `results`")
-		}
-		_, data, err := sc.read(args[0], toolwire.MaxCheckBytes)
-		if err != nil {
-			return "", nil, usagef("check run: %v", err)
-		}
-		if !json.Valid(data) {
-			return "", nil, usagef("check run: %s is not JSON", args[0])
-		}
-		return toolwire.VerbCheckRun, &toolwire.CheckRunRequest{Spec: json.RawMessage(data), Side: side}, nil
-	}
-	switch {
-	case len(rest) == 1 && rest[0] == "results":
-		return toolwire.VerbCheckResults, &toolwire.CheckResultsRequest{}, nil
-	}
-	return "", nil, usagef("check takes `run [--base] <file>` or `results`")
 }
 
 // takeBase removes a single --base from args before any --, returning the
@@ -377,12 +350,6 @@ func render(ctx context.Context, client *Client, sc scratch, resp *toolwire.Resp
 		if o.Exit != nil {
 			fmt.Fprintf(&b, "[observed] exit %d\n", *o.Exit)
 		}
-		if o.CheckRun != nil {
-			writeCheckRun(&b, *o.CheckRun)
-		}
-		for _, r := range o.CheckRuns {
-			writeCheckRun(&b, r)
-		}
 	}
 	code := ExitOK
 	n := 0
@@ -419,54 +386,6 @@ func copyShot(ctx context.Context, client *Client, sc scratch, seq int64, n int,
 		return "", err
 	}
 	return sc.writeShot(seq, n, data)
-}
-
-func writeCheckRun(b *strings.Builder, r toolwire.CheckRunRecord) {
-	results := make([]string, 0, len(r.Attempts))
-	for _, a := range r.Attempts {
-		results = append(results, oneLine(string(a.Result)))
-	}
-	// The ledger keys a check by its bare hex; the agent's report names it
-	// as checks.Digest does ("sha256:<hex>"), so it is printed that way.
-	fmt.Fprintf(b, "[observed] check %s digest sha256:%s %s: %s (attempts: %s)\n", oneLine(r.CheckID),
-		oneLine(strings.TrimPrefix(r.Digest, "sha256:")),
-		oneLine(string(r.Mode)), oneLine(string(r.Result)), strings.Join(results, ", "))
-	for i, a := range r.Attempts {
-		for _, s := range a.Steps {
-			if s.Result == toolwire.ResultPass {
-				continue
-			}
-			kind := ""
-			if s.Assertion {
-				kind = " (assertion " + oneLine(s.AssertionID) + ")"
-			}
-			fmt.Fprintf(b, "[observed]   attempt %d step %d %s%s: %q\n", i+1, s.Index, oneLine(string(s.Result)),
-				kind, s.Detail)
-			if s.Received != "" {
-				// What the element showed (gate D-B8): the application's
-				// text, quoted onto maul's line and bounded again here.
-				fmt.Fprintf(b, "[observed]   attempt %d step %d received (untrusted, the page's text): %q\n", i+1,
-					s.Index, boundBytes(s.Received, toolwire.MaxReceivedBytes))
-			}
-		}
-	}
-	// A check that shows a defect is one red by assertion: only such a run
-	// may back a proposal expecting it to fail.
-	if step, ok := r.AssertionStep(); ok {
-		fmt.Fprintf(b, "[observed] red by assertion at step %d (%s): it can show a defect, proposed with expect: "+
-			"fail\n", step, oneLine(r.FailedAssertionID()))
-	}
-}
-
-// boundBytes is s cut to at most n bytes on a rune boundary.
-func boundBytes(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	for n > 0 && !utf8.RuneStart(s[n]) {
-		n--
-	}
-	return s[:n]
 }
 
 // oneLine keeps a value on its own line: every control character becomes a

@@ -15,10 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/devthenet-labs/maul/internal/checks"
-	"github.com/devthenet-labs/maul/internal/checks/playwright"
-	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // scriptedFixture is the scripted browser serving page on its own front.
@@ -53,87 +49,6 @@ func votePage(width float64, mut func(*ScriptedElement)) ScriptedPage {
 	}
 	return ScriptedPage{Title: "Battle", Elements: []ScriptedElement{
 		{Role: "heading", Name: "Battle", Text: "Battle", X: 10, Y: 10, Width: 300, Height: 40}, el}}
-}
-
-func ptr[T any](v T) *T { return &v }
-
-// measuredCheck is the check the e2e evaluator saves: the vote button is
-// visible, 32 px square and clickable.
-func measuredCheck() checks.BrowserCheck {
-	vote := &checks.Locator{TestID: "vote"}
-	return checks.BrowserCheck{Steps: []checks.BrowserStep{
-		{Goto: "/battles"},
-		{Expect: &checks.Assertion{Assert: checks.AssertVisible, Locator: vote}},
-		{Expect: &checks.Assertion{Assert: checks.AssertSize, Locator: vote, Width: ptr(32.0), Height: ptr(32.0)}},
-		{Expect: &checks.Assertion{Assert: checks.AssertClickable, Locator: vote}},
-		{Expect: &checks.Assertion{Assert: checks.AssertText, Locator: &checks.Locator{Role: "heading"},
-			Text: &checks.TextMatch{Contains: "Battle"}}},
-	}}
-}
-
-// TestScriptedRunnerMeasures: the scripted runner measures the compiled
-// check's assertions against the page, so a box 2 px off, a hidden or a
-// covered element fails at its step with the support module's words, and
-// a statement it cannot read is a check error, never a pass.
-func TestScriptedRunnerMeasures(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		page   ScriptedPage
-		check  checks.BrowserCheck
-		result toolwire.AttemptResult
-		step   int
-		detail string
-		// received is the text the failing text assertion's element
-		// showed, as judgeReport keeps it (D-B4).
-		received string
-	}{
-		{name: "correct", page: votePage(32, nil), check: measuredCheck(), result: toolwire.ResultPass, step: 4},
-		{name: "2px narrow", page: votePage(30, nil), check: measuredCheck(), result: toolwire.ResultFail, step: 2,
-			detail: "maul: size failed: width 30 not 32 +/- 0"},
-		{name: "hidden", page: votePage(32, func(e *ScriptedElement) { e.Hidden = true }), check: measuredCheck(),
-			result: toolwire.ResultFail, step: 1, detail: "maul: visible failed: the element is hidden"},
-		{name: "covered", page: votePage(32, func(e *ScriptedElement) { e.Covered = true }), check: measuredCheck(),
-			result: toolwire.ResultFail, step: 3,
-			detail: "maul: clickable failed: another element receives a click at its centre"},
-		{name: "missing", page: ScriptedPage{}, check: measuredCheck(), result: toolwire.ResultFail, step: 1,
-			detail: "an action timed out"},
-		{name: "text", page: votePage(32, nil), check: checks.BrowserCheck{Steps: []checks.BrowserStep{
-			{Goto: "/battles"},
-			{Expect: &checks.Assertion{Assert: checks.AssertText, Locator: &checks.Locator{TestID: "vote"},
-				Text: &checks.TextMatch{Matches: "^Vo"}}},
-			{Expect: &checks.Assertion{Assert: checks.AssertText, Locator: &checks.Locator{TestID: "vote"},
-				Text: &checks.TextMatch{Equals: "Voted"}}},
-		}}, result: toolwire.ResultFail, step: 2, detail: "the text expectation was not met", received: "Vote"},
-		{name: "text, no element", page: votePage(32, nil), check: checks.BrowserCheck{Steps: []checks.BrowserStep{
-			{Goto: "/battles"},
-			{Expect: &checks.Assertion{Assert: checks.AssertText, Locator: &checks.Locator{TestID: "gone"},
-				Text: &checks.TextMatch{Equals: "Voted"}}},
-		}}, result: toolwire.ResultFail, step: 1,
-			detail: "the text expectation was not met: no element matched its locator"},
-		{name: "css is unread", page: votePage(32, nil), check: checks.BrowserCheck{Steps: []checks.BrowserStep{
-			{Goto: "/battles"},
-			{Expect: &checks.Assertion{Assert: checks.AssertVisible, Locator: &checks.Locator{CSS: "button"}}},
-		}}, result: toolwire.ResultError, step: 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			br := scriptedFixture(t, tc.page)
-			spec, err := playwright.Compile(tc.check, playwright.Options{RunToken: "v1a1t1-abc"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			report, err := br.Runner.RunSpec(context.Background(), spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			steps := judgeReport(report, spec)
-			last := steps[len(steps)-1]
-			if last.Result != tc.result || last.Index != tc.step || (tc.detail != "" && last.Detail != tc.detail) ||
-				last.Received != tc.received {
-				t.Errorf("steps %+v; want step %d %s %q, received %q", steps, tc.step, tc.result, tc.detail,
-					tc.received)
-			}
-		})
-	}
 }
 
 // TestScriptedCLI: the CLI answers in the Playwright CLI's shape, through
@@ -183,6 +98,36 @@ func TestScriptedCLI(t *testing.T) {
 	}
 }
 
+// TestScriptedEvalMeasuresABox: the scripted browser evaluates one shape
+// of page script, an element's bounding box by its test id, answering its
+// width and height as the CLI prints a result; any other script is the
+// CLI's error, never a made-up value.
+func TestScriptedEvalMeasuresABox(t *testing.T) {
+	br := scriptedFixture(t, votePage(30, nil))
+	ctx := context.Background()
+	run := func(args ...string) CLIResult {
+		t.Helper()
+		out, err := br.CLI.Run(ctx, args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	run("open", "--config="+br.ConfigFile)
+	run("goto", br.Base+"/battles")
+	out := run("eval", `() => { const r = document.querySelector('[data-testid="vote"]').getBoundingClientRect(); `+
+		`return { width: r.width, height: r.height }; }`)
+	if out.Exit != 0 || !strings.HasPrefix(out.Output, "### Result\n{\"width\":30,\"height\":32}\n") {
+		t.Errorf("eval of the vote box = %+v, want its width and height", out)
+	}
+	for _, script := range []string{"() => document.title",
+		`() => document.querySelector('[data-testid="nope"]').getBoundingClientRect()`} {
+		if out := run("eval", script); out.Exit == 0 {
+			t.Errorf("eval %q = %+v, want the CLI's error", script, out)
+		}
+	}
+}
+
 // TestE2EBrowserSeam: the browser seam is the scripted browser only for
 // an absolute directory.
 func TestE2EBrowserSeam(t *testing.T) {
@@ -201,39 +146,5 @@ func TestE2EBrowserSeam(t *testing.T) {
 	defer func() { _ = front.Close() }()
 	if _, ok := br.CLI.(*scriptedCLI); !ok || br.Base != "http://"+front.Addr().String() {
 		t.Errorf("browser %+v on %s, want the scripted one on its front", br, front.Addr())
-	}
-}
-
-// TestScriptedLocatorsMatchExact: the scripted browser reads a compiled
-// exact label or role name as Playwright does: the whole name,
-// case-sensitive, its whitespace normalised; without exact a part of it.
-func TestScriptedLocatorsMatchExact(t *testing.T) {
-	field := ScriptedElement{Role: "textbox", Label: "Beat name"}
-	remix := ScriptedElement{Role: "button", Name: "Remix tok cover long beat name",
-		Label: "Remix tok cover long beat name"}
-	play := ScriptedElement{Role: "button", Name: "▶ Play"}
-	for _, tc := range []struct {
-		expr string
-		el   ScriptedElement
-		want bool
-	}{
-		{`page.getByLabel("Beat name", { exact: true })`, field, true},
-		{`page.getByLabel("Beat name", { exact: true })`, remix, false},
-		{`page.getByLabel("Beat name")`, remix, true},
-		{`page.getByLabel("beat name", { exact: true })`, field, false},
-		{`page.getByLabel(" Beat  name ", { exact: true })`, field, true},
-		{`page.getByRole("button", { name: "Play", exact: true })`, play, false},
-		{`page.getByRole("button", { name: "▶ Play", exact: true })`, play, true},
-		{`page.getByRole("button", { name: "Play" })`, play, true},
-	} {
-		p := &exprParser{s: tc.expr}
-		l, err := p.locator()
-		if err != nil || !p.done() {
-			t.Errorf("%s: not read: %v", tc.expr, err)
-			continue
-		}
-		if got := l.finds(tc.el); got != tc.want {
-			t.Errorf("%s finds %+v = %v, want %v", tc.expr, tc.el, got, tc.want)
-		}
 	}
 }

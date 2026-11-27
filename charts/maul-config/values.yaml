@@ -310,7 +310,6 @@ projects: []
 #       #     plan: anthropic/claude-opus-5
 #       #     build: anthropic/claude-sonnet-5-5      # build and every revise round
 #       #     evaluate: anthropic/claude-sonnet-5-5   # the agent evaluator
-#       #     checkReview: anthropic/claude-haiku-4-5 # the check reviewer
 #       # delegation:               # off unless set; takes effect only where the
 #       #                           # maul chart's intentController.buildSubagents
 #       #                           # allows it (status.admits says so)

@@ -188,17 +188,18 @@ func roundText(run *v1alpha1.IntentRun, head string, before roundContext, feedba
 
 // roundHeading is the heading of a round's own input and the scope sentence
 // its handoff states. A check-fix round's input is the failing checks'
-// diagnostics and an acceptance-fix round's the failing acceptance criteria,
-// not anything an approver wrote, so each is named for what it is; the
-// criteria were approved with the plan, and the round may not bend them.
+// diagnostics and an acceptance-fix round's the outcomes maul's evaluator
+// saw not hold, not anything an approver wrote, so each is named for what
+// it is; the outcomes were approved with the plan, and the round may not
+// bend them.
 func roundHeading(t v1alpha1.IntentRunTrigger) (heading, scope string) {
 	const human, humanScope = "Approver feedback", "address only authorised review feedback"
 	switch roundKindOf(t) {
 	case roundChecks:
 		return "Check failures", "fix only the failing checks"
 	case roundVerify:
-		return "Acceptance failures", "make the failing acceptance criteria pass; the criteria are fixed and " +
-			"approved; do not special-case maul's checks"
+		return "Acceptance failures", "fix the behaviour behind the acceptance outcomes maul's evaluator saw not " +
+			"hold; the outcomes are fixed and approved; do not special-case the calls it cites"
 	case roundHuman:
 	}
 	return human, humanScope

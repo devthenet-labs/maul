@@ -4,19 +4,17 @@
 # Preview tools image: the tools container of a slot tool pod (DESIGN 2.1,
 # 2.7, 4.2; SPEC S1-06, S1-12), the main container whose log is the ledger.
 # Its entrypoint is cmd/preview-tools, maul's relay: the agent's tool
-# endpoints on :8090, the replay and confirmation runs, and, when the pod
-# has a browser, the browser relay in front of the pinned Playwright CLI
-# and the Playwright test runner that runs compiled browser checks, both
-# attached over CDP to the browser container's keyed shim. No browser is
-# installed here and none is ever launched from here.
+# endpoints on :8090 and, when the pod has a browser, the browser relay in
+# front of the pinned Playwright CLI, attached over CDP to the browser
+# container's keyed shim. No browser is installed here and none is ever
+# launched from here.
 #
 # The Node side is internal/previewtools/node: package.json and its
-# lockfile, every version exact (@playwright/cli, @playwright/test,
-# playwright, playwright-core). `npm ci --ignore-scripts --omit=dev`
-# installs exactly the lockfile with no install script run and no
-# development dependency; npm itself stays in the build stage. Renovate
-# bumps the pins, and CI's browser-tools job runs TestPlaywrightCLIFormat on
-# every bump.
+# lockfile, every version exact (@playwright/cli, playwright,
+# playwright-core). `npm ci --ignore-scripts --omit=dev` installs exactly
+# the lockfile with no install script run; npm itself stays in the build
+# stage. Renovate bumps the pins, and CI's browser-tools job runs
+# TestPlaywrightCLIFormat on every bump.
 #
 # The same image is the agents-namespace tool pod's (SPEC S2-09): its
 # `prepare` init fetches, verifies and extracts the head and base trees and
@@ -42,8 +40,7 @@ WORKDIR /opt/maul-tools/node
 COPY internal/previewtools/node/package.json internal/previewtools/node/package-lock.json ./
 RUN npm ci --ignore-scripts --omit=dev --no-audit --no-fund \
   && rm -rf /root/.npm \
-  && test -f node_modules/@playwright/cli/playwright-cli.js \
-  && test -f node_modules/@playwright/test/cli.js
+  && test -f node_modules/@playwright/cli/playwright-cli.js
 
 FROM cgr.dev/chainguard/wolfi-base:latest@sha256:94fa13e26d449f7d78dbcd02d12ea37a0da80d24fcc3e1f17b95d515dec607a7
 
@@ -57,8 +54,7 @@ COPY ${TARGETPLATFORM}/preview-tools /usr/local/bin/preview-tools
 COPY ${TARGETPLATFORM}/tool-exec /usr/local/bin/tool-exec
 
 # Everything writable is under /tmp, an emptyDir in the pod: the CLI's
-# session and artifacts, each check run's directory, the session config
-# holding the CDP key (0600).
+# session and artifacts and the session config holding the CDP key (0600).
 ENV HOME=/tmp \
     TMPDIR=/tmp \
     XDG_CACHE_HOME=/tmp/.cache \
@@ -67,7 +63,7 @@ ENV HOME=/tmp \
     LANG=C.UTF-8
 
 LABEL org.opencontainers.image.title="maul preview-tools" \
-      org.opencontainers.image.description="The tools container of a maul slot tool pod: the preview-tools relay with the pinned Playwright CLI and test runner." \
+      org.opencontainers.image.description="The tools container of a maul slot tool pod: the preview-tools relay with the pinned Playwright CLI." \
       org.opencontainers.image.source="https://github.com/devthenet-labs/maul" \
       org.opencontainers.image.licenses="MIT"
 

@@ -13,11 +13,12 @@ import (
 	"github.com/devthenet-labs/maul/api/v1alpha1"
 )
 
-// The check reviewer stage is being retired (the owner's decision 8), so the
-// page offers neither its model nor its limits: they are outside the
-// editable part, which the admission policy pins. The controller still runs
-// the stage, so its limits keep counting toward a run's budget (RunBudget,
-// StageNames), read from the live spec only.
+// The check reviewer stage is retired ("evaluator observed"; the settings
+// page's owner decision 8 had already kept it off the page), so the page
+// offers neither its model nor its limits: they are outside the editable
+// part, which the admission policy pins until the next release removes the
+// fields. The controller runs no such stage, so its limits count toward no
+// run's budget (RunBudget, StageNames).
 func TestCheckReviewIsOutsideTheEditablePart(t *testing.T) {
 	for _, f := range Fields() {
 		if strings.Contains(strings.ToLower(f.ID), "checkreview") {
@@ -61,7 +62,7 @@ func TestCheckReviewIsOutsideTheEditablePart(t *testing.T) {
 		t.Errorf("the check reviewer's settings moved: model %q, limits %+v", out.Spec.Models.CheckReview,
 			out.Spec.Limits.CheckReview)
 	}
-	if got := StageNames(); !strings.Contains(strings.Join(got, ","), "checkReview") {
-		t.Errorf("StageNames = %v: the controller still runs the check reviewer, whose budget counts", got)
+	if got := StageNames(); strings.Contains(strings.Join(got, ","), "checkReview") {
+		t.Errorf("StageNames = %v: the controller runs no check reviewer, so no budget of it counts", got)
 	}
 }

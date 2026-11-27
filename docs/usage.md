@@ -103,13 +103,13 @@ including how to turn it on without refusing runs during the upgrade.
 
 Several limits exist, and they bound different things. Only some of them are on by default.
 
-| Limit                                                                                | What it bounds                                                                                                            | Default                                            |
-| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| A Project's `limits.maxCostMicroUSD`                                                 | One intent's recorded spend, evaluator runs excepted, checked before maul starts each plan, build, revision or CI-fix run | \$10 per intent                                    |
-| `limits.maxEvaluateCostMicroUSD`                                                     | The evaluator's spend per intent; at it the round ends unconfirmed, nothing is Blocked                                    | \$6                                                |
-| The broker's per-pod and hourly limits                                               | What one agent pod, or all pods in a trailing hour, may spend, enforced on every model request                            | off                                                |
-| `limits.<stage>.maxCostMicroUSD` (stage: plan, build, revise, evaluate, checkReview) | One run's budget, enforced by the broker                                                                                  | only with `egressBroker.limits.unit: cost` (below) |
-| `limits.<stage>.tokenBudget` (the same stages)                                       | Output tokens the agent streams; a tripwire against a runaway run, not a measure of spend                                 | set per stage by the chart                         |
+| Limit                                                                   | What it bounds                                                                                                            | Default                                            |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| A Project's `limits.maxCostMicroUSD`                                    | One intent's recorded spend, evaluator runs excepted, checked before maul starts each plan, build, revision or CI-fix run | \$10 per intent                                    |
+| `limits.maxEvaluateCostMicroUSD`                                        | The evaluator's spend per intent; at it the round ends unconfirmed, nothing is Blocked                                    | \$6                                                |
+| The broker's per-pod and hourly limits                                  | What one agent pod, or all pods in a trailing hour, may spend, enforced on every model request                            | off                                                |
+| `limits.<stage>.maxCostMicroUSD` (stage: plan, build, revise, evaluate) | One run's budget, enforced by the broker                                                                                  | only with `egressBroker.limits.unit: cost` (below) |
+| `limits.<stage>.tokenBudget` (the same stages)                          | Output tokens the agent streams; a tripwire against a runaway run, not a measure of spend                                 | set per stage by the chart                         |
 
 **The per-intent cost ceiling.** Before maul starts a plan, build, revision or CI-fix run of an intent (or a retry of
 one), it compares the intent's recorded spend, less what its evaluator runs spent, with the Project's ceiling. At or

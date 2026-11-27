@@ -48,16 +48,6 @@ func TestHandoffGoldens(t *testing.T) {
 		{"intent_status_handoff_infra_all_confirmed.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyInfra}, &VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2,
 			Passing: 3, Total: 3, Outcomes: true, Why: HandoffWhyInfra})},
-		// Gate D-B11: the suspected defect leads, the doubted outcome after
-		// it.
-		{"intent_status_handoff_suspected.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhySuspected, Suspected: []string{"swing-shown-nonzero"}, Doubted: 1},
-			&VerifyProgress{State: VerifyUnconfirmed, Verification: 4, FixesUsed: 1, MaxFixes: 2, Passing: 3,
-				Total: 5, Outcomes: true, Why: HandoffWhySuspected})},
-		// Gate D-B6: outcomes the evaluator judged not to hold lead, counted.
-		{"intent_status_handoff_doubted_two.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhyEvaluatorDoubts, Doubted: 2}, &VerifyProgress{State: VerifyUnconfirmed,
-			Verification: 3, MaxFixes: 2, Passing: 3, Total: 5, Outcomes: true, Why: HandoffWhyEvaluatorDoubts})},
 		{"intent_status_handoff_out_of_time.md", status(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhyTime}, evaluating)},
 		{"intent_status_handoff_checking.md", status(&PreviewHandoff{State: HandoffChecking}, evaluating)},
@@ -65,8 +55,6 @@ func TestHandoffGoldens(t *testing.T) {
 		{"intent_preview_handoff_ready.md", comment(&PreviewHandoff{State: HandoffReady}, testOutcomeSection())},
 		{"intent_preview_handoff_unconfirmed.md", comment(&PreviewHandoff{State: HandoffUnconfirmed,
 			Why: HandoffWhySandbox}, nil)},
-		{"intent_preview_handoff_doubted.md", comment(&PreviewHandoff{State: HandoffUnconfirmed,
-			Why: HandoffWhyEvaluatorDoubts, Doubted: 1}, nil)},
 		{"intent_verify_outcomes_issue.md", func() (string, error) {
 			return RenderVerifyComment(VerifyComment{Namespace: "maul", Intent: "target-1", Round: 2, Attempt: 1,
 				Section: *testOutcomeSection()})
@@ -152,36 +140,27 @@ func TestHandoffWhyIsMaulsWords(t *testing.T) {
 	}
 }
 
-// TestHandoffDoubtedWords (gate D-B6): outcomes the evaluator judged not
-// to hold lead the reason, counted, saying maul did not prove them and
-// never that they fail.
-func TestHandoffDoubtedWords(t *testing.T) {
+// TestHandoffWhyWords: an unconfirmed hand-off says its reason in maul's
+// words; one not listed, among them an earlier release's (the evaluator's
+// doubts, a suspected defect, an anomaly), shows as the generic one.
+func TestHandoffWhyWords(t *testing.T) {
 	for _, tt := range []struct {
 		h    PreviewHandoff
 		want string
 	}{
-		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 1},
-			"the evaluator judged 1 outcome not to hold, but no check maul re-ran shows it."},
-		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts, Doubted: 2},
-			"the evaluator judged 2 outcomes not to hold, but no check maul re-ran shows it."},
-		{PreviewHandoff{Why: HandoffWhyEvaluatorDoubts},
-			"the evaluator judged some outcomes not to hold, but no check maul re-ran shows it."},
 		{PreviewHandoff{Why: HandoffWhyUnsure}, "some outcomes are unsure."},
-		{PreviewHandoff{Why: HandoffWhyEnvironment}, "the preview failed while it was checked."},
+		{PreviewHandoff{Why: HandoffWhyEnvironment}, "the preview failed during the evaluation."},
 		// A reason no longer listed (an anomaly's, from before 2026-11-14)
 		// shows as the generic one.
 		{PreviewHandoff{Why: "anomaly"}, "some outcomes are unsure."},
-		{PreviewHandoff{Why: "@octocat", Doubted: 3}, "some outcomes are unsure."},
+		{PreviewHandoff{Why: "evaluator-doubts"}, "some outcomes are unsure."},
+		{PreviewHandoff{Why: "suspected"}, "some outcomes are unsure."},
+		{PreviewHandoff{Why: "@octocat"}, "some outcomes are unsure."},
 	} {
 		tt.h.State = HandoffUnconfirmed
 		got := handoffLabel(tt.h)
-		if want := "maul couldn't confirm this: " + tt.want; got != want {
+		if want := "maul can't call this ready: " + tt.want; got != want {
 			t.Errorf("%+v = %q, want %q", tt.h, got, want)
-		}
-		for _, claim := range []string{"fail", "defect"} {
-			if tt.h.Why == HandoffWhyEvaluatorDoubts && strings.Contains(got, claim) {
-				t.Errorf("%+v claims %q: %q", tt.h, claim, got)
-			}
 		}
 	}
 }
@@ -201,9 +180,8 @@ func TestUnconfirmedCause(t *testing.T) {
 		{HandoffWhyEnvironment, false, handoffWhyWords[HandoffWhyEnvironment]},
 		{HandoffWhyEnvironment, true, workspaceWhyWords[HandoffWhyEnvironment]},
 		// Review H3: maul's own environment failing is never the preview.
-		{HandoffWhyInfra, false, "its own checking environment failed while it checked"},
-		{HandoffWhyInfra, true, "its own checking tools failed while it checked"},
-		{HandoffWhySuspected, false, ""},
+		{HandoffWhyInfra, false, "its own evaluation environment failed during the evaluation"},
+		{HandoffWhyInfra, true, "its own tools failed during the evaluation"},
 		{HandoffWhyUnsure, false, ""},
 		{HandoffWhyBudget, false, ""},
 		{"", true, ""},
@@ -224,7 +202,7 @@ func TestUnconfirmedCause(t *testing.T) {
 // the one table, and an anomaly beside it is named after it as on a
 // previewed Project (the special case it replaces dropped it).
 func TestWorkspaceEnvironmentLabel(t *testing.T) {
-	const tools = "maul couldn't confirm this: its own checking tools failed while it checked"
+	const tools = "maul can't call this ready: its own tools failed during the evaluation"
 	for _, tt := range []struct {
 		h    PreviewHandoff
 		want string
@@ -235,35 +213,6 @@ func TestWorkspaceEnvironmentLabel(t *testing.T) {
 		tt.h.State = HandoffUnconfirmed
 		if got := workspaceLabel(tt.h); got != tt.want {
 			t.Errorf("%+v = %q, want %q", tt.h, got, tt.want)
-		}
-	}
-}
-
-// TestHandoffSuspectedLeads (gate D-B11): a suspected defect leads the
-// reason, naming each outcome as code (an id that shows nothing is left
-// out), before the outcomes the evaluator doubts; with no outcome it can
-// show it still says a defect is suspected.
-func TestHandoffSuspectedLeads(t *testing.T) {
-	for _, tt := range []struct {
-		h    PreviewHandoff
-		want string
-	}{
-		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"swing-shown-nonzero"}},
-			"it suspects a defect in `swing-shown-nonzero`, which a person should confirm."},
-		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"a", "b"}, Doubted: 1},
-			"it suspects a defect in `a`, `b`, which a person should confirm, and the evaluator judged 1 " +
-				"outcome not to hold, but no check maul re-ran shows it."},
-		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"", " "}},
-			"it suspects a defect, which a person should confirm."},
-		{PreviewHandoff{Why: HandoffWhySuspected, Suspected: []string{"x` @octocat #3"}},
-			"it suspects a defect in ``x` @octocat #3``, which a person should confirm."},
-	} {
-		tt.h.State = HandoffUnconfirmed
-		for _, workspace := range []bool{false, true} {
-			got := labelIn(tt.h, workspace)
-			if want := "maul couldn't confirm this: " + tt.want; got != want {
-				t.Errorf("%+v (workspace %v) = %q, want %q", tt.h, workspace, got, want)
-			}
 		}
 	}
 }
@@ -292,5 +241,47 @@ func TestAppOutputInert(t *testing.T) {
 	}
 	if strings.Count(out, "x") > VerifyAppOutputMaxBytes {
 		t.Errorf("app output not bounded: %d bytes of it", strings.Count(out, "x"))
+	}
+}
+
+// TestEarlierJudgementLabels (W13): a judgement an earlier release's rules
+// reached (PreviewHandoff.Earlier) is labelled in that release's words,
+// which are true of it (maul checked the outcomes then) and byte for byte
+// what that release wrote, so an upgrade edits no comment of it; a
+// judgement of these rules, and a hand-off still being looked at, read as
+// this release says them.
+func TestEarlierJudgementLabels(t *testing.T) {
+	for _, tt := range []struct {
+		h         PreviewHandoff
+		workspace bool
+		want      string
+	}{
+		{PreviewHandoff{State: HandoffReady, Earlier: true}, false, "Ready: maul checked the approved outcomes."},
+		{PreviewHandoff{State: HandoffReady, Earlier: true}, true, "Ready: maul checked the approved outcomes."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyUnsure, Earlier: true}, false,
+			"maul couldn't confirm this: some outcomes are unsure."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyUnsure, Earlier: true}, true,
+			"maul couldn't confirm this: some outcomes are unsure."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyEnvironment, Earlier: true}, false,
+			"maul couldn't confirm this: the preview failed while it was checked."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyInfra, Earlier: true}, false,
+			"maul couldn't confirm this: its own checking environment failed while it checked."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyEnvironment, Earlier: true}, true,
+			"maul couldn't confirm this: its own checking tools failed while it checked."},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyBudget, Earlier: true}, false,
+			"maul couldn't confirm this: it spent its evaluation budget."},
+		{PreviewHandoff{State: HandoffReady}, false, ReadyLabel},
+		{PreviewHandoff{State: HandoffUnconfirmed, Why: HandoffWhyUnsure}, true,
+			NotReadyLead + "some outcomes are unsure."},
+		{PreviewHandoff{State: HandoffChecking, Earlier: true}, false,
+			"Shown while maul's evaluator is still looking at the approved outcomes."},
+	} {
+		got := handoffLabel(tt.h)
+		if tt.workspace {
+			got = workspaceLabel(tt.h)
+		}
+		if got != tt.want {
+			t.Errorf("%+v (workspace %v) = %q, want %q", tt.h, tt.workspace, got, tt.want)
+		}
 	}
 }

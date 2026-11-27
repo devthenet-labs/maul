@@ -64,94 +64,67 @@
 #                              usage does not. "granted" or "refused" is
 #                              appended to $HOME/.fake-claude/delegation.
 #
-# The agent evaluator's and the check reviewer's stages are scripted too
-# (MAUL_PHASE=evaluate, checkreview), the evaluator driving the real
-# maul-tool against the round's tool pod:
+# The agent evaluator's stage is scripted too (MAUL_PHASE=evaluate), driving
+# the real maul-tool against the round's tool pod:
 #
 #   MAUL_FAKE_CLAUDE_EVALUATE  what the evaluator does for every outcome the
-#                              prompt lists, after `maul-tool check results`:
-#                              "pass" (default) writes an http check of the
-#                              first component (GET MAUL_FAKE_CLAUDE_CHECK_PATH,
-#                              default that component's path, its body
-#                              containing MAUL_FAKE_CLAUDE_CHECK_TEXT, default
-#                              "ok"; with MAUL_FAKE_CLAUDE_CHECK_WRITES=1 it
-#                              first POSTs its run's own record under that
-#                              path, so its regression may start an automatic
-#                              fix), dry-runs it, and passes the outcome on
-#                              that run, proposing the check when it ran
-#                              green; "fail" dry-runs the same check, reads
-#                              the component's captured log after it
-#                              (`maul-tool logs <component>`, the excerpt a
-#                              fix round's reproduction quotes) and fails
-#                              the outcome on that run, proposing nothing; "red"
-#                              judges as a careful evaluator does (S1 bug 7):
-#                              it dry-runs the same check and, green, passes
-#                              the outcome and proposes it as "pass" does;
-#                              red by assertion (maul-tool's "red by assertion"
-#                              line), reads the component's log, fails the
-#                              outcome on that run and proposes the check with
-#                              expect: fail; red any other way, unsure; "dispute"
-#                              disputes the first saved check `check results`
-#                              shows failing its replay, proposing a green
-#                              replacement (<outcome>.r), the outcome unsure;
-#                              "canary" does what an injected page asks:
-#                              writes a vacuous check (a status alone), which
-#                              the dry run refuses, proposes it anyway by its
-#                              own digest and passes every outcome; and
-#                              "nochecks" passes every outcome on one
-#                              `maul-tool http GET` and proposes nothing;
-#                              "browser" opens MAUL_FAKE_CLAUDE_BROWSER_ENTRY
-#                              (default /) in the browser, takes a snapshot,
-#                              clicks the first element after the root, takes
-#                              a screenshot, then writes and dry-runs a
-#                              browser check measuring the element of test id
-#                              MAUL_FAKE_CLAUDE_BROWSER_TESTID (default vote):
-#                              visible, a MAUL_FAKE_CLAUDE_BROWSER_SIZE
-#                              (default 32) px square, clickable; passing the
-#                              outcome and proposing the check when it ran
-#                              green, else failing it, citing the screenshot
-#                              and the run; "browser-look" opens the entry,
-#                              takes a snapshot and a screenshot, and passes
-#                              every outcome on the screenshot alone,
-#                              proposing nothing.
+#                              prompt lists, citing the ledger seqs maul-tool
+#                              printed for its own calls ("evaluator
+#                              observed": no check is written or proposed):
+#                              "pass" (default; "nochecks" is the same) sends
+#                              `maul-tool http GET` to MAUL_FAKE_CLAUDE_CHECK_PATH
+#                              (default the first component's path) and,
+#                              when the answer holds MAUL_FAKE_CLAUDE_CHECK_TEXT
+#                              (default "ok"), passes the outcome citing that
+#                              call; when it does not, reads the component's
+#                              captured log (`maul-tool logs <component>`, the
+#                              excerpt a fix round's reproduction quotes) and
+#                              fails it, citing the call, with a note; "fail"
+#                              sends the same call, reads the log and fails
+#                              the outcome on that call whatever it showed;
+#                              "cite-logs" reads the log and passes every
+#                              outcome citing only that read and a seq the
+#                              ledger does not hold, neither of which maul
+#                              counts; "browser" opens
+#                              MAUL_FAKE_CLAUDE_BROWSER_ENTRY (default /),
+#                              takes a snapshot, clicks the first element
+#                              after the root, takes a screenshot, then
+#                              measures the element of test id
+#                              MAUL_FAKE_CLAUDE_BROWSER_TESTID (default vote)
+#                              with its own page script (`browser eval`):
+#                              a MAUL_FAKE_CLAUDE_BROWSER_SIZE (default 32) px
+#                              square passes the outcome citing the
+#                              screenshot and the script, anything else fails
+#                              it citing the script; "browser-look" opens the
+#                              entry, takes a snapshot and a screenshot, and
+#                              passes every outcome on the screenshot.
 #                              On a Project with no preview (the workspace
 #                              prompt): "cli-pass" runs the built program
 #                              (the path the prompt names) with
 #                              MAUL_FAKE_CLAUDE_CLI_ARGS (space-separated,
-#                              default --help), then writes an exec check of
-#                              {{bin}} with those args whose stdout contains
-#                              MAUL_FAKE_CLAUDE_CHECK_TEXT, dry-runs it at the
-#                              head and with --base, and, green at the head,
-#                              passes the outcome on both runs and proposes it,
-#                              else unsure; "cli-fail" writes and dry-runs the
-#                              same check at the head and, red by assertion,
-#                              fails the outcome on that run and proposes the
-#                              check with expect: fail, else unsure;
-#                              "lib-newsymbol" reads the tree's go.mod (files
-#                              read), runs a Go program referring to the
-#                              library's MAUL_FAKE_CLAUDE_SYMBOL (default
-#                              ErrTooLong; of package MAUL_FAKE_CLAUDE_PACKAGE
-#                              under the module, default its root) at the
-#                              head and the base, then writes it as a run
-#                              check printing "<run> found", dry-runs it at
-#                              the head and with --base (where a new symbol
-#                              does not compile), and passes the outcome and
-#                              proposes the check when it ran green at the
-#                              head, else unsure.
+#                              default --help) at the head and, as context,
+#                              with --base, and passes the outcome citing the
+#                              head run when its output holds
+#                              MAUL_FAKE_CLAUDE_CHECK_TEXT, else fails it
+#                              citing it; "cli-fail" runs it at the head and,
+#                              when the output lacks the text, fails the
+#                              outcome citing the run, else is unsure;
+#                              "base-cite" runs it with --base alone and
+#                              passes the outcome citing that base run,
+#                              which maul never counts; "lib-newsymbol" reads
+#                              the tree's go.mod (files read), runs a Go
+#                              program referring to the library's
+#                              MAUL_FAKE_CLAUDE_SYMBOL (default ErrTooLong; of
+#                              package MAUL_FAKE_CLAUDE_PACKAGE under the
+#                              module, default its root) at the head and with
+#                              --base (where a new symbol does not compile),
+#                              and passes the outcome citing the read and the
+#                              head run when the program printed "explore
+#                              found" there, else is unsure.
 #   MAUL_FAKE_CLAUDE_ANOMALY   set: the report also carries one look-around
 #                              anomaly with this summary, on the first
-#                              component's path, citing `check results`.
-#   MAUL_FAKE_CLAUDE_REVIEW    the check reviewer's answer for every check:
-#                              "proves" (default), "does_not_prove" or
-#                              "unclear"; "weak-refused" answers proves for
-#                              a check sending the X-Maul-Stronger header and
-#                              does_not_prove for any other. In "pass" mode
-#                              an evaluator whose prompt shows the check
-#                              the reviewer refused of an outcome amends it
-#                              as "<outcome>.again", sending that header: a
-#                              stronger check; in "cli-pass" mode as
-#                              "<outcome>.again" with one more argument,
-#                              X-Maul-Stronger.
+#                              component's path, citing the first call the
+#                              evaluator made to the change.
 #   MAUL_FAKE_CLAUDE_CAPPED    set: the evaluator runs out of turns, as every
 #                              live evaluator of S1 bug 3 did: its first run
 #                              makes every call above but, instead of writing
@@ -195,11 +168,11 @@ cat >"$state/prompt-${MAUL_PHASE:-none}"
 prompt=$(cat "$state/prompt-${MAUL_PHASE:-none}")
 
 case "${MAUL_PHASE:-}" in
-plan | build | evaluate | checkreview) ;;
+plan | build | evaluate) ;;
 *) mode='' ;;
 esac
 if [ -z "$mode" ]; then
-  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only plans, builds, evaluates and reviews checks"]}\n' "$session"
+  printf '{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"%s","errors":["the scripted claude only plans, builds and evaluates"]}\n' "$session"
   exit 1
 fi
 
@@ -305,14 +278,13 @@ delegate() {
     "$call" "$1"
 }
 
-# --- The evaluator's and the check reviewer's stages -----------------------
+# --- The evaluator's stage -------------------------------------------------
 #
-# Both write their report where the prompt says ("Write your report to
+# It writes its report where the prompt says ("Write your report to
 # `<path>`"). The evaluator drives the REAL maul-tool against the round's tool
 # pod (MAUL_TOOLS_URL), from the scratch directory it runs in, as a model
-# following the evaluate prompt would: `check results` first, then per mode
-# (MAUL_FAKE_CLAUDE_EVALUATE) checks written with "Write" (a file under
-# checks/), dry-run with `check run`, and a report citing the ledger seqs
+# following the evaluate prompt would: per mode (MAUL_FAKE_CLAUDE_EVALUATE)
+# calls to the change, and a report whose verdicts cite the ledger seqs
 # maul-tool printed. Every maul-tool command line is appended to
 # $HOME/.fake-claude/tools.
 
@@ -332,43 +304,9 @@ tool() {
   seq=${seq:-0}
 }
 
-# green_digest <mode> — the digest of the check maul-tool just printed as
-# passing in that mode (dry-run, replay), or nothing.
-green_digest() {
-  printf '%s\n' "$out" | sed -n "s/^\[observed\] check [^ ]* digest \(sha256:[0-9a-f]*\) $1: pass .*/\1/p" | head -n 1
-}
-
-# http_check <id> <outcome> <expect> — an http check of the first component,
-# in canonical form (internal/checks.Canonical), so a file's sha256 is its
-# digest; <expect> is the expect object's members after the status.
-http_check() {
-  if [ "${MAUL_FAKE_CLAUDE_CHECK_WRITES:-}" = 1 ]; then
-    printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"POST","path":"%s/{{run}}","json":{"run":"{{run}}"}},"expect":{"status":[200]}},{"request":{"method":"GET","path":"%s"},"expect":{"status":[200]%s}}]}}' \
-      "$1" "$2" "$key" "$path" "$path" "$3"
-    return
-  fi
-  printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"GET","path":"%s"},"expect":{"status":[200]%s}}]}}' \
-    "$1" "$2" "$key" "$path" "$3"
-}
-
-# browser_check <id> <outcome> — a browser check of the browser entry: the
-# element of test id MAUL_FAKE_CLAUDE_BROWSER_TESTID is visible, a square of
-# MAUL_FAKE_CLAUDE_BROWSER_SIZE px, and clickable.
-browser_check() {
-  printf '{"id":"%s","outcome":"%s","form":"browser","browser":{"steps":[{"goto":"%s"},{"expect":{"assert":"visible","locator":{"testid":"%s"}}},{"expect":{"assert":"size","locator":{"testid":"%s"},"width":%s,"height":%s}},{"expect":{"assert":"clickable","locator":{"testid":"%s"}}}]}}' \
-    "$1" "$2" "$entry" "$testid" "$testid" "$size" "$size" "$testid"
-}
-
-# cli_check <id> <outcome> — an exec check of the built program ({{bin}})
-# with MAUL_FAKE_CLAUDE_CLI_ARGS, its stdout containing
-# MAUL_FAKE_CLAUDE_CHECK_TEXT.
-cli_check() {
-  argv='"{{bin}}"'
-  for a in ${MAUL_FAKE_CLAUDE_CLI_ARGS:---help}; do
-    argv="$argv,\"$a\""
-  done
-  printf '{"id":"%s","outcome":"%s","form":"exec","exec":{"argv":[%s],"expect":{"exit":0,"stdoutContains":"%s"}}}' \
-    "$1" "$2" "$argv" "${MAUL_FAKE_CLAUDE_CHECK_TEXT:-ok}"
+# shows <text> — the last call's output holds text.
+shows() {
+  printf '%s\n' "$out" | grep -qF -- "$1"
 }
 
 # library_program <import path> <symbol> — a Go program that refers to the
@@ -378,28 +316,6 @@ library_program() {
   printf 'package main\n\nimport (\n    "fmt"\n    "os"\n\n    lib "%s"\n)\n\nvar _ = lib.%s\n\n' "$1" "$2"
   printf 'func main() { fmt.Println(os.Args[1], "found") }\n'
 }
-
-# run_check <id> <outcome> <file> — a go run check of the program in <file>
-# with the run token as its argument, its stdout "<run> found".
-run_check() {
-  content=$(sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' "$3" | awk '{ printf "%s\\n", $0 }')
-  printf '{"id":"%s","outcome":"%s","form":"run","run":{"language":"go","files":[{"path":"main.go","content":"%s"}],"args":["{{run}}"],"expect":{"exit":0,"stdoutContains":"{{run}} found"}}}' \
-    "$1" "$2" "$content"
-}
-
-if [ "$MAUL_PHASE" = checkreview ]; then
-  out_report=$(report_path)
-  answer=${MAUL_FAKE_CLAUDE_REVIEW:-proves}
-  if [ "$answer" = weak-refused ]; then
-    answer=does_not_prove
-    case "$prompt" in *X-Maul-Stronger*) answer=proves ;; esac
-  fi
-  printf '%s\n' '---' "answer: $answer" "reason: \"Scripted review from hack/fake-agent/claude: $answer.\"" '---' \
-    >"$out_report"
-  echo 200 >"$state/sessions/$session"
-  emit "$session" 1 300 50 0 40 0.0200 "Reviewed: $answer."
-  exit 0
-fi
 
 if [ "$MAUL_PHASE" = evaluate ]; then
   if [ "$mode" = resume ]; then
@@ -425,126 +341,47 @@ if [ "$MAUL_PHASE" = evaluate ]; then
   entry=${MAUL_FAKE_CLAUDE_BROWSER_ENTRY:-/}
   testid=${MAUL_FAKE_CLAUDE_BROWSER_TESTID:-vote}
   size=${MAUL_FAKE_CLAUDE_BROWSER_SIZE:-32}
-  mkdir -p checks
-  tool check results
-  results=$seq results_out=$out
-  verdicts='' proposed='' disputes=''
+  verdicts='' first=0
   for o in $ids; do
     case "${MAUL_FAKE_CLAUDE_EVALUATE:-pass}" in
-    pass)
+    pass | nochecks)
       # The report as the live evaluators write it (S1 bug 5): each verdict
-      # names its outcome as outcome, each proposal the file it ran green.
-      # The live evaluator amends the refused check maul shows beside its
-      # refusal (G5R-B-CLI-1): with none of this outcome's shown, it writes
-      # its first check again, which the reviewer's cached answer refuses.
-      refused=$(printf '%s\n' "$prompt" | sed -n '/^### Checks the reviewer refused/,/^##/p')
-      case "$refused" in
-      *"\"id\": \"$o\","*)
-        cid="$o.again"
-        printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"GET","path":"%s","headers":{"X-Maul-Stronger":"1"}},"expect":{"status":[200],"bodyContains":"%s"}}]}}' \
-          "$cid" "$o" "$key" "$path" "$text" >"checks/$cid.json"
-        ;;
-      *)
-        cid=$o
-        http_check "$o" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.json"
-        ;;
-      esac
-      tool check run "checks/$cid.json"
-      digest=$(green_digest dry-run)
-      verdicts="$verdicts
-  - outcome: $o
-    verdict: pass
-    ledger: [$seq]"
-      [ -z "$digest" ] || proposed="$proposed
-  - id: \"$cid\"
-    outcome: $o
-    file: \"checks/$cid.json\""
-      ;;
-    fail)
-      http_check "$o" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.json"
-      tool check run "checks/$o.json"
-      run=$seq
-      tool logs "$key"
-      seq=$run
-      verdicts="$verdicts
-  - id: $o
-    verdict: fail
-    ledger: [$seq]
-    note: \"The page does not show what the outcome states.\""
-      ;;
-    red)
-      # A check that may show a defect writes its own run's data and asserts
-      # on it: a POST to a path naming the run token, whose body names it too
-      # (reviews, finding 3; third review, F3).
-      printf '{"id":"%s","outcome":"%s","form":"http","http":{"target":"%s","steps":[{"request":{"method":"POST","path":"%s/{{run}}","json":{"run":"{{run}}"}},"expect":{"status":[200],"bodyContains":"%s"}}]}}' \
-        "$o" "$o" "$key" "$path" "$text" >"checks/$o.json"
-      tool check run "checks/$o.json"
-      run=$seq
-      digest=$(green_digest dry-run)
-      if [ -n "$digest" ]; then
+      # names its outcome as outcome.
+      tool http GET "$path"
+      seen=$seq
+      [ "$first" != 0 ] || first=$seen
+      if shows "$text"; then
         verdicts="$verdicts
   - outcome: $o
     verdict: pass
-    ledger: [$run]"
-        proposed="$proposed
-  - id: \"$o\"
-    outcome: $o
-    file: \"checks/$o.json\""
-      elif printf '%s\n' "$out" | grep -q '^\[observed\] red by assertion at step '; then
+    ledger: [$seen]"
+      else
         tool logs "$key"
         verdicts="$verdicts
   - outcome: $o
     verdict: fail
-    ledger: [$run, $seq]
-    note: \"The check of the outcome fails at its assertion.\""
-        proposed="$proposed
-  - id: \"$o\"
-    outcome: $o
-    file: \"checks/$o.json\"
-    expect: fail"
-      else
-        verdicts="$verdicts
-  - outcome: $o
-    verdict: unsure
-    ledger: [$run]"
+    ledger: [$seen]
+    note: \"The page does not show what the outcome states.\""
       fi
       ;;
-    dispute)
-      failing=$(printf '%s\n' "$results_out" | sed -n 's/^\[observed\] check [^ ]* digest \(sha256:[0-9a-f]*\) replay: fail.*/\1/p' | head -n 1)
-      http_check "$o.r" "$o" ",\"bodyContains\":\"$text\"" >"checks/$o.r.json"
-      tool check run "checks/$o.r.json"
-      digest=$(green_digest dry-run)
+    fail)
+      tool http GET "$path"
+      seen=$seq
+      [ "$first" != 0 ] || first=$seen
+      tool logs "$key"
       verdicts="$verdicts
   - id: $o
-    verdict: unsure
-    note: \"A saved check failed on data it did not create; disputed.\""
-      if [ -n "$failing" ] && [ -z "$disputes" ] && [ -n "$digest" ]; then
-        disputes="
-  - check_digest: \"$failing\"
-    reason: \"The check asserts on data it did not create.\"
-    replacement: \"$o.r\"
-    ledger: [$results]"
-        proposed="$proposed
-  - id: \"$o.r\"
-    outcome: $o
-    digest: \"$digest\""
-      fi
+    verdict: fail
+    ledger: [$seen]
+    note: \"The page does not show what the outcome states.\""
       ;;
-    canary)
-      # What the injection asks for: a vacuous check, which maul-tool's dry
-      # run refuses (rule 2), proposed anyway by its own digest, and every
-      # outcome passed.
-      http_check "$o.canary" "$o" '' >"checks/$o.canary.json"
-      tool check run "checks/$o.canary.json"
-      digest="sha256:$(sha256sum "checks/$o.canary.json" | cut -d ' ' -f 1)"
+    cite-logs)
+      tool logs "$key"
       verdicts="$verdicts
   - id: $o
     verdict: pass
-    ledger: [$results]"
-      proposed="$proposed
-  - id: \"$o.canary\"
-    outcome: $o
-    digest: \"$digest\""
+    ledger: [$seq, 9999]
+    note: \"The log says it works.\""
       ;;
     browser)
       tool browser goto "$entry"
@@ -553,100 +390,80 @@ if [ "$MAUL_PHASE" = evaluate ]; then
       tool browser click "${ref:-e2}"
       tool browser screenshot
       shot=$seq
-      browser_check "$o" "$o" >"checks/$o.json"
-      tool check run "checks/$o.json"
-      digest=$(green_digest dry-run)
-      if [ -n "$digest" ]; then
+      [ "$first" != 0 ] || first=$shot
+      tool browser eval "() => { const r = document.querySelector('[data-testid=\"$testid\"]').getBoundingClientRect(); return { width: r.width, height: r.height }; }"
+      measured=$seq
+      if shows "{\"width\":$size,\"height\":$size}"; then
         verdicts="$verdicts
   - id: $o
     verdict: pass
-    ledger: [$shot, $seq]"
-        proposed="$proposed
-  - id: \"$o\"
-    outcome: $o
-    digest: \"$digest\""
+    ledger: [$shot, $measured]"
       else
         verdicts="$verdicts
   - id: $o
     verdict: fail
-    ledger: [$shot, $seq]
-    note: \"The page does not show what the outcome states.\""
+    ledger: [$measured]
+    note: \"The $testid button is not a $size px square.\""
       fi
       ;;
     browser-look)
       tool browser goto "$entry"
       tool browser snapshot
       tool browser screenshot
+      [ "$first" != 0 ] || first=$seq
       verdicts="$verdicts
   - id: $o
     verdict: pass
     ledger: [$seq]
     note: \"The screenshot shows what the outcome states.\""
       ;;
-    nochecks)
-      tool http GET "$path"
-      verdicts="$verdicts
-  - id: $o
-    verdict: pass
-    ledger: [$seq]"
-      ;;
     cli-pass)
       # shellcheck disable=SC2086 # the args are split as given
       tool exec -- "$bin" ${MAUL_FAKE_CLAUDE_CLI_ARGS:---help}
-      explored=$seq
-      # As in "pass": shown its refused check, it amends it as
-      # "<outcome>.again", one more argument X-Maul-Stronger.
-      cid=$o
-      refused=$(printf '%s\n' "$prompt" | sed -n '/^### Checks the reviewer refused/,/^##/p')
-      case "$refused" in
-      *"\"id\": \"$o\","*)
-        cid="$o.again"
-        (
-          MAUL_FAKE_CLAUDE_CLI_ARGS="${MAUL_FAKE_CLAUDE_CLI_ARGS:---help} X-Maul-Stronger"
-          cli_check "$cid" "$o"
-        ) >"checks/$cid.json"
-        ;;
-      *) cli_check "$o" "$o" >"checks/$o.json" ;;
-      esac
-      tool check run "checks/$cid.json"
-      head=$seq digest=$(green_digest dry-run)
-      tool check run --base "checks/$cid.json"
-      if [ -n "$digest" ]; then
+      head=$seq
+      [ "$first" != 0 ] || first=$head
+      held=''
+      shows "$text" && held=1
+      # shellcheck disable=SC2086 # the args are split as given
+      tool exec --base -- "$bin" ${MAUL_FAKE_CLAUDE_CLI_ARGS:---help}
+      if [ -n "$held" ]; then
         verdicts="$verdicts
   - outcome: $o
     verdict: pass
-    ledger: [$explored, $head, $seq]"
-        proposed="$proposed
-  - id: \"$cid\"
-    outcome: $o
-    file: \"checks/$cid.json\""
+    ledger: [$head]"
       else
         verdicts="$verdicts
   - outcome: $o
-    verdict: unsure
-    ledger: [$head, $seq]"
+    verdict: fail
+    ledger: [$head]
+    note: \"The program does not print what the outcome states.\""
       fi
       ;;
     cli-fail)
-      cli_check "$o" "$o" >"checks/$o.json"
-      tool check run "checks/$o.json"
-      if printf '%s\n' "$out" | grep -q '^\[observed\] red by assertion at step '; then
+      # shellcheck disable=SC2086 # the args are split as given
+      tool exec -- "$bin" ${MAUL_FAKE_CLAUDE_CLI_ARGS:---help}
+      [ "$first" != 0 ] || first=$seq
+      if shows "$text"; then
+        verdicts="$verdicts
+  - outcome: $o
+    verdict: unsure
+    ledger: [$seq]"
+      else
         verdicts="$verdicts
   - outcome: $o
     verdict: fail
     ledger: [$seq]
     note: \"The program does not print what the outcome states.\""
-        proposed="$proposed
-  - id: \"$o\"
-    outcome: $o
-    file: \"checks/$o.json\"
-    expect: fail"
-      else
-        verdicts="$verdicts
-  - outcome: $o
-    verdict: unsure
-    ledger: [$seq]"
       fi
+      ;;
+    base-cite)
+      # shellcheck disable=SC2086 # the args are split as given
+      tool exec --base -- "$bin" ${MAUL_FAKE_CLAUDE_CLI_ARGS:---help}
+      verdicts="$verdicts
+  - outcome: $o
+    verdict: pass
+    ledger: [$seq]
+    note: \"The commit the branch started from already does it.\""
       ;;
     lib-newsymbol)
       tool files read go.mod
@@ -657,26 +474,21 @@ if [ "$MAUL_PHASE" = evaluate ]; then
       library_program "$import" "${MAUL_FAKE_CLAUDE_SYMBOL:-ErrTooLong}" >"prog-$o/main.go"
       tool run "prog-$o" -- explore
       explored=$seq
+      [ "$first" != 0 ] || first=$explored
+      found=''
+      shows "explore found" && found=1
       tool run "prog-$o" --base -- explore
-      run_check "$o" "$o" "prog-$o/main.go" >"checks/$o.json"
-      tool check run "checks/$o.json"
-      head=$seq digest=$(green_digest dry-run)
-      tool check run --base "checks/$o.json"
-      if [ -n "$digest" ]; then
+      if [ -n "$found" ]; then
         verdicts="$verdicts
   - outcome: $o
     verdict: pass
-    ledger: [$read_mod, $explored, $head, $seq]
-    note: \"The symbol is new, so the base does not compile: there is no base comparison.\""
-        proposed="$proposed
-  - id: \"$o\"
-    outcome: $o
-    file: \"checks/$o.json\""
+    ledger: [$read_mod, $explored]
+    note: \"The symbol is new: the base does not compile against it.\""
       else
         verdicts="$verdicts
   - outcome: $o
     verdict: unsure
-    ledger: [$head, $seq]"
+    ledger: [$explored]"
       fi
       ;;
     esac
@@ -684,12 +496,9 @@ if [ "$MAUL_PHASE" = evaluate ]; then
   {
     printf '%s' '---' '
 verdicts:' "$verdicts"
-    if [ -n "$disputes" ]; then printf '\n%s%s' 'disputes:' "$disputes"; else printf '\n%s' 'disputes: []'; fi
-    if [ -n "$proposed" ]; then printf '\n%s%s' 'proposed:' "$proposed"; else printf '\n%s' 'proposed: []'; fi
-    printf '\n%s' 'retire: []'
     if [ -n "${MAUL_FAKE_CLAUDE_ANOMALY:-}" ]; then
       printf '\n%s\n' 'anomalies:' "  - summary: \"$MAUL_FAKE_CLAUDE_ANOMALY\"" "    route: \"$path\"" \
-        "    ledger: [$results]"
+        "    ledger: [$first]"
     else
       printf '\n%s\n' 'anomalies: []'
     fi

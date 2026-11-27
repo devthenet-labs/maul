@@ -4,12 +4,12 @@
 // Command maul-tool is the agent evaluator's CLI (DESIGN 2.1, 2.7; SPEC
 // S1-09), on PATH in the claude and codex agent-runner images: the
 // evaluator runs it by bare name, one command per Bash call, to reach its
-// tool pod's tools container (http, browser, exec, logs, events, check run,
-// check results). The engine is internal/maultool; this is its thin
-// wiring. It reads only MAUL_TOOLS_URL and MAUL_TOOLS_DEADLINE, sends the per-evaluation key from
-// /work/input/tools-key when that file exists, and otherwise reads and
-// writes files only under /work/scratch. Exit 0 ok, 2 usage, 3 refused, 4 tool
-// error.
+// tool pod's tools container (http, browser, exec, logs, events, and in a
+// workspace files and run). The engine is internal/maultool; this is its
+// thin wiring. It reads only MAUL_TOOLS_URL and MAUL_TOOLS_DEADLINE, sends
+// the per-evaluation key from /work/input/tools-key when that file exists,
+// and otherwise reads and writes files only under /work/scratch. Exit 0 ok,
+// 2 usage, 3 refused, 4 tool error.
 package main
 
 import (

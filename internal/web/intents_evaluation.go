@@ -6,26 +6,23 @@ package web
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
-	"strings"
+	"slices"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
-	"github.com/devthenet-labs/maul/internal/checks/playwright"
 	"github.com/devthenet-labs/maul/internal/intentview"
 	"github.com/devthenet-labs/maul/internal/report"
+	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/toolledger"
-	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/web/auth"
 	"github.com/devthenet-labs/maul/internal/web/authz"
 )
@@ -36,10 +33,13 @@ import (
 // run's spec.evaluation pins, and an intentRef naming this very Intent. Its
 // ledger and evidence ConfigMaps are owned by that verification and read
 // through guardedConfigMap, so a ConfigMap of the same name another object
-// controls is never served. The outcomes, the checks and the ledger index
-// are tier 1 (projects/intents); the ledger's arguments and outputs, the
-// evidence images and the evaluator's own claims are tier 2
-// (projects/transcripts), like every other agent and application text.
+// controls is never served. The outcomes, maul's decision on each with the
+// calls it counted ("evaluator observed": the verdict's cites in the
+// round's verified ledger index) and the ledger index are tier 1
+// (projects/intents); the ledger's arguments and outputs, which calls ran
+// the evaluator's own page script or program, the evidence images and the
+// evaluator's own claims are tier 2 (projects/transcripts), like every
+// other agent and application text.
 
 // Bounds of what the view sends.
 const (
@@ -49,9 +49,6 @@ const (
 	// an anomaly's summary): report.NoteMaxChars, in bytes with room for
 	// multibyte characters.
 	maxEvaluationText = 4 * report.NoteMaxChars
-	// compileToken is the run token a browser check is compiled with for
-	// display when the round recorded no run of it.
-	compileToken = "run-token"
 )
 
 // evidenceImageKey is an evidence image's key in <pv>-evidence, as
@@ -134,57 +131,42 @@ func buildRunEvaluation(in *v1alpha1.Intent, run *v1alpha1.IntentRun, pv *v1alph
 	tier authz.Tier) RunEvaluation {
 	out := RunEvaluation{
 		Intent: in.Name, Run: run.Name, Tier: tierName(tier), Verification: pv.Name,
-		Round: pv.Spec.Round, Attempt: pv.Spec.Attempt, Rung: string(pv.Spec.Rung),
+		Round: pv.Spec.Round, Attempt: pv.Spec.Attempt,
 		Phase: string(pv.Status.Phase), Reason: string(pv.Status.Reason),
-		Outcomes: []EvaluationOutcome{}, Checks: []EvaluationCheck{},
+		Outcomes: []EvaluationOutcome{},
 	}
 	ver := in.Status.Verification
 	out.Current = ver != nil && ver.Ref != nil && ver.Ref.UID == pv.UID
-	// The Intent's results, anomalies and disputes are this round's only
-	// when its judgement wrote them: a current round that settled unjudged
-	// shows none of an earlier round's (S2-B3).
+	if meta.IsStatusConditionTrue(in.Status.Conditions, v1alpha1.ConditionVerificationSuperseded) {
+		out.Withdrawn = templates.WithdrawnSentence
+	}
+	// The Intent's results and anomalies are this round's only when its
+	// judgement wrote them: a current round that settled unjudged shows
+	// none of an earlier round's (S2-B3).
 	judged := out.Current && ver.OutcomesJudgedAt(pv.Spec.Round, pv.Spec.HeadSetDigest)
-	decided, disputed := map[string]v1alpha1.OutcomeResult{}, map[string]bool{}
+	// Only a judgement under the observed rules is worded as one: an
+	// earlier release's, which the upgrade has not yet withdrawn, shows its
+	// results alone.
+	observed := judged && ver.Judge == v1alpha1.JudgeObserved
+	decided := map[string]v1alpha1.OutcomeResult{}
 	if judged {
-		decided, disputed, out.Anomalies = judgedRound(ver)
+		decided, out.Anomalies = judgedRound(ver)
+		if observed && len(decided) > 0 {
+			out.Lead = templates.ObservedLead
+		}
 	}
 	if out.Current && ver.Handoff != nil {
 		h := ver.Handoff
 		out.Handoff = &EvaluationHandoff{Mode: string(h.Mode), Released: h.Released,
 			ReleasedAt: stampPtr(h.ReleasedAt), Reason: string(h.Reason)}
 	}
-	var claims *report.Evaluation
-	if tier == authz.TierTranscripts && run.Status.Report != "" {
-		// A report that does not parse was never acted on: its claims are
-		// left out (its text is the run panel's report).
-		claims, _ = report.ParseEvaluation([]byte(run.Status.Report))
-	}
-	for _, o := range pv.Spec.Outcomes {
-		eo := EvaluationOutcome{ID: o.ID, Outcome: intentview.Text(o.Outcome, 0),
-			Kind: string(o.EffectiveKind()), Manual: o.Manual}
-		if d, ok := decided[o.ID]; ok {
-			eo.Result, eo.Basis = string(d.Result), d.Basis
-			eo.Line = intentview.Text(d.Line, 0)
-			eo.Reason = intentview.Text(d.Reason, maxEvaluationText)
-		}
-		if claims != nil {
-			for _, v := range claims.Verdicts {
-				if v.ID == o.ID {
-					eo.Verdict, eo.Cited = string(v.Verdict), v.Ledger
-					eo.Note = intentview.Text(v.Note, maxEvaluationText)
-				}
-			}
-		}
-		out.Outcomes = append(out.Outcomes, eo)
-	}
-	out.Checks = evaluationChecks(pv, disputed)
+	out.Outcomes = evaluationOutcomes(pv, decided, observed, evaluationClaims(run, tier))
 	agentsView(&out, pv)
-	out.Disputes = evaluationDisputes(ver, judged, claims)
 	if l := pv.Status.Ledger; l != nil {
 		out.Ledger = &EvaluationLedger{Count: l.Count, SHA256: l.SHA256, Entries: []EvaluationLedgerEntry{}}
 		for _, e := range l.Entries {
-			le := EvaluationLedgerEntry{Seq: e.Seq, Kind: string(e.Kind), Verb: string(e.Verb), Exit: e.Exit,
-				Refused: e.Refused, ResultSHA256: e.ResultSHA256}
+			le := EvaluationLedgerEntry{Seq: e.Seq, Kind: string(e.Kind), Verb: string(e.Verb), Side: string(e.Side),
+				Exit: e.Exit, Refused: e.Refused, ResultSHA256: e.ResultSHA256}
 			for _, a := range e.Artifacts {
 				le.Artifacts = append(le.Artifacts, EvaluationArtifact{SHA256: a})
 			}
@@ -201,78 +183,57 @@ func buildRunEvaluation(in *v1alpha1.Intent, run *v1alpha1.IntentRun, pv *v1alph
 	return out
 }
 
-// evaluationChecks are the round's checks: the saved checks it replayed, in
-// spec order, then the proposed checks it confirmed, each once by digest.
-func evaluationChecks(pv *v1alpha1.PreviewVerification, disputed map[string]bool) []EvaluationCheck {
-	replay := map[string]v1alpha1.CheckRun{}
-	for _, r := range pv.Status.Replay {
-		replay[r.CheckDigest] = r
-	}
-	confirm := map[string]v1alpha1.CheckRun{}
-	for _, r := range pv.Status.Confirmations {
-		confirm[r.CheckDigest] = r
-	}
-	agents := pv.Spec.IsAgents()
-	base := map[string]v1alpha1.CheckRun{}
-	if pv.Status.Base != nil {
-		for _, r := range pv.Status.Base.Runs {
-			base[r.CheckDigest] = r
+// evaluationOutcomes are pv's approved outcomes, each with maul's decided
+// result (worded, with the calls it counted, only for an observed
+// judgement) and, with claims (tier 2), the evaluator's first verdict of
+// it, the one maul judged.
+func evaluationOutcomes(pv *v1alpha1.PreviewVerification, decided map[string]v1alpha1.OutcomeResult, observed bool,
+	claims *report.Evaluation) []EvaluationOutcome {
+	out := make([]EvaluationOutcome, 0, len(pv.Spec.Outcomes))
+	for _, o := range pv.Spec.Outcomes {
+		eo := EvaluationOutcome{ID: o.ID, Outcome: intentview.Text(o.Outcome, 0),
+			Kind: string(o.EffectiveKind()), Manual: o.Manual}
+		if d, ok := decided[o.ID]; ok {
+			eo.Result, eo.Reason = string(d.Result), intentview.Text(d.Reason, maxEvaluationText)
+			if observed {
+				eo.Words, eo.Cites = templates.ObservedOutcomeWords(string(d.Result), d.Reason), d.Cites
+			}
 		}
-	}
-	out := []EvaluationCheck{}
-	seen := map[string]bool{}
-	add := func(c v1alpha1.SavedCheck, source string) {
-		if seen[c.Digest] {
-			return
+		if claims != nil {
+			if i := slices.IndexFunc(claims.Verdicts, func(v report.OutcomeVerdict) bool { return v.ID == o.ID }); i >= 0 {
+				v := claims.Verdicts[i]
+				eo.Verdict, eo.Cited = string(v.Verdict), v.Ledger
+				eo.Note = intentview.Text(v.Note, maxEvaluationText)
+			}
 		}
-		seen[c.Digest] = true
-		ec := EvaluationCheck{ID: c.ID, Outcome: c.Outcome, Form: string(c.Form), Digest: c.Digest,
-			Source: source, Steps: indentedBody(c.Body), Disputed: disputed[c.Digest]}
-		token := ""
-		if r, ok := replay[c.Digest]; ok {
-			ec.Replay = wireCheckRun(r, agents)
-			token = r.Token
-		}
-		if r, ok := confirm[c.Digest]; ok {
-			ec.Confirmation = wireCheckRun(r, agents)
-			token = r.Token
-		}
-		if r, ok := base[c.Digest]; ok {
-			ec.Base = wireCheckRun(r, agents)
-		}
-		if c.Form == v1alpha1.CheckFormBrowser {
-			ec.Compiled, ec.CompiledToken = compiledSpec(c.Body, token)
-		}
-		out = append(out, ec)
-	}
-	for _, c := range pv.Spec.Checks {
-		add(c, "saved")
-	}
-	for _, c := range pv.Status.Confirmed {
-		add(c, "proposed")
+		out = append(out, eo)
 	}
 	return out
 }
 
-// wireCheckRun is one run for the page. Only an agents round has trees, so
-// only its runs name one (unset reads as head); a slot round's stay as S1
-// showed them.
-func wireCheckRun(r v1alpha1.CheckRun, agents bool) *EvaluationCheckRun {
-	out := &EvaluationCheckRun{Result: string(r.Result), Token: r.Token, Seq: r.Seq, DryRunSeq: r.DryRunSeq}
-	if agents {
-		out.Tree = string(r.Side())
+// evaluationClaims is the run's report as the evaluator wrote it, tier 2
+// only; nil for a report that does not parse, which was never acted on (its
+// text is the run panel's report), among them one writing a key the
+// observed evaluator retired, which claims nothing, as the controller
+// judges it.
+func evaluationClaims(run *v1alpha1.IntentRun, tier authz.Tier) *report.Evaluation {
+	if tier != authz.TierTranscripts || run.Status.Report == "" {
+		return nil
 	}
-	return out
+	claims, err := report.ParseEvaluation([]byte(run.Status.Report))
+	if err != nil {
+		return nil
+	}
+	return claims
 }
 
-// agentsView fills what only an agents round has: its placement, the label
-// when the base tree did not build, and the tree builds.
+// agentsView fills what only an agents round has: its placement and the
+// tree builds.
 func agentsView(out *RunEvaluation, pv *v1alpha1.PreviewVerification) {
 	if !pv.Spec.IsAgents() {
 		return
 	}
 	out.Placement = string(v1alpha1.PlacementAgents)
-	out.NoBaseComparison = pv.Status.Base != nil && pv.Status.Base.Unbuildable
 	if l := pv.Status.Ledger; l != nil {
 		for _, b := range l.Builds {
 			out.Builds = append(out.Builds, EvaluationBuild{Tree: string(b.Side), Result: string(b.Result),
@@ -281,46 +242,13 @@ func agentsView(out *RunEvaluation, pv *v1alpha1.PreviewVerification) {
 	}
 }
 
-// indentedBody is a check's canonical JSON indented for reading, as plain
-// text; a body that is not JSON is shown as it is.
-func indentedBody(body string) string {
-	var b bytes.Buffer
-	if err := json.Indent(&b, []byte(body), "", "  "); err != nil {
-		return intentview.Text(body, 0)
-	}
-	return intentview.Text(b.String(), 0)
-}
-
-// compiledSpec is the Playwright spec maul compiles from a browser check's
-// body, compiled with the round's own run token where it recorded one, and
-// the token used; empty when the body does not compile.
-func compiledSpec(body, token string) (string, string) {
-	c, err := checks.Parse([]byte(body))
-	if err != nil || c.Browser == nil {
-		return "", ""
-	}
-	for _, t := range []string{token, compileToken} {
-		if t == "" {
-			continue
-		}
-		if spec, err := playwright.Compile(*c.Browser, playwright.Options{RunToken: t}); err == nil {
-			return intentview.Text(string(spec), 0), t
-		}
-	}
-	return "", ""
-}
-
 // judgedRound is what ver's judgement decided: each outcome's result by id,
-// the checks it disputed, and its anomalies as the view shows them.
-func judgedRound(ver *v1alpha1.IntentVerification) (map[string]v1alpha1.OutcomeResult, map[string]bool,
-	[]EvaluationAnomaly) {
-	decided, disputed := map[string]v1alpha1.OutcomeResult{}, map[string]bool{}
+// and its anomalies as the view shows them.
+func judgedRound(ver *v1alpha1.IntentVerification) (map[string]v1alpha1.OutcomeResult, []EvaluationAnomaly) {
+	decided := map[string]v1alpha1.OutcomeResult{}
 	anomalies := make([]EvaluationAnomaly, 0, len(ver.Anomalies))
 	for _, o := range ver.Outcomes {
 		decided[o.ID] = o
-	}
-	for _, d := range ver.Disputed {
-		disputed[d] = true
 	}
 	for _, a := range ver.Anomalies {
 		ea := EvaluationAnomaly{Summary: intentview.Text(a.Summary, maxEvaluationText),
@@ -332,58 +260,49 @@ func judgedRound(ver *v1alpha1.IntentVerification) (map[string]v1alpha1.OutcomeR
 		}
 		anomalies = append(anomalies, ea)
 	}
-	return decided, disputed, anomalies
-}
-
-// evaluationDisputes are the round's disputed checks: the Intent's disputed
-// digests while the round is current and judged, and (tier 2) the evaluator's own
-// disputes with their reasons.
-func evaluationDisputes(ver *v1alpha1.IntentVerification, current bool,
-	claims *report.Evaluation) []EvaluationDispute {
-	var out []EvaluationDispute
-	index := map[string]int{}
-	if current {
-		for _, d := range ver.Disputed {
-			index[d] = len(out)
-			out = append(out, EvaluationDispute{CheckDigest: d})
-		}
-	}
-	if claims != nil {
-		for _, d := range claims.Disputes {
-			ed := EvaluationDispute{CheckDigest: d.CheckDigest, Reason: intentview.Text(d.Reason,
-				maxEvaluationText), Replacement: intentview.Text(d.Replacement, 80), Ledger: d.Ledger}
-			if i, ok := index[d.CheckDigest]; ok {
-				out[i] = ed
-				continue
-			}
-			index[d.CheckDigest] = len(out)
-			out = append(out, ed)
-		}
-	}
-	return out
+	return decided, anomalies
 }
 
 // addLedgerOutputs fills each ledger entry's arguments and output from the
-// verification's <pv>-ledger, and names each artifact's stored image from
-// its <pv>-evidence: tier 2 only. An output is shown only when it hashes to
-// the index's sha256; a ConfigMap that is missing or not the
-// verification's own leaves the index as it is.
+// verification's <pv>-ledger, labels the calls that ran the evaluator's own
+// page script or program (toolledger.OwnCalls, as the comment labels a
+// cited call), and names each artifact's stored image from its
+// <pv>-evidence: tier 2 only. A line is shown only as the call the index
+// records, and its output only when it hashes to the index's sha256; a
+// ConfigMap that is missing or not the verification's own leaves the index
+// as it is.
 func (s *Server) addLedgerOutputs(ctx context.Context, in *v1alpha1.Intent, pv *v1alpha1.PreviewVerification,
 	l *EvaluationLedger) {
 	sum := pv.Status.Ledger
 	if l == nil || sum == nil {
 		return
 	}
+	var lines map[int64]toolledger.StoredLine
 	if sum.ConfigMap != "" {
 		if cm, err := s.guardedConfigMap(ctx, sum.ConfigMap, in.Name, pv.UID); err == nil {
-			lines := ledgerLines(cm.Data[toolledger.Key])
+			lines = toolledger.ReadStored(cm.Data[toolledger.Key])
 			l.Outputs = true
 			for i := range l.Entries {
-				fillLedgerEntry(&l.Entries[i], lines)
+				if i < len(sum.Entries) {
+					fillLedgerEntry(&l.Entries[i], sum.Entries[i], lines)
+				}
 			}
 		} else if !errors.Is(err, errNotVisible) {
 			s.log.LogAttrs(ctx, slog.LevelError, "read ledger", slog.String("verification", pv.Name),
 				slog.Any("error", err))
+		}
+	}
+	// The labels fail closed: with no ledger read, every call whose label
+	// needs its line is labelled the evaluator's own.
+	own := toolledger.OwnCalls(sum.Entries, func(seq int32) json.RawMessage {
+		if line, ok := lines[int64(seq)]; ok && int(seq) <= len(sum.Entries) && line.Of(sum.Entries[seq-1]) {
+			return line.Args
+		}
+		return nil
+	}, pv.Spec.IsAgents(), cliBinary(pv))
+	for i := range l.Entries {
+		if i < len(own) {
+			l.Entries[i].Own = own[i]
 		}
 	}
 	if sum.Evidence != "" {
@@ -404,36 +323,28 @@ func (s *Server) addLedgerOutputs(ctx context.Context, in *v1alpha1.Intent, pv *
 	}
 }
 
-// ledgerLines decodes the ledger ConfigMap's lines by seq; a line that does
-// not decode is skipped.
-func ledgerLines(data string) map[int32]toolwire.LedgerEntry {
-	out := map[int32]toolwire.LedgerEntry{}
-	for line := range strings.SplitSeq(data, "\n") {
-		if line == "" {
-			continue
-		}
-		var e toolwire.LedgerEntry
-		if err := json.Unmarshal([]byte(line), &e); err != nil || e.Seq < 1 || e.Seq > toolwire.MaxEntries {
-			continue
-		}
-		out[int32(e.Seq)] = e
+// cliBinary is an agents round's built cli binary, "" for a library or a
+// slot round.
+func cliBinary(pv *v1alpha1.PreviewVerification) string {
+	if ws := pv.Spec.Workspace; ws != nil && ws.Surface.CLI != nil {
+		return ws.Surface.CLI.Binary
 	}
-	return out
+	return ""
 }
 
-// fillLedgerEntry shows an entry's arguments and output from its line, the
-// output only when it hashes to the index's sha256.
-func fillLedgerEntry(e *EvaluationLedgerEntry, lines map[int32]toolwire.LedgerEntry) {
-	line, ok := lines[e.Seq]
-	if !ok {
+// fillLedgerEntry shows entry e (index entry ix) from its stored line: what
+// it sent when the line is the index's call, and its output only when that
+// hashes to the index's sha256.
+func fillLedgerEntry(e *EvaluationLedgerEntry, ix v1alpha1.LedgerIndexEntry, lines map[int64]toolledger.StoredLine) {
+	line, ok := lines[int64(e.Seq)]
+	if !ok || !line.Of(ix) {
 		e.OutputDropped = true
 		return
 	}
 	if len(line.Args) > 0 {
 		e.Args = intentview.Text(string(line.Args), maxLedgerShown)
 	}
-	sum := sha256.Sum256([]byte(line.Output))
-	if hex.EncodeToString(sum[:]) != e.ResultSHA256 {
+	if !line.OutputKept() {
 		e.OutputDropped = true
 		return
 	}

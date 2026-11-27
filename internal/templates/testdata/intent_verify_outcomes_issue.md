@@ -1,7 +1,7 @@
 <!-- maul:notice maul/target-1 verify-r2 -->
 ### maul: verification 2, attempt 1
 
-Evaluation 2 failing: 2/4 outcomes confirmed, 1 of 2 automatic fixes used; automatic fix queued.
+Evaluation 2 failing: 2/4 outcomes seen to hold, 1 of 2 automatic fixes used; automatic fix queued.
 
 | Check | Kind | Outcome |
 | --- | --- | --- |

@@ -35,13 +35,12 @@
 //   - collects the finished pod: only the tools container's log, verified
 //     against its termination message (toolledger.Parse); a log or
 //     termination message holding the tools key is ledger-mismatch (U23);
-//     the index, the builds, the head's replay, confirmations and confirmed
-//     checks, the base's runs (toolledger.BaseRuns, tree base),
-//     status.base, the head build's part (previewtools.BuildPart) and the
-//     <pv>-ledger ConfigMap; a head that did not build is Infra
-//     tools-build-failed, never a fail, and a tree built but not kept for
-//     its check runs (its tree, output and HOME over toolexec.MaxKeptBytes,
-//     or a full work volume) Infra kept-copy-failed;
+//     the index (toolledger.ApplyStatus, a base call's entry side: base),
+//     the builds, the head build's part (previewtools.BuildPart) as the
+//     round's environment and the <pv>-ledger ConfigMap; nothing is
+//     replayed, confirmed or stored as a check, and the base's calls are
+//     context, never a result's evidence; a head that did not build is
+//     Infra tools-build-failed, never a fail;
 //   - tears the Job and its Secret down once the verification is settled,
 //     after a linger for a finished pod so the isolation probe's ledger row
 //     can still read it (S2-21), and at once for one still running.

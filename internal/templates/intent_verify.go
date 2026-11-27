@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // Acceptance verification, as maul tells people about it: the plan comment's
@@ -124,27 +124,23 @@ type VerifyProgress struct {
 	// clause names evaluations and counts outcomes confirmed. false is
 	// slice 1's wording, unchanged.
 	Outcomes bool
-	// DefectConfirmed: a person confirmed the defect maul suspected (fifth
-	// review, 6), so the fix is theirs, never called automatic, and no
-	// failing count is shown for it.
-	DefectConfirmed bool
 	// Why is why an unconfirmed evaluation will not go on (a HandoffWhy
 	// constant, "" for none): with every outcome confirmed, the line names
 	// it in place of the counts' "couldn't confirm every outcome"
 	// (UnconfirmedCause, review H2). Workspace is a Project with no preview.
 	Why       string
 	Workspace bool
-	// Recheck: maul checks once more by itself at the same commits (gate 5
-	// G5-B-CLI-1), because the only open outcomes of the evaluation before
-	// were ones the evaluator says hold with no check maul accepted: the
-	// line of that unconfirmed evaluation, or of the one running, says so.
-	Recheck bool
+	// Withdrawn: an earlier release's result for this intent was withdrawn
+	// when maul's rules for judging the outcomes changed, and no round
+	// judged under the new rules has recorded its own yet: the line says
+	// so (WithdrawnSentence).
+	Withdrawn bool
 }
 
-// RecheckSentence is what the line adds while maul checks once more by
-// itself because a check was not accepted.
-const RecheckSentence = "A check of an outcome the evaluator says holds was not accepted, so maul is checking " +
-	"once more by itself at the same commits."
+// WithdrawnSentence is what the line adds while an earlier release's
+// result is withdrawn and no new one is recorded.
+const WithdrawnSentence = "An earlier result was withdrawn because maul's rules for judging the approved outcomes " +
+	"changed; it is not shown."
 
 // verifyRestingLine is the sentence of a state nothing is checked in:
 // whole for one that never carries counts, else its head; "" for any other
@@ -159,14 +155,14 @@ func verifyRestingLine(state string) (line string, whole bool) {
 		return "No acceptance outcomes were declared.", true
 	case VerifyUnreadable:
 		return "Verification stopped: maul cannot read the approved plan's acceptance criteria, so nothing is " +
-			"verified. " + startOver(), true
+			"checked. " + startOver(), true
 	case VerifyCriteriaReplan:
-		return "Nothing is verified: the approved plan states acceptance criteria, which maul's evaluator does " +
+		return "Nothing is checked: the approved plan states acceptance criteria, which maul's evaluator does " +
 			"not run. " + startOver(), true
 	case VerifyNotChecked:
 		return "Nothing is checked automatically", false
 	case VerifyHeadsMoved:
-		return "The pull requests moved to new commits: maul is checking the new commits, and the last result, " +
+		return "The pull requests moved to new commits: maul is evaluating the new commits, and the last result, " +
 			"about earlier commits, is not shown.", true
 	case VerifyPreviewNotLive:
 		return "Verification unavailable: the preview did not become live at the pull requests' heads in time, so " +
@@ -188,7 +184,7 @@ func startOver() string {
 }
 
 // verifyNames are the progress clause's words: which verification (or
-// evaluation) it is, its counts (checks passing, or outcomes confirmed;
+// evaluation) it is, its counts (checks passing, or outcomes seen to hold;
 // "" with none), and its passed head.
 func verifyNames(p VerifyProgress) (which, counts, passed string) {
 	which = "Verification"
@@ -208,13 +204,26 @@ func verifyNames(p VerifyProgress) (which, counts, passed string) {
 	return which, counts, passed
 }
 
-// OutcomeCount is n of total approved outcomes confirmed (or accepted), as
-// every surface counts them: the comments' progress line and the commit
-// status build it here alone (review L2).
-func OutcomeCount(n, total int32) string { return fmt.Sprintf("%d/%d outcomes confirmed", n, total) }
+// OutcomeCount is n of total approved outcomes seen to hold (or accepted),
+// as every surface counts them: the comments' progress line and the commit
+// status build it here alone (review L2). The observed evaluator's words:
+// maul counts a pass that cites the evaluator's own calls, and never claims
+// to have confirmed it.
+func OutcomeCount(n, total int32) string { return fmt.Sprintf("%d/%d outcomes seen to hold", n, total) }
 
-// verifyLine is the progress as one sentence; "" for none.
+// verifyLine is the progress as one sentence, followed by the withdrawal
+// (WithdrawnSentence) while an earlier release's result is withdrawn; ""
+// for none.
 func verifyLine(p VerifyProgress) string {
+	line := progressLine(p)
+	if p.Withdrawn && line != "" {
+		return line + " " + WithdrawnSentence
+	}
+	return line
+}
+
+// progressLine is verifyLine without the withdrawal.
+func progressLine(p VerifyProgress) string {
 	head, whole := verifyRestingLine(p.State)
 	if whole {
 		return head
@@ -238,19 +247,15 @@ func verifyLine(p VerifyProgress) string {
 	case VerifyRunning, VerifyEvaluating:
 		head = which + " running: " + join(counts, fixes)
 	case VerifyUnconfirmed:
-		head = which + ": maul couldn't confirm every outcome: " + join(counts, fixes)
+		head = which + ": " + NotReadyLead + join(counts, fixes)
 		if cause := UnconfirmedCause(p.Why, p.Workspace); cause != "" && p.Total > 0 && p.Passing == p.Total {
 			// Every outcome confirmed: the cause, not the counts, is why
 			// maul could not confirm the round (review H2).
-			head = which + ": " + counts + ", but maul couldn't confirm this: " + cause + "; " + fixes
+			head = which + ": " + counts + ", but " + NotReadyLead + cause + "; " + fixes
 		}
 	case VerifyPassed:
 		head = passed
 	case VerifyFailing:
-		if p.DefectConfirmed {
-			head = which + ": a person confirmed the defect maul found: " + join(counts)
-			break
-		}
 		head = which + " failing: " + join(counts, fixes)
 	case VerifyExhausted:
 		head = which + " failing: " + join(counts, "no automatic fix left")
@@ -262,21 +267,13 @@ func verifyLine(p VerifyProgress) string {
 	if p.ManualOpen > 0 {
 		head += fmt.Sprintf(", %d for a human", p.ManualOpen)
 	}
-	if p.Recheck && (p.State == VerifyUnconfirmed || p.State == VerifyEvaluating) {
-		return head + fixClause(p) + ". " + RecheckSentence
-	}
 	return head + fixClause(p) + "."
 }
 
-// fixClause is the progress clause's fix: queued, running or halted; a fix
-// a person confirmed the defect for is never called automatic (fifth
-// review, 6).
+// fixClause is the progress clause's fix: queued, running or halted.
 func fixClause(p VerifyProgress) string {
 	switch p.AutoFix {
 	case FixQueued, FixRunning:
-		if p.DefectConfirmed {
-			return "; a fix is " + p.AutoFix
-		}
 		return "; automatic fix " + p.AutoFix
 	case FixHalted:
 		if r := shown(cutRunes(visibleText(p.AutoFixReason), verifyReasonMaxBytes)); r != "" {
@@ -321,97 +318,10 @@ type VerifySection struct {
 	// NoDefect is the acceptance-fix round that concluded the code has no
 	// defect, which halted automatic fixes; nil for none.
 	NoDefect *VerifyNoDefect
-	// Suspected is the defect maul suspects and waits for a person to
-	// confirm (a defect found in round 1); nil for none.
-	Suspected *VerifySuspected
-}
-
-// VerifySuspected is a suspected defect as a comment shows it: the
-// outcomes, and maul's reproduction (rendered by maul from its own ledger;
-// it quotes the application, so it is shown fenced and defanged).
-type VerifySuspected struct {
-	Outcomes     []string
-	Reproduction string
-	// ConfirmedBy is the approver whose /maul verify fix confirmed it
-	// (fifth review, 6); "" while it waits for a person.
-	ConfirmedBy string
-	// Held: the hand-off is held while the defect waits for a person, so
-	// the note says so; false says nothing of a hold, which is not in
-	// force once released (gate D-B3).
-	Held bool
-	// Workspace: the Project has no preview (SPEC-S2), so the note names
-	// the held hand-off, not a link, and only the limits of the checks a
-	// workspace runs.
-	Workspace bool
-}
-
-// VerifySuspectedMaxBytes bounds the reproduction a comment shows.
-const VerifySuspectedMaxBytes = 6 << 10
-
-// suspectedNote is the note on a suspected defect: what maul believes and
-// why, that a person should confirm it, the command that does, the known
-// limits, and the reproduction a fix round would be handed.
-func suspectedNote(s *VerifySuspected) string { return suspectedText(s) + suspectedReproduction(s) }
-
-// suspectedReproduction is the suspected defect's reproduction as its note
-// ends with it, fenced and defanged: evidence, which a comment over its
-// budget leaves out last (fitVerify); "" for none.
-func suspectedReproduction(s *VerifySuspected) string {
-	r := strings.TrimSpace(cutRunes(visibleText(s.Reproduction), VerifySuspectedMaxBytes))
-	if r == "" {
-		return ""
-	}
-	return "\n\nmaul's reproduction:\n\n" + fence(defang(r))
-}
-
-// suspectedText is the note on a suspected defect without its
-// reproduction: maul's own words, never cut.
-func suspectedText(s *VerifySuspected) string {
-	ids := make([]string, 0, len(s.Outcomes))
-	for _, id := range s.Outcomes {
-		if c := shown(id); c != "" {
-			ids = append(ids, code(c))
-		}
-	}
-	var b strings.Builder
-	if who := shown(s.ConfirmedBy); who != "" {
-		fmt.Fprintf(&b, "A person, %s, confirmed the defect maul found in %s: a fix round, handed the reproduction "+
-			"below, fixes it, and maul checks the outcomes again once the fix is pushed.", code(who),
-			strings.Join(ids, ", "))
-	} else {
-		fmt.Fprintf(&b, "maul believes %s %s a defect: the evaluator reported the outcome fails, and maul's own runs "+
-			"of the check it saved to show it, each alone under a fresh run token, failed the same assertion. maul "+
-			"does not fix a defect found this way on its own: a person should confirm it. An approver's "+
-			"`/maul verify fix` starts a fix round, handed the reproduction below%s. Known limits: %s",
-			strings.Join(ids, ", "), plural(int32(len(ids)), "has", "have"), suspectedHold(s), suspectedLimits(s))
-	}
-	return b.String()
-}
-
-// suspectedHold is the clause naming the hold a suspected defect keeps,
-// after "handed the reproduction below": the preview link on a slot
-// Project, the hand-off on one with no preview; "" once it is released.
-func suspectedHold(s *VerifySuspected) string {
-	switch {
-	case !s.Held:
-		return ""
-	case s.Workspace:
-		return "; until then maul holds its hand-off to the reviewers"
-	}
-	return "; until then the preview link stays held"
-}
-
-// suspectedLimits are the known limits of the checks that show a suspected
-// defect, ending in a full stop: a workspace runs exec and run checks only.
-func suspectedLimits(s *VerifySuspected) string {
-	if s.Workspace {
-		return "an exec or run check's failed assertion is whatever its program reports, so a program that " +
-			"reports every failure that way can look like this."
-	}
-	return "an http or exec check reads right after it writes, so an application that updates asynchronously or " +
-		"serves a cached read for a few seconds can look like this; a `clickable` check judges one moment, so a " +
-		"passing toast or spinner over the element can too; and an exec check's failed assertion is whatever its " +
-		"program reports, so a program that reports every failure that way can look like this too."
+	// Observed: the round was judged by the observed evaluator
+	// (v1alpha1.JudgeObserved): its rows say what the evaluator saw and the
+	// calls it cites, never "confirmed".
+	Observed bool
 }
 
 // VerifyNoDefect is an acceptance-fix round's conclusion that the code has
@@ -442,9 +352,8 @@ func noDefectNote(n *VerifyNoDefect) string {
 	}
 	b.WriteString(" This is the agent's verdict and may be wrong, so maul stopped fixing on its own. " +
 		slashCommand("verify") + " checks again (a failure caused by the preview rather than the code may pass), " +
-		slashCommand("verify fix") + " also lets maul fix failures again, and an outcome that then passes only " +
-		"on retry can be accepted with " + slashCommand("accept <id>") + ". Otherwise review the change and " +
-		"decide.")
+		slashCommand("verify fix") + " also lets maul fix failures again, and an outcome a person judges to hold " +
+		"can be accepted with " + slashCommand("accept <id>") + ". Otherwise review the change and decide.")
 	return b.String()
 }
 
@@ -458,14 +367,7 @@ func (s *VerifySection) empty() bool {
 type VerifyComment struct {
 	Namespace, Intent string
 	Round, Attempt    int32
-	// Replay: the round replayed maul's saved checks with no model (the
-	// replay rung), which its heading says.
-	Replay bool
-	// Recheck: maul started the round by itself because a check of the
-	// round before was not accepted (gate 5 G5-B-CLI-1), which its heading
-	// says.
-	Recheck bool
-	Section VerifySection
+	Section           VerifySection
 }
 
 type verifyRow struct{ ID, Kind, IDCell, KindCell, Outcome, OutcomeCell, Statement string }
@@ -480,20 +382,21 @@ type verifyView struct {
 	Logs  []verifyLogView
 	// Cut is the note on what fitVerify left out; "" for nothing.
 	Cut string
-	// Outcomes are the outcomes' details, Claims the evaluator's
-	// unconfirmed claims, UnsureNotes its notes on outcomes it was unsure
-	// of, Anomalies the look-around's.
-	Outcomes    []outcomeDetail
-	Claims      []claimDetail
-	UnsureNotes []string
-	Anomalies   []string
-	// reproduction is the suspected defect's reproduction, which ends the
-	// note at Notes[reproNote] when it is shown (withEvidence).
-	reproduction string
-	reproNote    int
+	// Outcomes are the outcomes' details, Anomalies the look-around's. On
+	// an observed round, ObservedLead is maul's sentence on what it counts,
+	// Cited each outcome's cited calls and EvaluatorNotes the evaluator's
+	// notes, whatever the result.
+	Outcomes       []outcomeDetail
+	ObservedLead   string
+	Cited          []citedDetail
+	EvaluatorNotes []string
+	Anomalies      []string
 	// shortened: each outcome's statement is cut to
-	// verifyStatementShortBytes (fitVerify's last resort).
+	// verifyStatementShortBytes (fitVerify's second resort).
 	shortened bool
+	// headsOnly: a cited section left out lists its calls' heads alone,
+	// without the start of what each sent (fitVerify's last resort).
+	headsOnly bool
 }
 
 // verifySectionMaxBytes is the most a pull request's preview comment gives
@@ -507,7 +410,7 @@ func cell(s string) string { return strings.ReplaceAll(s, "|", `\|`) }
 // buildVerifyView is s as the templates print it, with all its evidence;
 // short cuts each outcome's statement (fitVerify's last resort).
 func buildVerifyView(s VerifySection, short bool) verifyView {
-	v := verifyView{Line: verifyLine(s.Progress), reproNote: -1, shortened: short}
+	v := verifyView{Line: verifyLine(s.Progress), shortened: short}
 	outcomeViews(&v, s, short)
 	if s.StatusNotPosted {
 		v.Notes = append(v.Notes, "The maul App may not post commit statuses, so no `maul/acceptance` status is "+
@@ -516,10 +419,6 @@ func buildVerifyView(s VerifySection, short bool) verifyView {
 	}
 	if s.NoDefect != nil {
 		v.Notes = append(v.Notes, noDefectNote(s.NoDefect))
-	}
-	if s.Suspected != nil {
-		v.reproNote, v.reproduction = len(v.Notes), suspectedReproduction(s.Suspected)
-		v.Notes = append(v.Notes, suspectedText(s.Suspected)+v.reproduction)
 	}
 	if who := shown(s.Impostor); who != "" {
 		v.Notes = append(v.Notes, "Another actor, "+code(who)+", posted a `maul/acceptance` status. "+
@@ -555,11 +454,10 @@ func renderVerifySection(s *VerifySection) (string, error) {
 func RenderVerifyComment(c VerifyComment) (string, error) {
 	return fitVerify(c.Section, MaxCommentBytes, func(v verifyView) (string, error) {
 		return render("intent_verify_issue.md.tmpl", struct {
-			Marker          string
-			Round, Attempt  int32
-			Replay, Recheck bool
+			Marker         string
+			Round, Attempt int32
 			verifyView
-		}{NoticeMarker(c.Namespace, c.Intent, VerifyKey(c.Round)), c.Round, c.Attempt, c.Replay, c.Recheck, v})
+		}{NoticeMarker(c.Namespace, c.Intent, VerifyKey(c.Round)), c.Round, c.Attempt, v})
 	})
 }
 
@@ -574,10 +472,9 @@ const verifyStatementShortBytes = 160
 // Evidence kinds, most important first: what fitVerify keeps first and
 // leaves out last.
 const (
-	pieceReproduction = iota
-	pieceAppOutput
-	pieceClaim
-	pieceUnsureNote
+	pieceAppOutput = iota
+	pieceCited
+	pieceEvaluatorNote
 	pieceAnomaly
 	pieceLog
 )
@@ -586,25 +483,22 @@ const (
 // that kind's list, and what it adds to the comment, at most.
 type evidencePiece struct{ kind, index, cost int }
 
-// pieces are v's evidence, most important first: the suspected defect's
-// reproduction, then each failing outcome's app output in plan order, then
-// the evaluator's unconfirmed claims, then its notes on outcomes it was
-// unsure of, then the look-around's anomalies, then the component log
-// tails, each in order.
+// pieces are v's evidence, most important first: each failing outcome's
+// app output in plan order, then
+// each outcome's cited calls and the evaluator's notes, then the
+// look-around's anomalies, then the component log tails, each in order.
 func (v verifyView) pieces() []evidencePiece {
 	const overhead = 32 // the blank lines and words around a piece
-	var ps []evidencePiece
-	if v.reproduction != "" {
-		ps = append(ps, evidencePiece{pieceReproduction, 0, len(v.reproduction) + overhead})
-	}
+	ps := make([]evidencePiece, 0,
+		len(v.Outcomes)+len(v.Cited)+len(v.EvaluatorNotes)+len(v.Anomalies)+len(v.Logs))
 	for i, o := range v.Outcomes {
 		ps = append(ps, evidencePiece{pieceAppOutput, i, len(o.Lead) + len(o.AppOutput) + overhead})
 	}
-	for i, c := range v.Claims {
-		ps = append(ps, evidencePiece{pieceClaim, i, len(c.Lead) + len(c.Calls) + overhead})
+	for i, c := range v.Cited {
+		ps = append(ps, evidencePiece{pieceCited, i, len(c.Lead) + len(c.Calls) + overhead})
 	}
-	for i, n := range v.UnsureNotes {
-		ps = append(ps, evidencePiece{pieceUnsureNote, i, len(n) + overhead})
+	for i, n := range v.EvaluatorNotes {
+		ps = append(ps, evidencePiece{pieceEvaluatorNote, i, len(n) + overhead})
 	}
 	for i, a := range v.Anomalies {
 		ps = append(ps, evidencePiece{pieceAnomaly, i, len(a) + overhead})
@@ -620,7 +514,17 @@ func (v verifyView) pieces() []evidencePiece {
 func (v verifyView) withEvidence(ps []evidencePiece, keep []bool) verifyView {
 	w := v
 	w.Notes = slices.Clone(v.Notes)
-	w.Outcomes, w.Claims, w.UnsureNotes, w.Anomalies, w.Logs = nil, nil, nil, nil, nil
+	w.Outcomes, w.Anomalies, w.Logs = nil, nil, nil
+	w.EvaluatorNotes = nil
+	// A cited section left out is still listed: each call's head and the
+	// start of what it sent, maul's own words' share (FA 4).
+	w.Cited = make([]citedDetail, len(v.Cited))
+	for i, c := range v.Cited {
+		w.Cited[i] = citedDetail{Lead: c.ListLead, Calls: c.List}
+		if v.headsOnly {
+			w.Cited[i] = citedDetail{Lead: c.HeadsLead, Calls: c.Heads}
+		}
+	}
 	var left [pieceLog + 1]int
 	for i, p := range ps {
 		if !keep[i] {
@@ -630,18 +534,15 @@ func (v verifyView) withEvidence(ps []evidencePiece, keep []bool) verifyView {
 		switch p.kind {
 		case pieceAppOutput:
 			w.Outcomes = append(w.Outcomes, v.Outcomes[p.index])
-		case pieceClaim:
-			w.Claims = append(w.Claims, v.Claims[p.index])
-		case pieceUnsureNote:
-			w.UnsureNotes = append(w.UnsureNotes, v.UnsureNotes[p.index])
+		case pieceCited:
+			w.Cited[p.index] = v.Cited[p.index]
+		case pieceEvaluatorNote:
+			w.EvaluatorNotes = append(w.EvaluatorNotes, v.EvaluatorNotes[p.index])
 		case pieceAnomaly:
 			w.Anomalies = append(w.Anomalies, v.Anomalies[p.index])
 		case pieceLog:
 			w.Logs = append(w.Logs, v.Logs[p.index])
 		}
-	}
-	if left[pieceReproduction] > 0 {
-		w.Notes[v.reproNote] = strings.TrimSuffix(w.Notes[v.reproNote], v.reproduction)
 	}
 	w.Cut = cutNote(left, v.shortened)
 	return w
@@ -655,18 +556,15 @@ func cutNote(left [pieceLog + 1]int, shortened bool) string {
 		one, many string
 	}{
 		{pieceAppOutput, "app output", "app outputs"},
-		{pieceClaim, "evaluator's claim maul could not confirm", "evaluator's claims maul could not confirm"},
-		{pieceUnsureNote, "evaluator's note on an outcome it was unsure of",
-			"evaluator's notes on outcomes it was unsure of"},
+		{pieceCited, "outcome's cited call bodies (each call is still listed)",
+			"outcomes' cited call bodies (each call is still listed)"},
+		{pieceEvaluatorNote, "evaluator's note", "evaluator's notes"},
 		{pieceAnomaly, "look-around note", "look-around notes"},
 		{pieceLog, "component log tail", "component log tails"},
 	} {
 		if n := left[k.kind]; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d %s", n, plural(int32(n), k.one, k.many)))
 		}
-	}
-	if left[pieceReproduction] > 0 {
-		parts = append(parts, "maul's reproduction of the suspected defect")
 	}
 	if shortened {
 		parts = append(parts, "the end of each outcome's statement (the approved plan's comment shows them whole)")
@@ -680,20 +578,24 @@ func cutNote(left [pieceLog + 1]int, shortened bool) string {
 // fitVerify renders s within limit bytes however much evidence it carries.
 // Whole when it fits; otherwise its evidence shares what is left of the
 // comment once maul's own words are rendered (every outcome's verdict
-// line, the progress line and the notes), kept most important first
-// (pieces), each whole while it still fits (a large one left out does not
-// stop a smaller one after it), and the comment names what it left out. Only
-// when even that cannot fit is each outcome's statement shortened, the
-// verdict lines kept whole. Deterministic: the same section always keeps
-// the same evidence.
+// line, the progress line, the notes and every cited call's listing: its
+// head and the start of what it sent), kept most important first (pieces),
+// each whole while it still fits (a large one left out does not stop a
+// smaller one after it), and the comment names what it left out. Only when
+// even that cannot fit is each outcome's statement shortened, the verdict
+// lines kept whole, and only then is each cited call listed by its head
+// alone (seq, verb, base, own label: maul's own words, bounded), so a
+// comment is never refused for what the evaluator sent. Deterministic: the
+// same section always keeps the same evidence.
 func fitVerify(s VerifySection, limit int, render func(verifyView) (string, error)) (string, error) {
 	whole := buildVerifyView(s, false)
 	out, err := render(whole)
 	if err != nil || len(out) <= limit {
 		return out, err
 	}
-	for _, short := range []bool{false, true} {
-		v := buildVerifyView(s, short)
+	for _, tier := range []struct{ short, heads bool }{{false, false}, {true, false}, {true, true}} {
+		v := buildVerifyView(s, tier.short)
+		v.headsOnly = tier.heads
 		out, ok, err := budgetEvidence(v, limit, render)
 		if err != nil || ok {
 			return out, err
@@ -795,7 +697,7 @@ func (w *PlanWorkspace) valid() bool {
 	case SurfaceCLI:
 		return v1alpha1.ValidCLIBinary(w.Binary) && w.Language == ""
 	case SurfaceLibrary:
-		return w.Language == checks.LanguageGo && w.Binary == ""
+		return w.Language == toolwire.LanguageGo && w.Binary == ""
 	}
 	return false
 }

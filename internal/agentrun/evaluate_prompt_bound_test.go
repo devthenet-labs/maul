@@ -31,7 +31,12 @@ func TestEvaluateHandoffBoundByHarness(t *testing.T) {
 				Reason: strings.Repeat("v", 600)})
 		}
 		h.Outcomes[0].Outcome = strings.Repeat("o", 500)
-	})), "evaluate", &h); err != nil {
+		h.ChangedPaths = nil
+		for i := range templates.ChangedPathsMax {
+			h.ChangedPaths = append(h.ChangedPaths, ChangedPath{Path: fmt.Sprintf("%03d/", i) +
+				strings.Repeat("p", 290)})
+		}
+	})), &h); err != nil {
 		t.Fatal(err)
 	}
 	for len(h.Outcomes) < 20 {
@@ -42,7 +47,7 @@ func TestEvaluateHandoffBoundByHarness(t *testing.T) {
 		h.PriorVerdicts = append(h.PriorVerdicts, PriorVerdict{Outcome: o.ID, Result: "unsure",
 			Reason: strings.Repeat("v", 600)})
 	}
-	got, err := templates.RenderEvaluatePrompt(h.prompt("", "", "", templates.StageLimits{}))
+	got, err := templates.RenderEvaluatePrompt(h.prompt("", "", templates.StageLimits{}))
 	if err != nil {
 		t.Fatal(err)
 	}

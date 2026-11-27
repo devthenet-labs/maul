@@ -6,8 +6,6 @@ package templates
 import (
 	"strings"
 	"testing"
-
-	"github.com/devthenet-labs/maul/internal/acceptance"
 )
 
 // Defect gate 3 found two outcome coverage gaps, both outside what a check
@@ -130,7 +128,7 @@ func TestEvaluatePromptProbesCarriedOverValues(t *testing.T) {
 				"A break you saw while judging another outcome counts here too: another outcome stating the same " +
 					"rule is no reason to pass this one.",
 				"Report such an outcome `pass` only once you have tried that rule beyond the example and it held, " +
-					"its ledger citing those calls",
+					"citing those calls",
 			} {
 				if !strings.Contains(flat(got), want) {
 					t.Errorf("prompt lacks %q", want)
@@ -166,33 +164,6 @@ func TestWorkspaceEvaluateComparesUnchangedAtTheBase(t *testing.T) {
 	}
 	if strings.Contains(flat(got), "`--base`") {
 		t.Error("the slot prompt speaks of a base it does not have")
-	}
-}
-
-// TestCheckReviewRedQuestionDecidesAKeptZero: the red question's "a value
-// far from its example is not one the rule decides" does not refuse a red
-// check of a zero or absent value an outcome promises to carry over.
-func TestCheckReviewRedQuestionDecidesAKeptZero(t *testing.T) {
-	want := "A zero, empty or absent value of what the outcome promises to carry over (a copy, fields kept, " +
-		"unchanged) is one it decides: it must come through as it was, judged by what using it gives (what " +
-		"calls give for it, what it is encoded, saved or printed as), never by its representation alone."
-	red := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
-	red.ExpectFail, red.FailedStep, red.FailedAssertion = true, 2, "json /rating"
-	wsRed := testWorkspaceReview(t, ExampleLibraryRunCheck, testReviewLibrary)
-	wsRed.Kind = acceptance.OutcomeKindChange
-	wsRed.ExpectFail, wsRed.FailedStep, wsRed.FailedAssertion = true, 1, "marker too-long"
-	green := testCheckReviewPrompt(mustCheck(t, ExampleHTTPCheck))
-	for name, tt := range map[string]struct {
-		p    CheckReviewPrompt
-		want bool
-	}{"red": {red, true}, "red workspace": {wsRed, true}, "green": {green, false}} {
-		got, err := RenderCheckReviewPrompt(tt.p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(flat(got), want) != tt.want {
-			t.Errorf("%s: has %q = %v, want %v", name, want, !tt.want, tt.want)
-		}
 	}
 }
 

@@ -122,7 +122,10 @@ func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 			meta.RemoveStatusCondition(&cur.Status.Conditions, v1alpha1.ConditionVerifyFailing)
 		}
 		cur.Status.Acceptance = rec
-		next := &v1alpha1.IntentVerification{}
+		// A new revision starts afresh: nothing of an earlier result is
+		// withdrawn from it.
+		clearSuperseded(cur)
+		next := newVerification()
 		if prev := cur.Status.Verification; prev != nil {
 			next.Round, next.Reset, next.Requested, next.CancelRun = prev.Round, prev.Reset, prev.Requested,
 				prev.CancelRun
@@ -175,7 +178,8 @@ func (p *pass) stopUnreadable(ctx context.Context, ap *v1alpha1.IntentApproval) 
 		p.dropInFlight(ctx, *v.Ref)
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-		next := &v1alpha1.IntentVerification{State: v1alpha1.VerificationUnavailable}
+		next := newVerification()
+		next.State = v1alpha1.VerificationUnavailable
 		if prev := cur.Status.Verification; prev != nil {
 			next.Round, next.Reset, next.CancelRun = prev.Round, prev.Reset, prev.CancelRun
 		}
@@ -256,7 +260,8 @@ func (p *pass) stopForReplan(ctx context.Context, ap *v1alpha1.IntentApproval) (
 		p.dropInFlight(ctx, *v.Ref)
 	}
 	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
-		next := &v1alpha1.IntentVerification{State: v1alpha1.VerificationUnavailable}
+		next := newVerification()
+		next.State = v1alpha1.VerificationUnavailable
 		if prev := cur.Status.Verification; prev != nil {
 			next.Round, next.Reset, next.CancelRun = prev.Round, prev.Reset, prev.CancelRun
 		}
@@ -579,8 +584,10 @@ func previewNotLive(v *v1alpha1.IntentVerification) bool {
 }
 
 // createVerification creates the next PreviewVerification at hs and
-// records it in state (Evaluating, for the evaluator's outcomes): a retry is its round's next attempt, anything else
-// a new round's first. fill completes the spec with where it runs (the
+// records it in state (Evaluating, for the evaluator's outcomes): a retry is
+// its round's next attempt, anything else a new round's first; only the
+// loop's automatic round counts against maxVerifications. Every round
+// writes the judge marker (verify_migrate.go). fill completes the spec with where it runs (the
 // Preview it pins, or an agents workspace), what it runs and its timeout;
 // an error from it creates nothing. One that already exists under the name
 // (a status write lost after its create) is adopted when it is this
@@ -588,28 +595,19 @@ func previewNotLive(v *v1alpha1.IntentVerification) bool {
 func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headSet,
 	state v1alpha1.IntentVerificationState, fill func(*v1alpha1.PreviewVerificationSpec) error) error {
 	v := p.in.Status.Verification
+	superseding := kind == verifySupersede
 	round, attempt := v.Round+1, int32(1)
 	if kind == verifyRetry {
 		round, attempt = v.Round, v.Attempt+1
 	}
-	// An automatic round at the heads of a round on record is a follow-up
-	// of it: a dispute's, or an escalation (recordRound).
-	followUp, prevRound := kind == verifyAutomatic && v.Ref != nil && v.HeadSetDigest == hs.digest, v.Round
 	if round > v1alpha1.MaxIntentRound || attempt > v1alpha1.MaxVerificationAttempts {
-		return p.update(ctx, func(cur *v1alpha1.Intent) error {
-			nv := cur.Status.Verification
-			nv.State, nv.Cause, nv.Requested, nv.RetryOwed = v1alpha1.VerificationUnavailable, "", nil, false
-			return nil
-		})
+		return p.roundsSpent(ctx, superseding)
 	}
 	run, err := newRunToken()
 	if err != nil {
 		return err
 	}
-	trigger := verificationByAutomatic
-	if kind == verifyRequest {
-		trigger = verificationByRequest
-	}
+	trigger := verificationTrigger(kind)
 	pv := &v1alpha1.PreviewVerification{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: v1alpha1.PreviewVerificationName(p.in.Name, round, attempt), Namespace: p.in.Namespace,
@@ -638,17 +636,16 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 		}
 	}
 	p.pruneVerifications(ctx)
-	return p.update(ctx, func(cur *v1alpha1.Intent) error {
+	err = p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
+		// Every round this release starts is judged under its rules: the
+		// marker ends a supersede in the write that starts its round.
+		nv.Judge = v1alpha1.JudgeObserved
 		nv.State, nv.Cause = state, ""
 		nv.Round, nv.Attempt = pv.Spec.Round, pv.Spec.Attempt
 		nv.Ref, nv.RetryOwed = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}, false
-		recordRound(nv, pv.Spec.Rung, followUp, prevRound, hs.digest)
-		if e := nv.Escalation; kind == verifyRequest && e != nil && e.Round == prevRound {
-			// An approver's request spends the round's recheck: the round
-			// is theirs, not maul's own.
-			e.Recheck = false
-		}
+		// The retired cost ladder's records (status.verification.rung,
+		// modelRound, escalation) are never written: every round is full.
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		if kind != verifyRetry {
@@ -663,10 +660,44 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 			p.startHandoff(nv)
 		}
 		if kind != verifyAutomatic {
-			nv.Requested = nil // a retry serves a waiting request too
+			// A retry, and a supersede's fresh round, serve a waiting
+			// request too.
+			nv.Requested = nil
 		}
 		return nil
 	})
+	if err == nil && superseding {
+		verificationsSuperseded.add(p.in)
+	}
+	return err
+}
+
+// roundsSpent records a verification that can start no round, the round or
+// attempt numbering spent: Unavailable, any request consumed, the judge
+// marker written (ending a supersede, which is then counted).
+func (p *pass) roundsSpent(ctx context.Context, superseding bool) error {
+	err := p.update(ctx, func(cur *v1alpha1.Intent) error {
+		nv := cur.Status.Verification
+		nv.State, nv.Cause, nv.Requested, nv.RetryOwed = v1alpha1.VerificationUnavailable, "", nil, false
+		nv.Judge = v1alpha1.JudgeObserved
+		return nil
+	})
+	if err == nil && superseding {
+		verificationsSuperseded.add(p.in)
+	}
+	return err
+}
+
+// verificationTrigger is the trigger annotation a round of kind carries.
+func verificationTrigger(kind verifyKind) string {
+	switch kind {
+	case verifyRequest:
+		return verificationByRequest
+	case verifySupersede:
+		return verificationBySupersede
+	case verifyNotDue, verifyAutomatic, verifyRetry, verifyRequestRefused:
+	}
+	return verificationByAutomatic
 }
 
 // adoptVerification reads the PreviewVerification name that already exists

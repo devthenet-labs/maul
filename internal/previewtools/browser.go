@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks/playwright"
 	"github.com/devthenet-labs/maul/internal/previewauth"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -51,8 +50,8 @@ const (
 	// NodeDir is the image's Node project (internal/previewtools/node,
 	// installed with npm ci).
 	NodeDir = "/opt/maul-tools/node"
-	// BrowserDir is the CLI's working directory, its config and the
-	// check runs' temporary directories: an emptyDir.
+	// BrowserDir is the CLI's working directory and its config: an
+	// emptyDir.
 	BrowserDir = "/tmp/maul-browser"
 	// FrontAddr is the preview front's listen address: loopback only, so
 	// only the pod's own containers reach it.
@@ -60,6 +59,10 @@ const (
 	// SessionName is the relay's one CLI session.
 	SessionName = "maul"
 )
+
+// reasonNoBrowser is maul's words for a browser call in a pod with no
+// browser.
+const reasonNoBrowser = "the browser is unavailable in this tool pod"
 
 // cliArtifactDir is where the CLI writes snapshots, screenshots and
 // console logs, under its working directory.
@@ -88,14 +91,12 @@ type ArtifactKeeper interface {
 }
 
 // BrowserOptions configure the browser relay. A relay without them answers
-// every browser verb and browser check "unavailable".
+// every browser verb "unavailable".
 type BrowserOptions struct {
 	// CLI runs the Playwright CLI; Dir is its working directory, under
 	// which it writes its artifacts.
 	CLI BrowserCLI
 	Dir string
-	// Runner runs compiled browser checks; nil makes them unavailable.
-	Runner TestRunner
 	// Base is the preview front's URL ("http://127.0.0.1:8091"): every
 	// path the agent navigates to is resolved against it.
 	Base string
@@ -273,7 +274,7 @@ func (r *Relay) openBrowser(ctx context.Context) {
 // viewport (over CDP the CLI ignores its config's viewport, SP-1), one
 // relay session entry. The caller holds r.mu.
 func (r *Relay) openSession(ctx context.Context, why string) {
-	v := playwright.DefaultViewport
+	v := toolwire.DefaultViewport
 	var outs []string
 	exit := 0
 	for _, args := range [][]string{
@@ -468,8 +469,8 @@ const NodeBinary = "/usr/bin/node"
 
 // ImageBrowser is the released tool image's browser relay: the key read
 // from CDPKeyFile into a 0600 session config under BrowserDir, the pinned
-// CLI and test runner from NodeDir, artifacts kept under BrowserDir, the
-// preview front at FrontAddr.
+// CLI from NodeDir, artifacts kept under BrowserDir, the preview front at
+// FrontAddr.
 func ImageBrowser() (*BrowserOptions, ArtifactKeeper, error) {
 	key, err := ReadCDPKey(CDPKeyFile)
 	if err != nil {
@@ -482,10 +483,8 @@ func ImageBrowser() (*BrowserOptions, ArtifactKeeper, error) {
 	session := filepath.Join(BrowserDir, "session")
 	base := "http://" + FrontAddr
 	return &BrowserOptions{
-		CLI: PlaywrightCLI{Node: NodeBinary, NodeDir: NodeDir, Dir: session, Session: SessionName},
-		Dir: session,
-		Runner: NodeRunner{Node: NodeBinary, NodeDir: NodeDir, TmpDir: filepath.Join(BrowserDir, "checks"),
-			CDPURL: CDPEndpoint, KeyFile: CDPKeyFile, BaseURL: base},
+		CLI:        PlaywrightCLI{Node: NodeBinary, NodeDir: NodeDir, Dir: session, Session: SessionName},
+		Dir:        session,
 		Base:       base,
 		ConfigFile: cfgPath,
 	}, DirArtifacts{Dir: filepath.Join(BrowserDir, "artifacts")}, nil

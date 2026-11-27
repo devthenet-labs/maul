@@ -4,21 +4,17 @@
 package templates
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
-	"github.com/devthenet-labs/maul/internal/checks/playwright"
 	"github.com/devthenet-labs/maul/internal/httpstep"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
@@ -43,131 +39,46 @@ const (
 	ChangedPathsMax = 200
 	// changedPathMaxBytes bounds one changed path as quoted.
 	changedPathMaxBytes = 300
-	// checkShownMaxBytes bounds a check as a reviewer is shown it: its
-	// canonical JSON (checks.MaxCanonicalBytes) indented, with room to spare,
-	// so a valid check is never cut.
-	checkShownMaxBytes = 64 << 10
 	// evaluateComponentsMax bounds the previewed components named: a
 	// Preview's.
 	evaluateComponentsMax = 4
-	// priorReplaysMax bounds the previous round's replays shown: an
-	// intent's saved checks (v1alpha1.MaxSavedChecks); priorReasonMaxBytes
-	// one prior verdict's reason (the Intent's schema bound).
-	priorReplaysMax     = 40
+	// priorReasonMaxBytes bounds one prior verdict's reason (the Intent's
+	// schema bound).
 	priorReasonMaxBytes = 600
 )
-
-// PriorRefusedMax bounds the refused checks the evaluate prompt shows (C3):
-// half the reviews an intent caches. The controller hands over at most the
-// newest this many.
-const PriorRefusedMax = 40
-
-// RefusedBodiesMaxBytes bounds the refused checks' bodies, in all
-// (G5R-B-CLI-1): four checks of the largest a check may be
-// (v1alpha1.MaxSavedCheckBytes), the newest refusals' first. The controller
-// hands over no more in their compact form, and the evaluate prompt shows
-// no more in their indented form; a refusal past it is named without its
-// body.
-const RefusedBodiesMaxBytes = 4 * v1alpha1.MaxSavedCheckBytes
-
-// NotYetProofMax bounds the saved checks not yet proof of a pass the
-// evaluate prompt names (gate D-B9): every check a store holds.
-const NotYetProofMax = v1alpha1.MaxSavedChecks
-
-// GreenRubric is the check reviewer's rule for a check confirmed green, word
-// for word: rendered into every green review and into the evaluator's
-// prompt, so the evaluator writes its checks to the rule they are judged by
-// (coverage design B1). A test pins both.
-const GreenRubric = "Answer `proves` only if a pass of this check really shows the outcome holds: it does what " +
-	"the outcome describes, on data it created itself, and it would fail if the outcome did not hold. Answer " +
-	"`does_not_prove` if it could pass while the outcome does not hold: it checks something else or only part of " +
-	"the outcome, it asserts only that a call succeeded or a page loaded, it is keyed to fixed values that an " +
-	"implementation could special-case, or it depends on data it did not create. A check that leaves out, " +
-	"replaces or alters anything the outcome's words name (a field of a body it says to send, a step, a value, a " +
-	"page or a surface) tests less than the outcome: answer `does_not_prove`, even if what it does test is a " +
-	"reasonable reading of the outcome. A step adding to a request the outcome names only a narrowing to the " +
-	"check's own run (`{{run}}` text), every named parameter kept as named, alters nothing if the check also sends " +
-	"that request unchanged, asserts a kept item of its run in the narrowed answer, and lists the " +
-	"left-out item by the narrowing alone. " +
-	"Answer `does_not_prove` too for a check that a plausible wrong build " +
-	"would still pass: one " +
-	"that shows something is left out, refused or absent only by asserting what is there (it must create the " +
-	"item to be left out and assert that item is not there), one that compares only some of what the outcome " +
-	"says must match (a few items of a list it says is the same), one whose inputs make the expected result the " +
-	"one a fixed or default answer gives (a new, empty item where the outcome's value depends on what is in " +
-	"it), one that tries a rule the outcome states only on the example the outcome or the request names (a " +
-	"build right only on that example would pass it), and one whose program can print what its `expect` looks " +
-	"for and exit as it expects whatever it " +
-	"observed. Answer `unclear` if you cannot tell from what is shown."
-
-// LayoutReadRule is the green rule's one exception, for a layout read
-// (checks.LayoutRead): a reviewer is shown it for such a check, the
-// evaluator always (coverage design B4), so it is worded in the third
-// person to read in both. It mirrors the red question's layout exemption;
-// such a check's failure is still held for a person.
-const LayoutReadRule = "A browser check that writes nothing and asserts only the layout of the page's fixed " +
-	"markup, at least once by a measure (size, left-of, above, no-overlap, equal-size, aligned or legible), on " +
-	"elements it finds by role, label, test id or CSS rather than by their text or position, reads the same markup " +
-	"on every run: it needs no data it created, and is not refused for that, unless what it measures is a row or " +
-	"record that other runs make, or is sized or placed by them."
-
-// CheckReviewFromMaxBytes bounds the line of the request a check review
-// quotes: on a red item the whole line its outcome answers, which the plan's
-// quote (acceptance.MaxFromChars) may have cut.
-const CheckReviewFromMaxBytes = 2 << 10
-
-// ToleranceRule is the green rule's word on a box assertion's tolerance
-// (G4-B-BR-2): a reviewer is shown it, beside maul's own line for each
-// tolerance the check carries, only for a check that carries one.
-const ToleranceRule = "A tolerance lets its assertion pass on a layout that misses the measure by up to that " +
-	"many px, as listed above. Judge each one against the outcome's words, not by its size alone: answer " +
-	"`does_not_prove` if it lets through what the outcome's wording excludes (an overlap where the outcome says " +
-	"above, below, beside, inside or not covering; a gap it forbids; a size or a position past one it states " +
-	"exactly). A tolerance of a few px for sub-pixel rounding is fine, and so is one the outcome's wording leaves room " +
-	"for, such as an offset between two things it says only sit beside or right after one another."
-
-// GreenRubric, LayoutReadRule and ToleranceRule, wrapped as the templates
-// are, for them.
-func (evaluateView) GreenRubric() string       { return wrap(GreenRubric, "", "") }
-func (evaluateView) LayoutReadRule() string    { return wrap(LayoutReadRule, "", "") }
-func (checkReviewView) GreenRubric() string    { return wrap(GreenRubric, "", "") }
-func (checkReviewView) LayoutReadRule() string { return wrap(LayoutReadRule, "", "") }
-func (checkReviewView) ToleranceRule() string  { return wrap(ToleranceRule, "", "") }
 
 // runToken is the exploration token's grammar: what the prompt states
 // as maul's own, outside any fence, so nothing but this can pass.
 var runToken = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
 
-// EvaluatePrompt is the data for an intent's evaluate-stage prompt: judge
-// the approved outcomes against the running preview with maul-tool, save
-// checks for them, look around what the change touched, and report.
+// EvaluatePrompt is the data for an intent's evaluate-stage prompt: use the
+// running preview (or maul's builds of the pull request) as a reviewer would,
+// judge each approved outcome pass, fail or unsure citing the evaluator's own
+// calls in the round's ledger, look around what the change touched, and
+// report (the observed evaluator: no check is written, saved or replayed).
 //
-// Request, Outcomes, ChangedPaths, FixDiff, FixDiffCut.Files, PriorVerdicts, PriorReplay,
-// PriorRefused and NotYetProof are UNTRUSTED (DESIGN 4.4):
-// the issue anyone may have written, the plan's
-// outcome text, paths and diff text from the pull request, and a previous
-// round's results, whose reasons may quote its evaluator. RenderEvaluatePrompt shows each only
-// inside a fenced block it labels as data, made legible by
-// untrusted.Visible. Everything else is maul's own and is stated as fact.
+// Request, Outcomes, ChangedPaths, FixDiff, FixDiffCut.Files and
+// PriorVerdicts are UNTRUSTED (DESIGN 4.4): the issue anyone may have
+// written, the plan's outcome text, paths and diff text from the pull
+// request, and a previous round's results, whose reasons may quote its
+// evaluator. RenderEvaluatePrompt shows each only inside a fenced block it
+// labels as data, made legible by untrusted.Visible. Everything else is
+// maul's own and is stated as fact.
 type EvaluatePrompt struct {
 	// ReportPath is where the agent writes its report, under its
 	// working directory (/work/scratch).
 	ReportPath string
-	// ChecksDir is where the agent writes check files with its Write tool
-	// (/work/scratch/checks); ShotsDir is where maul-tool writes
-	// screenshots (/work/scratch/shots).
-	ChecksDir string
-	ShotsDir  string
+	// ShotsDir is where maul-tool writes screenshots (/work/scratch/shots).
+	ShotsDir string
 	// Limits are the run's own.
 	Limits StageLimits
 	// Round is the verification round, 1-based.
 	Round int
-	// RunToken is the text the agent names the data it creates while
-	// exploring with; a saved check writes {{run}} instead, which maul
-	// replaces with a fresh token on every run. It must match runToken.
+	// RunToken is the text the agent names the data it creates with. It
+	// must match runToken.
 	RunToken string
-	// Components are the previewed components: the key an http check's
-	// target names, and the path it is served under.
+	// Components are the previewed components: each key, and the path it
+	// is served under.
 	Components []EvaluateComponent
 	// Tools are what the round's tool pod offers.
 	Tools EvaluateTools
@@ -192,20 +103,10 @@ type EvaluatePrompt struct {
 	// fact beside the quoted diff; the zero value: FixDiff is the whole fix.
 	FixDiffCut FixDiffCut
 	// PriorRound is the last judged round before this one, and
-	// PriorVerdicts and PriorReplay its results (SPEC Q15): maul's result
-	// per outcome, and how each saved check replayed at its start. Zero, or
-	// neither, omits the section.
+	// PriorVerdicts its results (SPEC Q15): maul's result per outcome. Zero,
+	// or none, omits the section.
 	PriorRound    int
 	PriorVerdicts []PriorVerdict
-	PriorReplay   []PriorReplay
-	// PriorRefused are the checks the reviewer refused in earlier rounds,
-	// with its reasons (coverage design C3); none omits the section.
-	PriorRefused []PriorRefusal
-	// NotYetProof are the saved checks saved to show a defect that no
-	// review has yet accepted as proof their outcome holds (gate D-B9): the
-	// prompt asks for a new check of each one's outcome even when it
-	// replays green. None omits the section.
-	NotYetProof []NotYetProof
 
 	// shed is what RenderEvaluatePrompt left out to keep the prompt within
 	// its bound, which the prompt says.
@@ -221,66 +122,33 @@ type EvaluatePrompt struct {
 // bound, fits within it with room to spare (TestEvaluatePromptHeadroom).
 const EvaluatePromptMaxBytes = 256 << 10
 
-// evaluateShed counts what a prompt over its bound left out:
-// changed paths and the oldest refusals.
+// evaluateShed counts what a prompt over its bound left out: changed
+// paths.
 type evaluateShed struct {
-	paths, refusals int
+	paths int
 }
 
 // shedOne leaves out the next part of p in the order a prompt over its
 // bound gives them up, and reports false when nothing is left to leave out:
-// a refused check's body, the oldest first; then half the changed paths;
-// then the older half of the refusals. The request, the fix diff (the
-// guard against a fix that special-cases a check), the outcomes and a
+// half the changed paths. The request, the fix diff (the guard against a
+// fix that special-cases the calls a failure cited), the outcomes and a
 // previous round's results always stay: an evaluator is never asked to
-// judge without them. Each is left out whole and the prompt says so, never
-// cut.
+// judge without them. What is left out is counted and the prompt says so,
+// never cut.
 func (p *EvaluatePrompt) shedOne() bool {
-	switch {
-	case slices.ContainsFunc(p.PriorRefused, func(r PriorRefusal) bool { return r.Body != "" }):
-		p.PriorRefused[slices.IndexFunc(p.PriorRefused, func(r PriorRefusal) bool { return r.Body != "" })].Body = ""
-	case len(p.ChangedPaths) > 0:
-		keep := len(p.ChangedPaths) / 2
-		p.shed.paths += len(p.ChangedPaths) - keep
-		p.ChangedPaths = p.ChangedPaths[:keep]
-	case len(p.PriorRefused) > 0:
-		// The newest refusals are the last: keep them.
-		drop := len(p.PriorRefused)/2 + len(p.PriorRefused)%2
-		p.shed.refusals += drop
-		p.PriorRefused = p.PriorRefused[drop:]
-	default:
+	if len(p.ChangedPaths) == 0 {
 		return false
 	}
+	keep := len(p.ChangedPaths) / 2
+	p.shed.paths += len(p.ChangedPaths) - keep
+	p.ChangedPaths = p.ChangedPaths[:keep]
 	return true
-}
-
-// NotYetProof is one saved check that is not yet proof of a pass, by its
-// id and outcome: saved red, or (Refused) one the saved-check substance
-// rules have come to refuse, which counts for nothing however it replays.
-type NotYetProof struct {
-	Check, Outcome string
-	Refused        bool
-}
-
-// PriorRefusal is one check the reviewer refused in an earlier round, by
-// its id and outcome, with the reviewer's reason and, when maul still holds
-// it, the refused check's canonical JSON as maul confirmed it (Body,
-// G5R-B-CLI-1): the previous evaluator's text, quoted as data for this one
-// to amend.
-type PriorRefusal struct {
-	Check, Outcome, Reason, Body string
 }
 
 // PriorVerdict is maul's result of one outcome in a previous round, with
 // why it did not pass.
 type PriorVerdict struct {
 	Outcome, Result, Reason string
-}
-
-// PriorReplay is how one saved check, bound to Outcome, replayed in a
-// previous round.
-type PriorReplay struct {
-	Check, Outcome, Result string
 }
 
 // EvaluateComponent is one previewed component as the evaluate prompt
@@ -293,12 +161,12 @@ type EvaluateComponent struct {
 // EvaluateTools are what a round's tool pod offers beside http, logs and
 // events (v1alpha1.ToolsSpec).
 type EvaluateTools struct {
-	// Browser offers maul-tool browser and browser checks.
+	// Browser offers maul-tool browser.
 	Browser bool
 	// BrowserEntry is the path the browser opens first; "" leaves it to the
 	// evaluator. Else it must be v1alpha1.ValidBrowserEntry.
 	BrowserEntry string
-	// Sandbox offers maul-tool exec and exec checks.
+	// Sandbox offers maul-tool exec.
 	Sandbox bool
 	// MaxToolCalls is the run's tool-call bound.
 	MaxToolCalls int
@@ -307,7 +175,7 @@ type EvaluateTools struct {
 	LookAroundRoutes int
 }
 
-// Workspace surfaces, as EvaluateWorkspace and ReviewWorkspace name them.
+// Workspace surfaces, as EvaluateWorkspace names them.
 const (
 	SurfaceCLI     = "cli"
 	SurfaceLibrary = "library"
@@ -316,7 +184,7 @@ const (
 // EvaluateWorkspace is what the agents-namespace tool pod built (SPEC-S2):
 // the Project's surface, maul's own and stated as fact. A cli names its
 // Build argv and its Binary (v1alpha1.ValidCLIBuild, ValidCLIBinary); a
-// library its Language, go (checks.LanguageGo), and no build.
+// library its Language, go (toolwire.LanguageGo), and no build.
 type EvaluateWorkspace struct {
 	// Surface is SurfaceCLI or SurfaceLibrary.
 	Surface  string
@@ -335,8 +203,8 @@ func (w EvaluateWorkspace) validate() error {
 				v1alpha1.CLIBinDir)
 		}
 	case SurfaceLibrary:
-		if w.Language != checks.LanguageGo || w.Binary != "" || len(w.Build) > 0 {
-			return fmt.Errorf("a library workspace names language %s and no build or binary", checks.LanguageGo)
+		if w.Language != toolwire.LanguageGo || w.Binary != "" || len(w.Build) > 0 {
+			return fmt.Errorf("a library workspace names language %s and no build or binary", toolwire.LanguageGo)
 		}
 	default:
 		return fmt.Errorf("workspace surface %q is not %s or %s", w.Surface, SurfaceCLI, SurfaceLibrary)
@@ -355,12 +223,10 @@ type workspaceView struct {
 // buildSpan is a cli's build argv as one code span, every character shown.
 func buildSpan(argv []string) string { return code(shown(strings.Join(argv, " "))) }
 
-// The workspace placeholders (SPEC-S2 Q23), for the templates.
-func (evaluateView) BinPlaceholder() string     { return checks.BinPlaceholder }
-func (evaluateView) TreePlaceholder() string    { return checks.TreePlaceholder }
-func (evaluateView) RunPlaceholder() string     { return checks.RunPlaceholder }
-func (checkReviewView) BinPlaceholder() string  { return checks.BinPlaceholder }
-func (checkReviewView) TreePlaceholder() string { return checks.TreePlaceholder }
+// The workspace placeholders an exploratory call is given (SPEC-S2 Q23),
+// for the templates.
+func (evaluateView) BinPlaceholder() string  { return toolwire.BinPlaceholder }
+func (evaluateView) TreePlaceholder() string { return toolwire.TreePlaceholder }
 
 // ChangedPath is one file a pull request changes, with its added and
 // deleted line counts.
@@ -384,9 +250,18 @@ type evaluateView struct {
 	FixDiffNote       string
 	FixDiffFilesBlock string
 	PriorBlock        string
-	RefusedBlock      string
-	NotYetBlock       string
 	Examples          evaluateExamples
+	// ExercisingCalls names, as one phrase, the maul-tool calls that use the
+	// application on a slot round (acceptance.ValidCite's verbs the round
+	// offers): only they count as a pass's or a fail's evidence.
+	ExercisingCalls string
+	// OwnScripts names, as one phrase, the slot round's calls that run a
+	// script or program the evaluator wrote (a page script, an exec
+	// program); "" when the round offers none.
+	OwnScripts string
+	// MaxCites is acceptance.MaxCites, the most calls of a verdict maul
+	// keeps.
+	MaxCites int
 	// WS is the workspace, on a round with no preview.
 	WS workspaceView
 	// LookAroundCalls is LookAroundToolCalls, for the template.
@@ -395,60 +270,21 @@ type evaluateView struct {
 	// (reportBy).
 	ReportBy int
 	// OutcomeTurns is the turns the prompt budgets for each outcome a person
-	// does not judge and no saved check covers (outcomeTurns).
+	// does not judge (outcomeTurns).
 	OutcomeTurns int
 }
 
 // outcomeTurns shares the turns before the report, less the two that start
-// a round, among the outcomes a person does not judge and no saved check
-// covers (replayedGreen), an outcome with a saved check that is not yet
-// proof of a pass counted uncovered (gate D-B9): at least 1 each. It is
-// advice only, so an outcome whose check fails this round after all is
-// still judged.
-func outcomeTurns(reportBy int, os []acceptance.PlanOutcome, replays []PriorReplay, notYet []NotYetProof) int {
-	green := replayedGreen(replays)
-	for _, c := range notYet {
-		delete(green, c.Outcome)
-	}
+// a round, among the outcomes a person does not judge: at least 1 each. It
+// is advice only.
+func outcomeTurns(reportBy int, os []acceptance.PlanOutcome) int {
 	n := 0
 	for _, o := range os {
-		if !o.Manual && !green[o.ID] {
+		if !o.Manual {
 			n++
 		}
 	}
 	return max(1, (reportBy-2)/max(n, 1))
-}
-
-// replayedGreen is the outcomes whose saved checks all replayed, at least
-// one, and every one passed.
-func replayedGreen(replays []PriorReplay) map[string]bool {
-	green := map[string]bool{}
-	for _, r := range replays {
-		pass := r.Result == string(v1alpha1.CheckRunPass)
-		if seen, ok := green[r.Outcome]; ok {
-			pass = pass && seen
-		}
-		green[r.Outcome] = pass
-	}
-	return green
-}
-
-// ExecMarker is checks.ExecMarkerPlaceholder, for the templates: a line of an
-// exec check's output that starts with what it stands for fails the check
-// (checks.ExecMarked); found only elsewhere in a line, it errs the run
-// (checks.ExecMarkerUnplaced).
-func (evaluateView) ExecMarker() string    { return checks.ExecMarkerPlaceholder }
-func (checkReviewView) ExecMarker() string { return checks.ExecMarkerPlaceholder }
-
-// ExecAssertionIDMax is checks.MaxExecAssertionIDLen, for the templates:
-// a marker naming a longer id is no assertion (gate D-B2).
-func (evaluateView) ExecAssertionIDMax() int { return checks.MaxExecAssertionIDLen }
-
-// ExecTimeoutMax is checks.MaxExecTimeout, for the templates, as a check
-// would write it ("1m"): the most time a check may claim, the exec shim's
-// own bound on one program.
-func (evaluateView) ExecTimeoutMax() string {
-	return strings.TrimSuffix(strings.TrimSuffix(checks.MaxExecTimeout.String(), "0s"), "0m")
 }
 
 // reportBy is the turn by which an evaluate run of maxTurns is asked to
@@ -469,12 +305,10 @@ func (v evaluateView) ReportByTime() string {
 	return StageLimits{Timeout: max(2*time.Minute, (v.Limits.Timeout / 8).Truncate(time.Minute))}.WallClock()
 }
 
-// evaluateExamples are the check and report examples the prompt shows,
-// which the package's tests hold to the grammar and the report parser.
+// evaluateExamples are the examples the prompt shows: its report's, which
+// the package's tests hold to the report parser.
 type evaluateExamples struct {
-	HTTP, Browser, Exec, Report string
-	// Run is a workspace's run check example.
-	Run string
+	Report string
 }
 
 // RenderEvaluatePrompt renders the evaluate-stage prompt.
@@ -488,7 +322,7 @@ func RenderEvaluatePrompt(p EvaluatePrompt) (string, error) {
 
 // renderEvaluateWithin is RenderEvaluatePrompt held to maxBytes.
 func renderEvaluateWithin(p EvaluatePrompt, maxBytes int) (string, error) {
-	p.PriorRefused, p.shed = slices.Clone(p.PriorRefused), evaluateShed{}
+	p.shed = evaluateShed{}
 	for {
 		s, err := renderEvaluate(p)
 		if err != nil || len(s) <= maxBytes {
@@ -519,15 +353,48 @@ func renderEvaluate(p EvaluatePrompt) (string, error) {
 	p.Components = boundEvaluateComponents(p.Components)
 	p.Tools.LookAroundRoutes = min(max(p.Tools.LookAroundRoutes, 0), 8)
 	v := newEvaluateView(p)
-	v.Examples = evaluateExamples{HTTP: ExampleHTTPCheck, Browser: ExampleBrowserCheck, Exec: ExampleExecCheck,
-		Report: ExampleEvaluationReport}
+	v.Examples = evaluateExamples{Report: ExampleEvaluationReport}
+	v.ExercisingCalls, v.OwnScripts = slotCalls(p.Tools)
 	return render("prompt_evaluate.md.tmpl", v)
+}
+
+// slotCalls are the phrases naming a slot round's calls that use the
+// application (every one acceptance.ValidCite admits that the round offers)
+// and those that run a script or program of the evaluator's own (a page
+// script, an exec program); own is "" when the round offers neither.
+func slotCalls(t EvaluateTools) (exercising, own string) {
+	verbs := []string{"`maul-tool http`"}
+	var scripts []string
+	if t.Browser {
+		verbs = append(verbs, "`maul-tool browser`")
+		scripts = append(scripts, "A page script you run with `eval`")
+	}
+	if t.Sandbox {
+		verbs = append(verbs, "`maul-tool exec`")
+		scripts = append(scripts, "a program you run with `maul-tool exec`")
+	}
+	if len(scripts) > 0 {
+		own = strings.ToUpper(scripts[0][:1]) + scripts[0][1:]
+		if len(scripts) == 2 {
+			own += ", or " + scripts[1] + ","
+		}
+	}
+	return orList(verbs), own
+}
+
+// orList joins items as "a", "a or b", "a, b or c".
+func orList(items []string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " or " + items[len(items)-1]
 }
 
 // renderEvaluateWorkspace renders the evaluate prompt of a round on a
 // Project with no preview (SPEC-S2): the two builds, files, exec and run,
-// the placeholders and the head-and-base rule; no component, browser or
-// look-around, which such a round never has.
+// the placeholders, and that only what the evaluator saw at the head
+// counts; no component, browser or look-around, which such a round never
+// has.
 func renderEvaluateWorkspace(p EvaluatePrompt) (string, error) {
 	w := *p.Workspace
 	if err := w.validate(); err != nil {
@@ -541,10 +408,9 @@ func renderEvaluateWorkspace(p EvaluatePrompt) (string, error) {
 	v.WS = workspaceView{CLI: w.Surface == SurfaceCLI, Binary: w.Binary}
 	if v.WS.CLI {
 		v.WS.Build = buildSpan(w.Build)
-		v.Examples = evaluateExamples{Exec: ExampleCLIExecCheck, Run: ExampleCLIRunCheck,
-			Report: ExampleCLIEvaluationReport}
+		v.Examples = evaluateExamples{Report: ExampleCLIEvaluationReport}
 	} else {
-		v.Examples = evaluateExamples{Run: ExampleLibraryRunCheck, Report: ExampleLibraryEvaluationReport}
+		v.Examples = evaluateExamples{Report: ExampleLibraryEvaluationReport}
 	}
 	return render("prompt_evaluate_workspace.md.tmpl", v)
 }
@@ -560,105 +426,20 @@ func newEvaluateView(p EvaluatePrompt) evaluateView {
 		ChangedBlock:    changedBlock(p.ChangedPaths, p.shed.paths),
 		LookAroundCalls: LookAroundToolCalls,
 		ReportBy:        reportBy(p.Limits.MaxTurns),
+		MaxCites:        acceptance.MaxCites,
 	}
-	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes, p.PriorReplay, p.NotYetProof)
+	v.OutcomeTurns = outcomeTurns(v.ReportBy, p.Outcomes)
 	v.FixDiffBlock, v.FixDiffNote, v.FixDiffFilesBlock = fixDiffView(p.FixDiff, p.FixDiffCut)
 	if p.PriorRound > 0 {
-		v.PriorBlock = priorBlock(p.PriorVerdicts, p.PriorReplay)
+		v.PriorBlock = priorBlock(p.PriorVerdicts)
 	}
-	v.RefusedBlock = refusedBlock(p.PriorRefused, p.shed.refusals)
-	v.NotYetBlock = notYetBlock(p.NotYetProof)
 	return v
-}
-
-// notYetBlock lists the saved checks that are not yet proof of a pass, each
-// by its id and outcome, at most NotYetProofMax; "" for none.
-func notYetBlock(cs []NotYetProof) string {
-	var b strings.Builder
-	for i, c := range cs {
-		if i == NotYetProofMax {
-			break
-		}
-		fmt.Fprintf(&b, "- check %s, of outcome %s", quotedLine(c.Check, 72), quotedLine(c.Outcome, 64))
-		if c.Refused {
-			b.WriteString(": asserts nothing that is there")
-		}
-		b.WriteString("\n")
-	}
-	return strings.TrimSuffix(b.String(), "\n")
-}
-
-// refusedBlock lists the checks the reviewer refused, as priorBlock lists a
-// round's results: each by its id and outcome with the reviewer's reason,
-// at most PriorRefusedMax, then the refused check itself where it is shown
-// (refusedBodies), after a line counting the earlier ones left out (shed);
-// "" for none.
-func refusedBlock(rs []PriorRefusal, shed int) string {
-	rs = rs[:min(len(rs), PriorRefusedMax)]
-	bodies := refusedBodies(rs)
-	var b strings.Builder
-	if shed > 0 {
-		fmt.Fprintf(&b, "- %d earlier refused checks are not shown, to keep this prompt within its size bound.\n", shed)
-	}
-	for i, r := range rs {
-		fmt.Fprintf(&b, "- check %s, of outcome %s, was refused.", quotedLine(r.Check, 72), quotedLine(r.Outcome, 64))
-		if r.Reason != "" {
-			fmt.Fprintf(&b, " Why, quoted: %s", quotedLine(r.Reason, priorReasonMaxBytes))
-		}
-		if bodies[i] == "" {
-			b.WriteString("\n    Its body is not shown.\n")
-			continue
-		}
-		b.WriteString("\n    The refused check, as the previous evaluator proposed it and maul confirmed it:\n")
-		for line := range strings.SplitSeq(bodies[i], "\n") {
-			b.WriteString("      " + line + "\n")
-		}
-	}
-	return strings.TrimSuffix(b.String(), "\n")
-}
-
-// refusedBodyShownMaxBytes bounds one refused check as the evaluate prompt
-// shows it, indented and made visible: twice the largest a check may be,
-// room for an ordinary check's indentation, while a few hundred bytes of
-// nested JSON that indent to tens of KiB are not shown.
-const refusedBodyShownMaxBytes = 2 * v1alpha1.MaxSavedCheckBytes
-
-// refusedBodies are rs's bodies as the prompt shows them, by index (G5R-B-
-// CLI-1): each that is a check of maul's grammar, at most
-// v1alpha1.MaxSavedCheckBytes, indented as JSON and made visible; the
-// newest refusals' first, within RefusedBodiesMaxBytes in all as shown (the
-// prompt is held to its bound). A body that is no
-// check, or whose shown form is past refusedBodyShownMaxBytes or the bound
-// left, is "": never shown cut, since a cut check is another check.
-func refusedBodies(rs []PriorRefusal) []string {
-	out := make([]string, len(rs))
-	total := 0
-	for i := len(rs) - 1; i >= 0; i-- {
-		body := rs[i].Body
-		if body == "" || len(body) > v1alpha1.MaxSavedCheckBytes {
-			continue
-		}
-		if _, err := checks.Parse([]byte(body)); err != nil {
-			continue
-		}
-		var buf bytes.Buffer
-		if err := json.Indent(&buf, []byte(body), "", "  "); err != nil {
-			continue
-		}
-		shown := untrusted.Escape(buf.String())
-		if len(shown) > refusedBodyShownMaxBytes || total+len(shown) > RefusedBodiesMaxBytes {
-			continue
-		}
-		out[i], total = shown, total+len(shown)
-	}
-	return out
 }
 
 // priorBlock lists a previous round's results as the prompt quotes them, in
 // prose as the outcomes are (outcomesBlock): maul's result per outcome with
-// its reason, then each saved check's replay, each list bounded; "" for
-// neither.
-func priorBlock(verdicts []PriorVerdict, replays []PriorReplay) string {
+// its reason, bounded; "" for none.
+func priorBlock(verdicts []PriorVerdict) string {
 	var b strings.Builder
 	for i, r := range verdicts {
 		if i == acceptance.MaxOutcomes {
@@ -672,16 +453,6 @@ func priorBlock(verdicts []PriorVerdict, replays []PriorReplay) string {
 			fmt.Fprintf(&b, " Why, quoted: %s", quotedLine(r.Reason, priorReasonMaxBytes))
 		}
 		b.WriteString("\n")
-	}
-	for i, r := range replays {
-		if i == priorReplaysMax {
-			break
-		}
-		if i == 0 {
-			b.WriteString("Replayed at the start of that round:\n")
-		}
-		fmt.Fprintf(&b, "- check %s, of outcome %s, replayed %s\n", quotedLine(r.Check, 72),
-			quotedLine(r.Outcome, 64), quotedLine(r.Result, 16))
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
@@ -757,490 +528,19 @@ func changedBlock(ps []ChangedPath, shed int) string {
 	return strings.Join(lines, "\n")
 }
 
-// CheckReviewPrompt is the data for one check reviewer session's prompt:
-// whether one check, if it passes, shows one outcome holds.
-//
-// Outcome and Check are UNTRUSTED: plan text and a check the evaluator
-// wrote. RenderCheckReviewPrompt quotes both as data, the check rendered
-// by maul with no id, no outcome id and no step names (DESIGN 2.2 step 9,
-// 4.4): a reviewer sees the steps and assertions, never a title or note the
-// evaluator could argue with.
-type CheckReviewPrompt struct {
-	ReportPath string
-	Limits     StageLimits
-	// Outcome is the outcome's text.
-	Outcome string
-	// From is the line of the request the outcome answers, and Kind the
-	// outcome's kind (empty is change). Request is the intent's request, as
-	// the evaluator is given it, and Components the previewed components
-	// (coverage design C1): context, so a reviewer judges the application's
-	// own words by the request, and takes what they state as fact as
-	// given, on the red question too (G4-B-CLI-2). From and Request are
-	// UNTRUSTED, quoted as data; empty ones, and no components, leave their
-	// sections out.
-	From       string
-	Kind       acceptance.OutcomeKind
-	Request    string
-	Components []EvaluateComponent
-	// Check is the check under review.
-	Check checks.Check
-	// ExpectFail asks the red question: the check failed on the build under
-	// review, at step FailedStep (1-based), by its assertion FailedAssertion
-	// (toolwire.StepRecord.AssertionID), and the evaluator proposes it to
-	// show that the outcome does not hold.
-	ExpectFail      bool
-	FailedStep      int
-	FailedAssertion string
-	// Observed is, for the red question about a browser text assertion,
-	// the text its element showed in each of maul's runs, the run's token
-	// written as checks.RunPlaceholder (toolwire.StepRecord.Received, D-B4):
-	// UNTRUSTED, the application's own text, quoted as data. Empty when maul
-	// kept none (no element, a text it could not read whole), and then the
-	// red question is asked exactly as before.
-	Observed []string
-	// Failure is, for the red question, what maul recorded of the failing
-	// assertion in each of its runs (toolwire.StepRecord.Detail: a
-	// browser assertion's measurement, or what a program printed after its
-	// marker), the run's token written as checks.RunPlaceholder: UNTRUSTED,
-	// quoted as data. Shown only whole, one line per run; empty leaves the
-	// red question without it (G3-B-BR-1, G3-B-LIB-1).
-	Failure []string
-	// Workspace is a check of a Project with no preview (SPEC-S2): an exec
-	// or run check, reviewed beside maul's own record of the build and of
-	// its runs at the head and the base. nil is a preview's check, the
-	// prompt exactly as before.
-	Workspace *ReviewWorkspace
-}
-
-// ReviewWorkspace is what maul recorded of a check under review on a
-// Project with no preview, all maul's own and stated as fact: the surface
-// and its build, whether the base built, and the check's confirmation runs
-// at each side.
-type ReviewWorkspace struct {
-	EvaluateWorkspace
-	// BaseUnbuildable: the base did not build, so the check never ran
-	// there.
-	BaseUnbuildable bool
-	// Head and Base are the check's runs at each side.
-	Head, Base ReviewRun
-}
-
-// ReviewRun is one side's run of the check under review: Result a
-// v1alpha1.CheckRunResult ("" for none), for a fail the assertion
-// (toolwire.StepRecord.AssertionID) it was red by, "" for none, and for an
-// error the v1alpha1.CheckRunCause maul recorded, "" for none.
-type ReviewRun struct {
-	Result, Assertion, Cause string
-}
-
-// reviewCauses are the causes of an error run in maul's words; one not
-// listed is not shown.
-var reviewCauses = map[v1alpha1.CheckRunCause]string{
-	v1alpha1.CheckRunCauseCompile:            "the program did not compile against the tree",
-	v1alpha1.CheckRunCauseVendoredTree:       "the tree vendors its modules, which a run program cannot build against",
-	v1alpha1.CheckRunCauseReplaceOutsideTree: "the tree replaces a module with a directory outside it",
-	v1alpha1.CheckRunCauseNoModule:           "the tree has no go.mod a run program can build against",
-	v1alpha1.CheckRunCauseBaseUnbuildable:    "the base did not build",
-}
-
-// sentence is r as maul states it, after "it ran at the head" or "at the
-// base"; an unknown result is unknown, never the text it carried.
-func (r ReviewRun) sentence() string {
-	switch v1alpha1.CheckRunResult(r.Result) {
-	case v1alpha1.CheckRunPass:
-		return "passed"
-	case v1alpha1.CheckRunFail:
-		if a := quotedLine(r.Assertion, 512); a != "" {
-			return "failed by its assertion " + code(a)
-		}
-		return "failed without an assertion: by its exit code, a crash or missing output"
-	case v1alpha1.CheckRunError:
-		if why, ok := reviewCauses[v1alpha1.CheckRunCause(r.Cause)]; ok {
-			return "could not build or run: an error, not a result (" + why + ")"
-		}
-		return "could not build or run: an error, not a result"
-	case v1alpha1.CheckRunQuarantined:
-		return "passed only on retry"
-	case v1alpha1.CheckRunRefused:
-		return "was refused by maul"
-	case "":
-		return "did not run"
-	}
-	return "ended in a result maul does not know"
-}
-
-// reviewWorkspaceView is ReviewWorkspace as the template reads it.
-type reviewWorkspaceView struct {
-	workspaceView
-	Head, Base string
-	// NoBase: the base did not build.
-	NoBase bool
-}
-
-// ExampleCheckReviewReport is the report the check reviewer's prompt
-// shows, which its repair restates; a test decodes it with
-// report.ParseCheckReview, so the prompt never teaches a refused shape (S1
-// bug 8: a live reviewer left its frontmatter open).
-const ExampleCheckReviewReport = `---
-answer: proves
-reason: "It creates its own battle, votes on it and asserts the rating moved by the stake shown."
----
-`
-
-// ReportExample is ExampleCheckReviewReport, for the template.
-func (checkReviewView) ReportExample() string { return ExampleCheckReviewReport }
-
-// checkReviewView is CheckReviewPrompt as the template reads it.
-type checkReviewView struct {
-	CheckReviewPrompt
-	OutcomeBlock string
-	FromBlock    string
-	RequestBlock string
-	// KindSentence states the outcome's kind: keep, else change.
-	KindSentence string
-	Form         string
-	CheckBlock   string
-	Files        []reviewFile
-	// Assertion is FailedAssertion made one legible line; Marker, for an
-	// exec check, the marker line its program printed, up to the colon
-	// after the id.
-	Assertion, Marker string
-	// Layout: a browser check that writes no data of its own run, failing
-	// a measured layout assertion (checks.FailsLayout, S1 demo bug 9): the
-	// red question asks about the page's layout, not data it created.
-	Layout bool
-	// LayoutRead: a green question about a layout read (checks.LayoutRead):
-	// the green rule's layout exception is shown beside it.
-	LayoutRead bool
-	// Tolerances are, on the green question, maul's own line for each box
-	// assertion's tolerance (G4-B-BR-2); ToleranceRule is shown with them.
-	Tolerances []string
-	// ObservedBlock is Observed as the reviewer reads it, one line per run;
-	// RunScoped, with it, a text assertion on an element the check finds by
-	// its own run data (checks.FailsRunScopedText) that showed that run's
-	// token in every run: other runs' rows on the page cannot be that
-	// element (D-B4).
-	ObservedBlock string
-	RunScoped     bool
-	// FailureBlock is Failure as the reviewer reads it, one line per run,
-	// on the red question only.
-	FailureBlock string
-	// FoundOne marks a red browser check whose failed step asserts on
-	// elements its locators each found exactly once (every assertion but
-	// count, whose failure is the number found, and url, which has none).
-	FoundOne bool
-	// Viewport is the fixed window a browser check runs in.
-	Viewport playwright.Viewport
-	// WS is the workspace, for a check of a Project with no preview.
-	WS *reviewWorkspaceView
-}
-
-// reviewFile is one exec program file as the reviewer reads it.
-type reviewFile struct {
-	Path, Content string
-	Executable    bool
-}
-
-// RenderCheckReviewPrompt renders the check reviewer's prompt.
-func RenderCheckReviewPrompt(p CheckReviewPrompt) (string, error) {
-	shown, files := reviewedCheck(p.Check)
-	ws, err := reviewWorkspace(p.Workspace, shown.Form)
-	if err != nil {
-		return "", fmt.Errorf("render check review prompt: %w", err)
-	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(shown); err != nil {
-		return "", fmt.Errorf("render check review prompt: %w", err)
-	}
-	v := checkReviewView{
-		CheckReviewPrompt: p,
-		OutcomeBlock:      quotedLine(p.Outcome, acceptance.MaxOutcomeChars*4),
-		Form:              string(shown.Form),
-		CheckBlock:        strings.Trim(untrusted.Visible(buf.String(), checkShownMaxBytes), "\n"),
-		Files:             files,
-		Assertion:         quotedLine(p.FailedAssertion, 512),
-		Viewport:          playwright.DefaultViewport,
-		FromBlock:         quotedLine(p.From, CheckReviewFromMaxBytes),
-		RequestBlock:      strings.Trim(untrusted.Visible(p.Request, RequestQuoteMaxBytes), "\n"),
-		KindSentence:      "It is a change: something the change makes true.",
-	}
-	if p.Kind == acceptance.OutcomeKindKeep {
-		v.KindSentence = "It is a keep: something the change must leave true."
-	}
-	v.Components = boundEvaluateComponents(p.Components)
-	if v.WS = ws; ws != nil {
-		v.Components = nil
-	}
-	if id, ok := strings.CutPrefix(p.FailedAssertion, "marker "); ok &&
-		(shown.Form == checks.FormExec || shown.Form == checks.FormRun) {
-		v.Marker = checks.ExecMarkerPlaceholder + " " + quotedLine(id, checks.MaxExecAssertionIDLen) + ":"
-	}
-	v.Layout = p.ExpectFail && !checks.WritesRunData(p.Check) && checks.FailsLayout(p.Check, p.FailedStep-1)
-	v.LayoutRead = !p.ExpectFail && checks.LayoutRead(p.Check)
-	if !p.ExpectFail {
-		// On the red question a tolerance only makes the failure harder.
-		v.Tolerances = toleranceLines(p.Check)
-	}
-	if p.ExpectFail {
-		v.FailureBlock = observedBlock(p.Failure)
-		v.FoundOne = shown.Form == checks.FormBrowser && failsOnFoundElements(p.Check, p.FailedStep-1)
-	}
-	if p.ExpectFail && ws == nil && !v.Layout && shown.Form == checks.FormBrowser {
-		v.ObservedBlock = observedBlock(p.Observed)
-		v.RunScoped = v.ObservedBlock != "" && checks.FailsRunScopedText(p.Check, p.FailedStep-1) &&
-			!slices.ContainsFunc(p.Observed, func(o string) bool { return !strings.Contains(o, checks.RunPlaceholder) })
-	}
-	return render("prompt_checkreview.md.tmpl", v)
-}
-
-// toleranceLines is maul's own line for each browser assertion of c with a
-// tolerance, by its 1-based step: what the compiled helper
-// (checks/playwright/support.go) lets through, never the check's words.
-func toleranceLines(c checks.Check) []string {
-	if c.Browser == nil {
-		return nil
-	}
-	var lines []string
-	for i, s := range c.Browser.Steps {
-		a := s.Expect
-		if a == nil || a.Tolerance == 0 {
-			continue
-		}
-		n := strconv.FormatFloat(a.Tolerance, 'f', -1, 64) + " px"
-		head := "step " + strconv.Itoa(i+1) + ", `" + quotedLine(string(a.Assert), 32) + "`"
-		var lets string
-		switch a.Assert {
-		case checks.AssertAbove:
-			lets = "its element's bottom edge is up to " + n + " below the top edge of its `other`, so the two may " +
-				"overlap by up to " + n
-		case checks.AssertLeftOf:
-			lets = "its element's right edge is up to " + n + " past the left edge of its `other`, so the two may " +
-				"overlap by up to " + n
-		case checks.AssertNoOverlap:
-			lets = "the two boxes overlap, so long as the overlap is at most " + n + " wide or at most " + n + " tall"
-		case checks.AssertEqualSize:
-			lets = "the two widths, and the two heights, differ by up to " + n
-		case checks.AssertAligned:
-			edges := "top"
-			if a.Axis == "x" {
-				edges = "left"
-			}
-			head += " on " + quotedLine(a.Axis, 8)
-			lets = "the " + edges + " edges of its element and its `other` are up to " + n + " apart"
-		case checks.AssertSize:
-			lets = "the box's width or height misses what the step states (an exact size, an at least or an at " +
-				"most) by up to " + n
-		default:
-			lets = "what it measures misses by up to " + n
-		}
-		lines = append(lines, head+", tolerance "+n+": it passes while "+lets)
-	}
-	return lines
-}
-
-// failsOnFoundElements reports a browser check whose step failing
-// (0-based) asserts on elements located one each: every assertion with a
-// locator but count, which fails on how many it found.
-func failsOnFoundElements(c checks.Check, failing int) bool {
-	if c.Browser == nil || failing < 0 || failing >= len(c.Browser.Steps) {
-		return false
-	}
-	a := c.Browser.Steps[failing].Expect
-	return a != nil && a.Locator != nil && a.Assert != checks.AssertCount
-}
-
-// observedMax bounds the runs and the bytes of each run's text a reviewer
-// is shown: a red check's two attempts, each toolwire.MaxReceivedBytes
-// with room for its token written back.
-const (
-	observedRunsMax  = 2
-	observedBytesMax = 2 << 10
-)
-
-// observedBlock is a red check's observed texts as the reviewer reads them,
-// one escaped line per run; "" unless every run has one.
-func observedBlock(observed []string) string {
-	if len(observed) == 0 || len(observed) > observedRunsMax {
-		return ""
-	}
-	lines := make([]string, 0, len(observed))
-	for i, o := range observed {
-		q := quotedLine(o, observedBytesMax)
-		if q == "" {
-			return ""
-		}
-		lines = append(lines, "run "+strconv.Itoa(i+1)+": "+q)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// reviewWorkspace is w as the check review template reads it, for a check
-// of form f: a preview's check is http, browser or exec, with no
-// workspace; a workspace's is exec (a cli's) or run, with a valid one.
-func reviewWorkspace(w *ReviewWorkspace, f checks.Form) (*reviewWorkspaceView, error) {
-	if w == nil {
-		if f != checks.FormHTTP && f != checks.FormBrowser && f != checks.FormExec {
-			return nil, fmt.Errorf("check form %q is not http, browser or exec", f)
-		}
-		return nil, nil
-	}
-	if err := w.validate(); err != nil {
-		return nil, err
-	}
-	cli := w.Surface == SurfaceCLI
-	if f != checks.FormRun && (f != checks.FormExec || !cli) {
-		return nil, fmt.Errorf("check form %q is not one a %s workspace runs", f, w.Surface)
-	}
-	v := &reviewWorkspaceView{workspaceView: workspaceView{CLI: cli, Binary: w.Binary},
-		Head: w.Head.sentence(), Base: w.Base.sentence(), NoBase: w.BaseUnbuildable}
-	if cli {
-		v.Build = buildSpan(w.Build)
-	}
-	return v, nil
-}
-
-// shownCheck is a check as a reviewer is shown it: its form and body,
-// never its id or its outcome's.
-type shownCheck struct {
-	Form    checks.Form          `json:"form"`
-	HTTP    *checks.HTTPCheck    `json:"http,omitempty"`
-	Browser *checks.BrowserCheck `json:"browser,omitempty"`
-	Exec    *checks.ExecCheck    `json:"exec,omitempty"`
-	Run     *shownRun            `json:"run,omitempty"`
-}
-
-// shownRun is a run check as a reviewer is shown it: its program files are
-// shown apart, each whole.
-type shownRun struct {
-	Language string            `json:"language"`
-	Args     []string          `json:"args,omitempty"`
-	Timeout  string            `json:"timeout,omitempty"`
-	Expect   checks.ExecExpect `json:"expect"`
-}
-
-// reviewedCheck is c as a reviewer is shown it: a deep copy without its id,
-// its outcome id or any http step's name, and with an exec or run check's
-// program files taken out to be shown whole, each in its own block.
-func reviewedCheck(c checks.Check) (shownCheck, []reviewFile) {
-	shown := shownCheck{Form: c.Form}
-	var files []reviewFile
-	switch {
-	case c.HTTP != nil:
-		h := checks.HTTPCheck{Target: c.HTTP.Target, Steps: slices.Clone(c.HTTP.Steps)}
-		for i := range h.Steps {
-			h.Steps[i].Name = ""
-		}
-		shown.HTTP = &h
-	case c.Browser != nil:
-		b := *c.Browser
-		shown.Browser = &b
-	case c.Exec != nil:
-		e := *c.Exec
-		files = reviewFiles(e.Files)
-		e.Files = nil
-		shown.Exec = &e
-	case c.Run != nil:
-		files = reviewFiles(c.Run.Files)
-		shown.Run = &shownRun{Language: c.Run.Language, Args: slices.Clone(c.Run.Args), Timeout: c.Run.Timeout,
-			Expect: c.Run.Expect}
-	}
-	return shown, files
-}
-
-// reviewFiles are a program's files as a reviewer reads them, each whole.
-func reviewFiles(fs []checks.File) []reviewFile {
-	files := make([]reviewFile, 0, len(fs))
-	for _, f := range fs {
-		files = append(files, reviewFile{Path: quotedLine(f.Path, 300),
-			Content:    strings.Trim(untrusted.Visible(f.Content, checks.MaxProgramBytes), "\n"),
-			Executable: f.Executable})
-	}
-	return files
-}
-
-// The examples the evaluate prompt shows: one check of each form and a
-// report. Tests hold each check to checks.Validate and the report to
+// The example report the evaluate prompt shows. A test holds it to
 // report.ParseEvaluation, so the prompt never teaches a refused shape.
 const (
-	ExampleHTTPCheck = `{
-  "id": "rating-moves-api",
-  "outcome": "rating-moves",
-  "form": "http",
-  "http": {
-    "target": "api",
-    "steps": [
-      {"request": {"method": "POST", "path": "/api/players", "json": {"name": "{{run}}-alice"}},
-       "expect": {"status": 201}, "capture": {"alice": "/id"}},
-      {"request": {"method": "POST", "path": "/api/players", "json": {"name": "{{run}}-bob"}},
-       "expect": {"status": 201}, "capture": {"bob": "/id"}},
-      {"request": {"method": "GET", "path": "/api/players/{{capture.alice}}"},
-       "expect": {"status": 200, "json": {"/name": "{{run}}-alice", "/rating": 1000}}},
-      {"request": {"method": "GET", "path": "/api/players/{{capture.bob}}"},
-       "expect": {"status": 200, "json": {"/name": "{{run}}-bob", "/rating": 1000}}},
-      {"request": {"method": "POST", "path": "/api/battles",
-                   "json": {"winner": "{{capture.bob}}", "loser": "{{capture.alice}}"}},
-       "expect": {"status": 201}},
-      {"request": {"method": "GET", "path": "/api/players/{{capture.bob}}"},
-       "expect": {"status": 200, "json": {"/rating": {"$range": [1001, 3000]}}}},
-      {"request": {"method": "GET", "path": "/api/players/{{capture.alice}}"},
-       "expect": {"status": 200, "json": {"/rating": {"$range": [0, 999]}}}}
-    ]
-  }
-}`
-	ExampleBrowserCheck = `{
-  "id": "winner-listed-first-page",
-  "outcome": "winner-listed-first",
-  "form": "browser",
-  "browser": {
-    "steps": [
-      {"goto": "/players"},
-      {"fill": {"locator": {"label": "Player name"}, "text": "{{run}}-alice"}},
-      {"click": {"role": "button", "name": "Add player"}},
-      {"fill": {"locator": {"label": "Player name"}, "text": "{{run}}-bob"}},
-      {"click": {"role": "button", "name": "Add player"}},
-      {"goto": "/battle"},
-      {"select": {"label": "Winner", "option": "{{run}}-bob"}},
-      {"select": {"label": "Loser", "option": "{{run}}-alice"}},
-      {"click": {"role": "button", "name": "Rate"}},
-      {"goto": "/leaderboard"},
-      {"expect": {"assert": "above", "locator": {"role": "row", "hasText": "{{run}}-bob"},
-                  "other": {"role": "row", "hasText": "{{run}}-alice"}}},
-      {"goto": "/battle"},
-      {"select": {"label": "Winner", "option": "{{run}}-alice"}},
-      {"select": {"label": "Loser", "option": "{{run}}-bob"}},
-      {"click": {"role": "button", "name": "Rate"}},
-      {"goto": "/leaderboard"},
-      {"expect": {"assert": "above", "locator": {"role": "row", "hasText": "{{run}}-alice"},
-                  "other": {"role": "row", "hasText": "{{run}}-bob"}}},
-      {"expect": {"assert": "legible", "locator": {"role": "row", "hasText": "{{run}}-alice"}}}
-    ]
-  }
-}`
-	ExampleExecCheck = `{
-  "id": "live-score-socket",
-  "outcome": "live-score",
-  "form": "exec",
-  "exec": {
-    "argv": ["python3", "client.py", "{{run}}"],
-    "files": [{"path": "client.py",
-               "content": "import json, sys\n# judge once; on a fail print {{marker}} score-shown: <what>\n"}],
-    "timeout": "30s",
-    "expect": {"exit": 0, "stdoutJSON": {"/player": "{{run}}-alice"}}
-  }
-}`
 	ExampleEvaluationReport = `---
 verdicts:
   - outcome: "rating-moves"
     verdict: pass
     ledger: [14, 15, 22]
-    note: "Both players start at 1000; after the battle the winner is at 1016 and the loser at 984."
+    note: "Two players I created both start at 1000; after their battle the winner shows 1016 and the loser 984."
   - outcome: "live-score"
     verdict: fail
     ledger: [31, 33]
-    note: "The score socket closes before the first update; see the screenshot in 33."
+    note: "The score stays 0-0 after I scored twice: seq 31 is the page after 10 s, and seq 33 the same on a reload."
   - outcome: "sounds-good"
     verdict: unsure
     ledger: []
@@ -1249,25 +549,6 @@ verdicts:
     verdict: unsure
     ledger: []
     note: "The clause 'emails the loser' could not be exercised: the preview sends no mail and no tool reads one."
-  - outcome: "profile-round-trip"
-    verdict: unsure
-    ledger: []
-    contrary: [41]
-    note: "Posting back the exact profile GET returned is a 400 (seq 41), on a field this change did not touch."
-disputes:
-  - check_digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-    reason: "It asserts the whole leaderboard's first row, which data from earlier rounds can take."
-    replacement: "rating-moves-api"
-    ledger: [3]
-proposed:
-  - id: "rating-moves-api"
-    outcome: "rating-moves"
-    file: "/work/scratch/checks/rating-moves-api.json"
-  - id: "live-score-socket"
-    outcome: "live-score"
-    file: "/work/scratch/checks/live-score-socket.json"
-    expect: fail
-retire: []
 anomalies:
   - summary: "The Back to battles link is dark blue on a dark background and barely readable."
     route: "/battles"
@@ -1314,6 +595,6 @@ const ExamplePlanOutcomes = `acceptance:
 // OutcomesExample is ExamplePlanOutcomes, for the plan prompt's template.
 func (PlanPrompt) OutcomesExample() string { return ExamplePlanOutcomes }
 
-// Viewport is the fixed window a browser check runs in, for the plan
-// prompt's template.
-func (PlanPrompt) Viewport() playwright.Viewport { return playwright.DefaultViewport }
+// Viewport is the fixed window every browser session opens at, for the
+// plan prompt's template.
+func (PlanPrompt) Viewport() toolwire.Viewport { return toolwire.DefaultViewport }

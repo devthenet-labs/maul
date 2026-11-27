@@ -292,7 +292,6 @@ renders.
 {{- $ev := $root.Values.intentController.verification }}
 {{- $_ := set $data "MAUL_INTENT_EVALUATOR" "true" }}
 {{- $_ := set $data "MAUL_INTENT_EVALUATE_MODEL" $ev.evaluateModel }}
-{{- $_ := set $data "MAUL_INTENT_CHECKREVIEW_MODEL" $ev.checkReviewModel }}
 {{- $_ := set $data "MAUL_INTENT_EVALUATE_TIMEOUT" $ev.evaluateTimeout }}
 {{- $_ := set $data "MAUL_INTENT_DEFAULT_HANDOFF" $ev.defaultHandoff }}
 {{- $_ := set $data "MAUL_INTENT_HANDOFF_MAX" $ev.handoffMax }}
@@ -300,7 +299,6 @@ renders.
 {{- $_ := set $data "MAUL_INTENT_EVALUATION_COST_MAX" (int64 (round (mulf $ev.maxEvaluateCostUSD 1000000) 0)) }}
 {{- $_ := set $data "MAUL_INTENT_MAX_TOOL_CALLS" $ev.maxToolCalls }}
 {{- $_ := set $data "MAUL_INTENT_EVALUATE_MAX_TURNS" $ev.evaluateMaxTurns }}
-{{- $_ := set $data "MAUL_INTENT_CHECKREVIEW_MAX_TURNS" $ev.checkReviewMaxTurns }}
 {{- if $agents }}
 {{- /*
 The agents-namespace tool pod (intentController.verification.agents): the

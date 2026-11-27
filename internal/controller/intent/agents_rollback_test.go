@@ -16,6 +16,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/jobs"
+	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // evaluatingAgentsRound drives an agents intent to an open round whose
@@ -275,7 +276,7 @@ func TestAgentsRollbackKeepsTheLinklessViews(t *testing.T) {
 				e.runRuns()
 				e.review(name, 4)
 
-				const unconfirmed = "maul couldn't confirm this: it could not run its checks."
+				const unconfirmed = "maul can't call this ready: it could not run its checks."
 				status := e.statusBody()
 				if !strings.Contains(status, "**Evaluation:** "+unconfirmed) ||
 					strings.Contains(status, "/maul preview") || strings.Contains(status, "**Preview:**") {
@@ -305,13 +306,13 @@ func TestAgentsRollbackKeepsAReadyRoundReady(t *testing.T) {
 	e, name := newAgentsEnv(t, repoImage)
 	e.reviewReady(name, 4)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		applyJudgement(in, roundJudgement{decision: confirmedTwo}, time.Now())
+		applyJudgement(in, passedJudgement(in))
 	})
 	e.clock.Advance(time.Minute)
 	e.gh.comment(approver, "/maul accept "+oManual)
 	e.settleActions(name)
 	e.review(name, 6)
-	const ready = "Ready: maul checked the approved outcomes."
+	const ready = templates.ReadyLabel
 	if p := e.prVerifyPass(name); !outcomesReady(p.in.Status.Acceptance, p.in.Status.Verification) ||
 		p.in.Status.Verification.Handoff == nil || !p.in.Status.Verification.Handoff.Released {
 		t.Fatalf("verification = %+v, want every outcome confirmed or accepted, the hand-off released",
@@ -327,10 +328,10 @@ func TestAgentsRollbackKeepsAReadyRoundReady(t *testing.T) {
 		t.Fatalf("verification = %+v with the host off, want its %s round kept (S2-B7)", v, settled)
 	}
 	if status := e.statusBody(); !strings.Contains(status, "**Evaluation:** "+ready) ||
-		strings.Contains(status, "couldn't confirm") {
+		strings.Contains(status, templates.NotReadyLead) {
 		t.Errorf("status comment with the host off:\n%s", status)
 	}
-	if c := e.prEvaluationComment(name); !strings.Contains(c, ready) || strings.Contains(c, "couldn't confirm") {
+	if c := e.prEvaluationComment(name); !strings.Contains(c, ready) || strings.Contains(c, templates.NotReadyLead) {
 		t.Errorf("pull request comment with the host off:\n%s", c)
 	}
 
@@ -370,7 +371,7 @@ func TestAgentsRollbackNeverSaysMaulChecks(t *testing.T) {
 	e.review(name, 4)
 	e.runRuns()
 	e.review(name, 4)
-	const unconfirmed = "maul couldn't confirm this: it could not run its checks."
+	const unconfirmed = "maul can't call this ready: it could not run its checks."
 	if status := e.statusBody(); !strings.Contains(status, "**Evaluation:** "+unconfirmed) ||
 		strings.Contains(status, "maul checks") {
 		t.Errorf("status comment with the host off:\n%s", status)
@@ -435,8 +436,8 @@ func TestAgentsRollbackKeepsTheRecordedGiveUpReason(t *testing.T) {
 		v.Handoff = &v1alpha1.HandoffState{Mode: v1alpha1.HandoffGated, Released: true, ReleasedAt: &at,
 			Reason: v1alpha1.HandoffReasonOutOfTime}
 	})
-	const outOfTime = "maul couldn't confirm this: it ran out of time."
-	const notRun = "maul couldn't confirm this: it could not run its checks."
+	const outOfTime = "maul can't call this ready: it ran out of time."
+	const notRun = "maul can't call this ready: it could not run its checks."
 	e.review(name, 6)
 	if status := e.statusBody(); !strings.Contains(status, outOfTime) {
 		t.Fatalf("status comment with the host on:\n%s", status)
@@ -471,10 +472,10 @@ func TestAgentsOffKeepsTheRecordedUnavailableReason(t *testing.T) {
 		words  string
 	}{
 		{v1alpha1.SettleSandboxImage,
-			"maul couldn't confirm this: the repository has no accepted runner image to build the pull request in."},
+			"maul can't call this ready: the repository has no accepted runner image to build the pull request in."},
 		{v1alpha1.SettleTree,
-			"maul couldn't confirm this: it could not fetch the source of the pull request or of its base."},
-		{"", "maul couldn't confirm this: it could not run its checks."},
+			"maul can't call this ready: it could not fetch the source of the pull request or of its base."},
+		{"", "maul can't call this ready: it could not run its checks."},
 	} {
 		t.Run(string(tc.reason), func(t *testing.T) {
 			e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationUnconfirmed)
@@ -503,7 +504,7 @@ func TestAgentsOffKeepsTheRecordedUnavailableReason(t *testing.T) {
 // tree that could not be fetched) for heads nothing tried to fetch.
 func TestAgentsOffDropsAReasonRecordedAtOtherHeads(t *testing.T) {
 	const tree = "it could not fetch the source"
-	const notRun = "maul couldn't confirm this: it could not run its checks."
+	const notRun = "maul can't call this ready: it could not run its checks."
 	e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationUnavailable)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		in.Status.Verification.Cause = v1alpha1.SettleTree

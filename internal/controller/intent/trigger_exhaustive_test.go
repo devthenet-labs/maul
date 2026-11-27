@@ -166,8 +166,8 @@ func TestRoundTextScopeByTrigger(t *testing.T) {
 		tReview:  "address only authorised review feedback",
 		tCommand: "address only authorised review feedback",
 		tChecks:  "fix only the failing checks",
-		tVerify: "make the failing acceptance criteria pass; the criteria are fixed and approved; do not " +
-			"special-case maul's checks",
+		tVerify: "fix the behaviour behind the acceptance outcomes maul's evaluator saw not hold; the outcomes " +
+			"are fixed and approved; do not special-case the calls it cites",
 	}
 	for _, tr := range v1alpha1.IntentRunTriggers {
 		got := roundText(reviseRunOf(tr), "abc", roundContext{}, "feedback", "patch")

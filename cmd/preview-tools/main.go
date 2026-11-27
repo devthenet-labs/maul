@@ -4,22 +4,21 @@
 // Command preview-tools is the relay in the tools container of the agent
 // evaluator's tool pod. preview-controller runs it beside the browser and
 // sandbox sidecars, with the tool ConfigMap mounted at
-// /etc/maul-tools: the components' Service addresses, the saved checks to
-// replay, the tool-call cap and the wall clock. In an agents-namespace tool
-// pod (the config's mode workspace) intent-controller runs it instead, with
-// the config and the :8090 key (/etc/maul-tools/tools-key) from its one
-// Secret: it builds the head and base trees in their sandboxes (over
-// /run/maul-exec/<side>/sock), replays every saved check at each side, and
-// serves exec, files, run and checks only to callers holding the key. It waits for the
-// components, replays every saved check alone under fresh run tokens, then
-// serves the evaluator's maul-tool calls on :8090, refusing callers on
-// loopback or the pod's own addresses, until agent-runner's finish or its
-// own deadline. With a browser in the pod it first opens the Playwright
-// CLI session against the browser container's keyed CDP shim (the key from
-// the mounted /etc/maul-cdp/key, written only into a 0600 session config)
-// and serves the preview front on 127.0.0.1:8091. Every call and run is a MAUL-TOOLS ledger line on stdout;
-// the summary closes the ledger and is repeated as the termination
-// message, which preview-controller checks the log against.
+// /etc/maul-tools: the components' Service addresses, the tool-call cap and
+// the wall clock. In an agents-namespace tool pod (the config's mode
+// workspace) intent-controller runs it instead, with the config and the
+// :8090 key (/etc/maul-tools/tools-key) from its one Secret: it builds the
+// head and base trees in their sandboxes (over /run/maul-exec/<side>/sock)
+// and serves exec, files and run only to callers holding the key. It waits
+// for the components (or the builds), then serves the evaluator's maul-tool
+// calls on :8090, refusing callers on loopback or the pod's own addresses,
+// until agent-runner's finish or its own deadline. With a browser in the
+// pod it first opens the Playwright CLI session against the browser
+// container's keyed CDP shim (the key from the mounted /etc/maul-cdp/key,
+// written only into a 0600 session config) and serves the preview front on
+// 127.0.0.1:8091. Every call is a MAUL-TOOLS ledger line on stdout; the
+// summary closes the ledger and is repeated as the termination message,
+// which preview-controller checks the log against.
 //
 // It holds no Kubernetes client and no credential, and takes no flags.
 // Exit 0 means the ledger was closed; 1 that it could not be; 2 that the

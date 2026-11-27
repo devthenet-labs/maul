@@ -10,9 +10,11 @@ import (
 	"log/slog"
 	"slices"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/ghclient"
+	"github.com/devthenet-labs/maul/internal/report"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
@@ -102,8 +104,19 @@ func (p *pass) resultMoved(v *v1alpha1.IntentVerification) bool {
 }
 
 // verifyProgress is where verification stands as the status comment's
-// preview line says it; nil when it says nothing (not reported, or Off).
+// preview line says it, saying too that an earlier release's result was
+// withdrawn while it is (verify_migrate.go); nil when it says nothing (not
+// reported, or Off).
 func (p *pass) verifyProgress() *templates.VerifyProgress {
+	prog := p.progressNow()
+	if prog != nil && meta.IsStatusConditionTrue(p.in.Status.Conditions, v1alpha1.ConditionVerificationSuperseded) {
+		prog.Withdrawn = true
+	}
+	return prog
+}
+
+// progressNow is verifyProgress without the withdrawal.
+func (p *pass) progressNow() *templates.VerifyProgress {
 	if !p.verifyReported() {
 		return nil
 	}
@@ -155,20 +168,17 @@ func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.Veri
 	case v1alpha1.VerificationWaitingForPreview:
 		out.State = templates.VerifyWaiting
 	case v1alpha1.VerificationEvaluating:
-		out.State, out.Recheck = templates.VerifyEvaluating, p.rechecking(v)
+		out.State = templates.VerifyEvaluating
 	case v1alpha1.VerificationPassed, v1alpha1.VerificationUnconfirmed:
-		out.Why, out.Workspace, out.Recheck = p.gaveUp(acc, v), p.set.linkless(p.proj), p.rechecking(v)
+		out.Why, out.Workspace = p.gaveUp(acc, v), p.set.linkless(p.proj)
 		return judged(templates.VerifyUnconfirmed)
 	case v1alpha1.VerificationFailing:
-		switch {
-		case v.AutoFix.State == v1alpha1.AutoFixHalted:
+		if v.AutoFix.State == v1alpha1.AutoFixHalted {
 			out.AutoFix, out.AutoFixReason = templates.FixHalted, string(v.AutoFix.Reason)
-		case defectConfirmed(v):
-			out.DefectConfirmed, out.AutoFix = true, templates.FixQueued
 		}
 		return judged(templates.VerifyFailing)
 	case v1alpha1.VerificationFixing:
-		out.AutoFix, out.DefectConfirmed = templates.FixRunning, defectConfirmed(v)
+		out.AutoFix = templates.FixRunning
 		return judged(templates.VerifyFailing)
 	case v1alpha1.VerificationExhausted:
 		return judged(templates.VerifyExhausted)
@@ -187,9 +197,11 @@ func (p *pass) evaluationProgress(out *templates.VerifyProgress) *templates.Veri
 
 // outcomeSection fills s with the evaluator's outcomes in plan order, each
 // with its result as reported now (an approver's acceptance at the heads
-// included), maul's line on the check it rests on and, for a failure, the
-// application's output from pv's ledger, for an unsure one the evaluator's
-// claim or its own unsure note; and the look-around anomalies.
+// included) and, from pv's ledger, the calls its verdict cites that maul
+// counted (status.verification.outcomes[].cites), with the evaluator's note
+// on it read from the round's report; and the look-around anomalies. The
+// section is an observed round's (templates.VerifySection.Observed): its
+// rows say what the evaluator saw, never that maul confirmed it.
 // Only the judgement of the current round at the current heads is shown
 // (JudgedOutcomes): a round that settled unjudged shows none of an earlier
 // round's results.
@@ -199,7 +211,12 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 	if !verifyJudged(v.State) {
 		results = nil
 	}
-	unkept := p.unkeptRed(ctx, pv, results)
+	s.Observed = true
+	var calls roundCalls
+	var ev *report.Evaluation
+	if pv != nil && results != nil {
+		calls, ev = p.roundCalls(ctx, pv), evaluationClaims(p.evaluateRun(pv))
+	}
 	for _, o := range acc.Outcomes {
 		row := templates.VerifyOutcomeResult{ID: o.ID, Kind: string(o.EffectiveKind()), Statement: o.Outcome,
 			Result: templates.OutcomeResultUnsure}
@@ -215,19 +232,15 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 			continue
 		}
 		r := results[i]
-		row.Result, row.Reason, row.Check = string(effectiveResult(acc, v, r)), r.Reason, r.Line
-		row.Unkept = unkept[o.ID]
+		row.Result, row.Reason = string(effectiveResult(acc, v, r)), r.Reason
 		if rec := acceptedAt(acc, o.ID, v.HeadSetDigest); rec != nil && row.Result == templates.OutcomeResultAccepted {
 			row.AcceptedAt = firstHead(rec)
 		}
-		if (row.Result == templates.OutcomeResultFailed || r.Reason == acceptance.ReasonSuspectedDefect) && pv != nil {
-			row.AppOutput = p.appOutput(ctx, pv, r.Basis)
-		}
-		if doubted(acc, v, r) && pv != nil {
-			row.Claim = p.evaluatorClaim(ctx, pv, o.ID)
-		}
-		if row.Result == templates.OutcomeResultUnsure && pv != nil {
-			row.UnsureNote = p.evaluatorUnsureNote(pv, o.ID)
+		if pv != nil {
+			for _, seq := range r.Cites {
+				row.Cited = append(row.Cited, calls.call(seq))
+			}
+			row.Note = verdictNote(ev, o.ID)
 		}
 		s.Outcomes = append(s.Outcomes, row)
 	}
@@ -241,52 +254,20 @@ func (p *pass) outcomeSection(ctx context.Context, s *templates.VerifySection, p
 		}
 		s.Anomalies = append(s.Anomalies, va)
 	}
-	s.Suspected = p.suspectedView(ctx, pv)
 }
 
-// unkeptRed is, by outcome id, why pv's red checks were not kept
-// (unkeptRed), for a judged round of pv, worked out once a pass (pv is the
-// pass's judgedVerification); none when there is no judgement or the store
-// cannot be read.
-func (p *pass) unkeptRed(ctx context.Context, pv *v1alpha1.PreviewVerification,
-	results []v1alpha1.OutcomeResult) map[string]string {
-	if pv == nil || results == nil {
-		return nil
+// verdictNote is the evaluator's note on outcome id in ev, from the first
+// verdict on it (the one Judge read); "" for none. Display only: read at
+// render time from the report, never written to status.
+func verdictNote(ev *report.Evaluation, id string) string {
+	if ev == nil {
+		return ""
 	}
-	if !p.unkeptRead {
-		p.unkeptRead = true
-		if stored, _, err := p.storedChecks(ctx); err == nil {
-			acc := p.in.Status.Acceptance
-			p.unkept = unkeptRed(pv, acc.Outcomes, stored, acc.Reviews, p.checkContext(pv))
-		}
+	i := slices.IndexFunc(ev.Verdicts, func(v report.OutcomeVerdict) bool { return v.ID == id })
+	if i < 0 {
+		return ""
 	}
-	return p.unkept
-}
-
-// suspectedView is the suspected defect at the current heads (fourth
-// review) as the comment shows it, with the reproduction a fix round is
-// handed, rendered from pv's own ledger: shown whatever else the round
-// found (fifth review, 5), and once a person confirmed it, saying so (6);
-// nil when there is none.
-func (p *pass) suspectedView(ctx context.Context, pv *v1alpha1.PreviewVerification) *templates.VerifySuspected {
-	v, acc := p.in.Status.Verification, p.in.Status.Acceptance
-	if !suspectedPending(v) && !defectConfirmed(v) || pv == nil || v.Suspected.Verification != pv.Name {
-		return nil
-	}
-	// The note claims a hold only while the hand-off shows one (gate D-B3).
-	h := p.handoffView()
-	out := &templates.VerifySuspected{Outcomes: slices.Clone(v.Suspected.Outcomes),
-		Held: h != nil && h.State == templates.HandoffHeld, Workspace: p.set.linkless(p.proj)}
-	if c := v.Suspected.Confirmed; c != nil {
-		out.ConfirmedBy = c.By
-	}
-	j := p.decideRound(ctx, pv, p.evaluateRun(pv))
-	if s := j.decision.Suspected; s != nil {
-		if repro, err := p.reproduction(ctx, pv, acc, s, j.checks); err == nil {
-			out.Reproduction = repro
-		}
-	}
-	return out
+	return ev.Verdicts[i].Note
 }
 
 // firstHead is the first short head an acceptance was given at, "" for
@@ -462,8 +443,7 @@ func (p *pass) syncVerifyComment(ctx context.Context) {
 		return
 	}
 	body, err := templates.RenderVerifyComment(templates.VerifyComment{Namespace: p.in.Namespace,
-		Intent: p.in.Name, Round: round, Attempt: attempt, Section: *sec,
-		Replay: round == v.Round && v.Rung == v1alpha1.RungReplay, Recheck: round == v.Round && rechecked(v)})
+		Intent: p.in.Name, Round: round, Attempt: attempt, Section: *sec})
 	if err != nil {
 		p.r.log().LogAttrs(ctx, slog.LevelError, "render the verification comment",
 			slog.String("intent", p.in.Name), slog.Any("error", err))

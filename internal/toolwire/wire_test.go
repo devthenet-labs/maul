@@ -15,8 +15,7 @@ import (
 func TestPaths(t *testing.T) {
 	want := map[Verb]string{
 		VerbHTTP: "/v1/http", VerbBrowser: "/v1/browser", VerbExec: "/v1/exec", VerbLogs: "/v1/logs",
-		VerbEvents: "/v1/events", VerbCheckRun: "/v1/check-run", VerbCheckResults: "/v1/check-results",
-		VerbConfirm: "/v1/confirm", VerbFinish: "/v1/finish", VerbFiles: "/v1/files", VerbRun: "/v1/run",
+		VerbEvents: "/v1/events", VerbFinish: "/v1/finish", VerbFiles: "/v1/files", VerbRun: "/v1/run",
 	}
 	for v, p := range want {
 		if got := Path(v); got != p {
@@ -40,12 +39,9 @@ func requests() map[Verb]Request {
 		VerbFiles: &FilesRequest{Side: SideBase, Op: OpGrep, Path: "internal", Pattern: "func Main"},
 		VerbRun: &RunRequest{Side: SideBase, Language: LanguageGo, Args: []string{"-v"},
 			Files: []File{{Name: "main.go", Content: []byte("package main")}}},
-		VerbLogs:         &LogsRequest{Component: "api"},
-		VerbEvents:       &EventsRequest{},
-		VerbCheckRun:     &CheckRunRequest{Spec: json.RawMessage(`{"id":"winner-rises"}`)},
-		VerbCheckResults: &CheckResultsRequest{},
-		VerbConfirm:      &ConfirmRequest{Digests: []string{strings.Repeat("a", 64)}},
-		VerbFinish:       &FinishRequest{Evidence: []EvidenceRef{{Seq: 3, SHA256: strings.Repeat("b", 64)}}},
+		VerbLogs:   &LogsRequest{Component: "api"},
+		VerbEvents: &EventsRequest{},
+		VerbFinish: &FinishRequest{Evidence: []EvidenceRef{{Seq: 3, SHA256: strings.Repeat("b", 64)}}},
 	}
 }
 
@@ -107,7 +103,6 @@ func TestRequestCheckRefuses(t *testing.T) {
 			{Name: "a", Content: make([]byte, MaxProgramBytes/2+1)}, {Name: "b", Content: make([]byte, MaxProgramBytes/2)},
 		}},
 		"exec side":          &ExecRequest{Argv: []string{"x"}, Side: "other"},
-		"check run side":     &CheckRunRequest{Spec: json.RawMessage(`{}`), Side: "BASE"},
 		"files side":         &FilesRequest{Side: "x", Op: OpLs},
 		"files no op":        &FilesRequest{},
 		"files bad op":       &FilesRequest{Op: "cat", Path: "a"},
@@ -136,14 +131,9 @@ func TestRequestCheckRefuses(t *testing.T) {
 			}
 			return fs
 		}()},
-		"run arg":            &RunRequest{Language: LanguageGo, Files: []File{{Name: "a.go"}}, Args: []string{long}},
-		"logs component":     &LogsRequest{Component: "API_1"},
-		"check run empty":    &CheckRunRequest{},
-		"check run large":    &CheckRunRequest{Spec: json.RawMessage(`"` + strings.Repeat("a", MaxCheckBytes) + `"`)},
-		"confirm none":       &ConfirmRequest{},
-		"confirm bad digest": &ConfirmRequest{Digests: []string{"abc"}},
-		"confirm twice":      &ConfirmRequest{Digests: []string{strings.Repeat("a", 64), strings.Repeat("a", 64)}},
-		"finish bad seq":     &FinishRequest{Evidence: []EvidenceRef{{Seq: 0, SHA256: strings.Repeat("a", 64)}}},
+		"run arg":        &RunRequest{Language: LanguageGo, Files: []File{{Name: "a.go"}}, Args: []string{long}},
+		"logs component": &LogsRequest{Component: "API_1"},
+		"finish bad seq": &FinishRequest{Evidence: []EvidenceRef{{Seq: 0, SHA256: strings.Repeat("a", 64)}}},
 		"finish too much": &FinishRequest{Evidence: func() []EvidenceRef {
 			rs := make([]EvidenceRef, 0, MaxEvidence+1)
 			for i := range MaxEvidence + 1 {
@@ -152,13 +142,6 @@ func TestRequestCheckRefuses(t *testing.T) {
 			return rs
 		}()},
 		"finish bad evidence": &FinishRequest{Evidence: []EvidenceRef{{Seq: 1, SHA256: "x"}}},
-		"confirm too many": &ConfirmRequest{Digests: func() []string {
-			ds := make([]string, 0, MaxConfirm+1)
-			for i := range MaxConfirm + 1 {
-				ds = append(ds, sha256Hex([]byte{byte(i)}))
-			}
-			return ds
-		}()},
 	}
 	for name, req := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -171,10 +154,9 @@ func TestRequestCheckRefuses(t *testing.T) {
 
 func TestResponseRoundTrip(t *testing.T) {
 	exit := 1
-	rec := checkRunEntry(KindRelay, VerbConfirm, ModeConfirm, ResultFail, ResultPass).CheckRun
 	r := Response{
 		Seq: 7, Untrusted: "<html>", Artifacts: []Artifact{{Name: "s.png", SHA256: strings.Repeat("c", 64), Bytes: 3}},
-		Observed: &Observed{Status: 200, LatencyMs: 12, Exit: &exit, CheckRuns: []CheckRunRecord{*rec},
+		Observed: &Observed{Status: 200, LatencyMs: 12, Exit: &exit,
 			Summary: &Summary{Count: 7, SHA256: strings.Repeat("d", 64)}},
 	}
 	b, err := json.Marshal(r)
@@ -221,7 +203,8 @@ func TestKeyAndSides(t *testing.T) {
 // as slice 1 did: the field is absent, so S1 callers and goldens stand.
 func TestSideIsOptionalOnTheWire(t *testing.T) {
 	for _, req := range []Request{
-		&ExecRequest{Argv: []string{"x"}}, &CheckRunRequest{Spec: json.RawMessage(`{}`)},
+		&ExecRequest{Argv: []string{"x"}}, &FilesRequest{Op: OpLs},
+		&RunRequest{Language: LanguageGo, Files: []File{{Name: "a.go"}}},
 	} {
 		b, _ := json.Marshal(req)
 		if strings.Contains(string(b), "side") {

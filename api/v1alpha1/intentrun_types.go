@@ -85,7 +85,9 @@ const (
 	IntentStageEvaluate IntentStage = "evaluate"
 	// IntentStageCheckReview: the check reviewer's round, which judges
 	// whether each new saved check tests the outcome it claims; it reads
-	// quoted checks only and changes nothing.
+	// quoted checks only and changes nothing. A retired spelling: the
+	// observed evaluator launches none, but a stored run's stage still
+	// reads (and its spend still counts). Removed in the next release.
 	IntentStageCheckReview IntentStage = "checkreview"
 )
 
@@ -475,7 +477,9 @@ type IntentRunEvaluation struct {
 	// +kubebuilder:validation:MaxLength=45
 	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F:.]+$`
 	ToolIP string `json:"toolIP"`
-	// Rung is the verification's rung.
+	// Rung is the verification's rung. Retired with the cost ladder: the
+	// observed evaluator always writes full (the field is required).
+	// Removed in the next release.
 	Rung VerificationRung `json:"rung"`
 }
 

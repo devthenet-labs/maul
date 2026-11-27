@@ -757,11 +757,14 @@ type IntentAcceptance struct {
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	OutcomesDigest string `json:"outcomesDigest,omitempty"`
 	// Checks names the check store of the approved plan revision; unset
-	// until a first check is saved.
+	// until a first check is saved. Retired with saved checks: the observed
+	// evaluator leaves it untouched, so a rollback's check store resumes its
+	// numbering. Removed in the next release.
 	// +optional
 	Checks *CheckStoreRef `json:"checks,omitempty"`
 	// Reviews cache the check reviewer's answers, so a check is reviewed
-	// once per outcome statement.
+	// once per outcome statement. Retired with saved checks, left untouched
+	// as Checks is.
 	// +optional
 	// +kubebuilder:validation:MaxItems=80
 	// +listType=atomic
@@ -771,7 +774,8 @@ type IntentAcceptance struct {
 	// did. Until one has, only a run red by the assertion it was saved
 	// failing reproduces its defect. A clearance counts from the round
 	// after the one that earned it, so that round is judged, and its fix
-	// decided, on the same facts.
+	// decided, on the same facts. Retired with saved checks, left untouched
+	// as Checks is.
 	// +optional
 	// +kubebuilder:validation:MaxItems=40
 	// +listType=atomic
@@ -781,7 +785,8 @@ type IntentAcceptance struct {
 	// contrary ledger entries), each with the verification of that round.
 	// From the round after, none of them is a basis for its outcome's pass,
 	// whatever a later evaluator says: the outcome passes only on another
-	// check, or an approver's acceptance.
+	// check, or an approver's acceptance. Retired with saved checks, left
+	// untouched as Checks is.
 	// +optional
 	// +kubebuilder:validation:MaxItems=40
 	// +listType=atomic
@@ -872,17 +877,17 @@ const (
 	// pod or its evaluate run, a confirmation or a check review is in
 	// flight).
 	VerificationEvaluating IntentVerificationState = "Evaluating"
-	// VerificationUnconfirmed: the evaluation settled without confirming
-	// every outcome (unsure, disputed, or out of rounds, budget or time):
-	// the hand-off is released as "maul couldn't confirm this",
-	// never a block.
+	// VerificationUnconfirmed: the evaluation settled without every
+	// outcome seen to hold (unsure, or out of rounds, budget or time): the
+	// hand-off is released with maul's reason, never a block.
 	VerificationUnconfirmed IntentVerificationState = "Unconfirmed"
 )
 
 // OutcomeResultValue is the decided result of one approved outcome
-// (acceptance.Decide): passed only on a confirmed, reviewed, deterministic
-// check the evaluator agrees with; failed only on a failing confirmed check
-// the evaluator also fails; accepted by an approver's /maul accept.
+// (acceptance.Judge): passed only on the evaluator's pass citing a call of
+// its own that maul counts, seen to hold; failed only on its fail citing
+// one, seen not to hold; accepted by an approver's /maul accept;
+// quarantined is a retired spelling an earlier release wrote.
 // +kubebuilder:validation:Enum=passed;failed;unsure;quarantined;accepted
 type OutcomeResultValue string
 
@@ -903,7 +908,9 @@ type OutcomeResult struct {
 	// Result decided.
 	Result OutcomeResultValue `json:"result"`
 	// Basis is the digest of the saved check the result rests on; unset
-	// when none does.
+	// when none does. Retired with saved checks: the observed evaluator
+	// never writes it (Cites is what a result rests on). Removed in the
+	// next release.
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	Basis string `json:"basis,omitempty"`
@@ -914,7 +921,8 @@ type OutcomeResult struct {
 	// +kubebuilder:validation:MaxLength=600
 	Reason string `json:"reason,omitempty"`
 	// Line is the maul-rendered one-line description of the basis check
-	// (its steps and assertions in maul's words).
+	// (its steps and assertions in maul's words). Retired with saved checks,
+	// as Basis is.
 	// +optional
 	// +kubebuilder:validation:MaxLength=1024
 	// +kubebuilder:validation:Pattern=`^[^\r\n]*$`
@@ -922,10 +930,39 @@ type OutcomeResult struct {
 	// Objected records that the round's evaluator said it saw the outcome
 	// fail (a fail verdict, or contrary entries), whatever Reason says: a
 	// finding about the round's heads, which holds every later round there
-	// (G-B-LIB-1).
+	// (G-B-LIB-1). Retired with saved checks: never written by the observed
+	// evaluator, whose fail verdict is its finding. Removed in the next
+	// release.
 	// +optional
 	Objected bool `json:"objected,omitempty"`
+	// Cites are the entries of the round's verified ledger index that the
+	// evaluator cited for its verdict and that maul admits as evidence
+	// (acceptance.ValidCite), by seq, ascending, at most MaxOutcomeCites.
+	// maul checks that each one is a call that exercised the application in
+	// that round, never that it shows what the verdict says.
+	// +optional
+	// +kubebuilder:validation:MaxItems=8
+	// +listType=atomic
+	// +kubebuilder:validation:items:Minimum=1
+	// +kubebuilder:validation:items:Maximum=512
+	Cites []int32 `json:"cites,omitempty"`
 }
+
+// MaxOutcomeCites bounds OutcomeResult.Cites; the schema marker repeats it.
+const MaxOutcomeCites = 8
+
+// VerificationJudge names the rule an Intent's verification was judged
+// under. A record with another (or none, written before it was) is
+// superseded once: its judgement is cleared and a fresh round evaluated.
+// Bounded by a pattern rather than an enum, so a later release's marker
+// does not refuse every status write after a rollback.
+// +kubebuilder:validation:MaxLength=32
+// +kubebuilder:validation:Pattern=`^[a-z][a-z0-9-]{0,15}/[1-9][0-9]{0,3}$`
+type VerificationJudge string
+
+// JudgeObserved is the observed evaluator's rule: per-outcome verdicts
+// count when they cite valid entries of the round's verified ledger.
+const JudgeObserved VerificationJudge = "observed/1"
 
 // AnomalyRecord is one look-around anomaly the evaluator reported, with the
 // ledger entries that show it: a note for the human reviewer, shown beside
@@ -1045,9 +1082,9 @@ const (
 	// SettleSandboxUnenforced: the last attempt's tool pod found its
 	// sandbox's network open (sandbox-unenforced).
 	SettleSandboxUnenforced SettleCause = "SandboxUnenforced"
-	// SettleToolsLost: the last attempt's tool pod was taken away, reached
-	// its deadline, or could not keep what every check run starts from
-	// (tools-evicted, tools-deadline, kept-copy-failed).
+	// SettleToolsLost: the last attempt's tool pod was taken away or
+	// reached its deadline (tools-evicted, tools-deadline; and the retired
+	// kept-copy-failed of an earlier release's record).
 	SettleToolsLost SettleCause = "ToolsLost"
 	// SettleReplayIncomplete: the last attempt, a replay, finished before
 	// the end of its replay (replay-incomplete, review VC-3).
@@ -1265,6 +1302,8 @@ type VerifyRequest struct {
 	Reset bool `json:"reset,omitempty"`
 	// Explore asks for the full rung (/maul verify explore): the saved
 	// checks replayed and then the evaluator, whatever a replay could show.
+	// Retired with the cost ladder: never set; /maul verify explore is read
+	// as /maul verify. Removed in the next release.
 	// +optional
 	Explore bool `json:"explore,omitempty"`
 	// PullRequest is the intent's pull request the command was made on; nil
@@ -1315,6 +1354,10 @@ type IntentVerification struct {
 	// State of the verification.
 	// +optional
 	State IntentVerificationState `json:"state,omitempty"`
+	// Judge is the rule this verification is judged under (JudgeObserved).
+	// Unset on a record written before it was.
+	// +optional
+	Judge VerificationJudge `json:"judge,omitempty"`
 	// Round is the latest verification round.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
@@ -1351,7 +1394,9 @@ type IntentVerification struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=20
 	Failed int32 `json:"failed,omitempty"`
-	// Quarantined counts the criteria that passed only on retry.
+	// Quarantined counts the criteria that passed only on retry. Retired
+	// with saved checks: cleared once when a record is superseded, never
+	// written after. Removed in the next release.
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=20
@@ -1373,7 +1418,8 @@ type IntentVerification struct {
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:validation:Maximum=20
 	NotRun int32 `json:"notRun,omitempty"`
-	// QuarantinedIDs are the criteria that passed only on retry.
+	// QuarantinedIDs are the criteria that passed only on retry. Retired
+	// as Quarantined is.
 	// +optional
 	// +kubebuilder:validation:MaxItems=20
 	// +listType=set
@@ -1394,6 +1440,8 @@ type IntentVerification struct {
 	// and the evidence shown until an approver's /maul verify fix confirms it
 	// (Confirmed), which starts the fix round on it. Set by each judgement,
 	// shown and confirmable only while the heads are the ones it judged.
+	// Retired with saved checks: cleared once when a record is superseded,
+	// never written after. Removed in the next release.
 	// +optional
 	Suspected *SuspectedDefect `json:"suspected,omitempty"`
 	// CancelRun names a Pending verify-fix IntentRun a human round
@@ -1491,7 +1539,8 @@ type IntentVerification struct {
 	EvaluationCostMicroUSD int64 `json:"evaluationCostMicroUSD,omitempty"`
 	// Disputed are the digests of the saved checks the evaluator disputed,
 	// awaiting a replay round once their replacements are confirmed and
-	// reviewed.
+	// reviewed. Retired with saved checks: cleared once when a record is
+	// superseded, never written after. Removed in the next release.
 	// +optional
 	// +kubebuilder:validation:MaxItems=40
 	// +listType=set
@@ -1499,17 +1548,20 @@ type IntentVerification struct {
 	Disputed []string `json:"disputed,omitempty"`
 	// Rung is the rung of the latest round (Round): full, the saved checks
 	// replayed and then the evaluator; or replay, the saved checks alone
-	// with no model. A retry of the round keeps it.
+	// with no model. A retry of the round keeps it. Retired with the cost
+	// ladder: cleared once when a record is superseded, never written after.
+	// Removed in the next release.
 	// +optional
 	Rung VerificationRung `json:"rung,omitempty"`
 	// ModelRound is the latest full round judged on its evaluator's
 	// report: a new round replays only at its heads and outcomes, and only
-	// when its evaluator raised nothing (Clear).
+	// when its evaluator raised nothing (Clear). Retired as Rung is.
 	// +optional
 	ModelRound *VerificationModelRound `json:"modelRound,omitempty"`
 	// Escalation is the one automatic full round a head set gets after an
 	// unsure round at those heads: due while Round is the replay round
-	// that asked for it, spent once a later round starts there.
+	// that asked for it, spent once a later round starts there. Retired as
+	// Rung is.
 	// +optional
 	Escalation *VerificationEscalation `json:"escalation,omitempty"`
 }

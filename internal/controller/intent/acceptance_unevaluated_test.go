@@ -97,7 +97,7 @@ func TestAcceptanceStatusOnlyOnEvaluatedHeads(t *testing.T) {
 			e.gh.nextStatusID++
 			stale := e.gh.nextStatusID
 			e.gh.statuses[pushed] = []ghclient.CommitStatus{{ID: stale, Context: acceptanceContext,
-				State: statusSuccess, Description: "3/3 outcomes confirmed", Creator: "maul[bot]"}}
+				State: statusSuccess, Description: "3/3 outcomes seen to hold", Creator: "maul[bot]"}}
 			e.gh.mu.Unlock()
 			e.setStatus(name, func(in *v1alpha1.Intent) {
 				pr := &in.Status.PullRequests[1]

@@ -81,7 +81,7 @@ func settingsProject() *v1alpha1.Project {
 			Admits: &v1alpha1.ProjectAdmits{
 				Models: []string{"anthropic/claude-a", "anthropic/claude-b"},
 				Stages: v1alpha1.ProjectStageCeilings{Plan: ceiling(40, 200_000), Build: ceiling(150, 800_000),
-					Revise: ceiling(80, 400_000), Evaluate: ceiling(100, 400_000), CheckReview: ceiling(6, 100_000)},
+					Revise: ceiling(80, 400_000), Evaluate: ceiling(100, 400_000)},
 				Evaluator:       true,
 				ResourceClasses: []v1alpha1.ProjectResourceClass{{Name: "small"}, {Name: "large"}},
 			},

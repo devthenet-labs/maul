@@ -33,7 +33,7 @@ func TestIntentAgentsAnomalyIsANote(t *testing.T) {
 	if v.State != v1alpha1.VerificationPassed || len(v.Anomalies) != 1 || v.Anomalies[0].Summary != anomaly {
 		t.Fatalf("round 1 = %s, anomalies %+v; want Passed with the note recorded", v.State, v.Anomalies)
 	}
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	eventually(t, "the verification comment to show the note", func() bool {
 		return e.botSays(int64(number), anomaly)
 	})

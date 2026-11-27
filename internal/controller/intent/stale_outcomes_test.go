@@ -7,20 +7,10 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
-
-// confirmedTwo is a judgement confirming two of outcomesPlan's three
-// outcomes, the manual one left to a human.
-var confirmedTwo = acceptance.Decision{Env: httpstep.EnvOK, PerOutcome: []acceptance.OutcomeResult{
-	{ID: oVersion, Result: acceptance.ResultPassed, Reason: acceptance.ReasonConfirmed},
-	{ID: oHealthy, Result: acceptance.ResultPassed, Reason: acceptance.ReasonConfirmed},
-	{ID: oManual, Result: acceptance.ResultUnsure, Reason: acceptance.ReasonManual}}}
 
 // checkNothingConfirmed: no view of name's verification (the progress, the
 // verification comment's rows, the commit status) presents an outcome as
@@ -47,8 +37,9 @@ func (e *env) checkNothingConfirmed(name string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(body, "confirmed") && !strings.Contains(body, "0/3 outcomes confirmed") ||
-		strings.Contains(body, "2/3") {
+	// A passed row says "confirmed"; the count no longer does (it says "seen
+	// to hold"), so any "confirmed" is an earlier round's row.
+	if strings.Contains(body, "confirmed") || strings.Contains(body, "2/3") {
 		t.Errorf("the verification comment presents an earlier round's results:\n%s", body)
 	}
 	if st, _, ok := p.acceptanceStatus(); ok && (st.state == statusSuccess || strings.Contains(st.description, "2/3")) {
@@ -68,7 +59,7 @@ func TestUnjudgedRoundAtMovedHeadsShowsNoEarlierResults(t *testing.T) {
 	e, name := newAgentsEnv(t, repoImage)
 	e.reviewReady(name, 4)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		applyJudgement(in, roundJudgement{decision: confirmedTwo}, time.Now())
+		applyJudgement(in, passedJudgement(in))
 	})
 	if p := e.prVerifyPass(name); confirmedCount(p.in.Status.Acceptance, p.in.Status.Verification) != 2 {
 		t.Fatalf("verification = %+v, want two confirmed", p.in.Status.Verification)
@@ -99,7 +90,7 @@ func TestUnjudgedRoundAtTheSameHeadsShowsNoEarlierResults(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
-		applyJudgement(in, roundJudgement{decision: confirmedTwo}, time.Now())
+		applyJudgement(in, passedJudgement(in))
 	})
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		v := in.Status.Verification
@@ -111,40 +102,6 @@ func TestUnjudgedRoundAtTheSameHeadsShowsNoEarlierResults(t *testing.T) {
 	}
 	if v := e.verification(name); v.State != v1alpha1.VerificationUnavailable {
 		t.Fatalf("verification = %+v, want Unavailable", v)
-	}
-	e.checkNothingConfirmed(name)
-}
-
-// TestUnjudgedReplayRoundIsNotStillChecking (S2-B3 review): a judgement
-// that disputed a check asks for one replay round at the same heads; when
-// that round settles unjudged (the tool pod cannot build the head), the
-// earlier judgement's disputes are not this round's: no further replay is
-// due, so the commit status never says maul is still checking a round
-// nothing will start.
-func TestUnjudgedReplayRoundIsNotStillChecking(t *testing.T) {
-	e, name := newAgentsEnv(t, repoImage)
-	e.reviewReady(name, 4)
-	disputed := confirmedTwo
-	disputed.Retire, disputed.ReplayRound = []string{"sha256:" + strings.Repeat("d", 64)}, true
-	e.setStatus(name, func(in *v1alpha1.Intent) {
-		applyJudgement(in, roundJudgement{decision: disputed}, time.Now())
-	})
-	if p := e.prVerifyPass(name); !p.replayDue(p.in.Status.Verification) {
-		t.Fatalf("verification = %+v, want its replay round due", p.in.Status.Verification)
-	}
-	e.setStatus(name, func(in *v1alpha1.Intent) {
-		v := in.Status.Verification
-		v.Round++
-		v.Attempt = v1alpha1.MaxVerificationAttempts
-		v.State, v.Cause = v1alpha1.VerificationUnconfirmed,
-			v1alpha1.SettleToolsBuildFailed
-	})
-	p := e.prVerifyPass(name)
-	if p.replayDue(p.in.Status.Verification) {
-		t.Error("an unjudged replay round still asks for a replay of the earlier judgement")
-	}
-	if st, _, ok := p.acceptanceStatus(); ok && st.state == statusPending {
-		t.Errorf("commit status = %+v: still checking a round nothing will start", st)
 	}
 	e.checkNothingConfirmed(name)
 }

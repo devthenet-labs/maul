@@ -11,11 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"regexp"
 	"slices"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -99,13 +97,17 @@ func ClampInt32[T int | int64](n T) int32 {
 	return int32(max(min(int64(n), math.MaxInt32), math.MinInt32))
 }
 
-// Index indexes every entry, in order: its facts without its output.
+// Index indexes every entry, in order: its facts without its output, its
+// side as the ledger records it (base, or none for the head), whether it is
+// one of the evaluator's calls that got no answer (noAnswer), and whether
+// it is a refusal that provably ran nothing (ranNothing).
 func Index(entries []toolwire.LedgerEntry) []v1alpha1.LedgerIndexEntry {
 	out := make([]v1alpha1.LedgerIndexEntry, 0, len(entries))
 	for _, e := range entries {
 		ie := v1alpha1.LedgerIndexEntry{Seq: ClampInt32(e.Seq), Kind: v1alpha1.LedgerKind(e.Kind),
 			Verb: v1alpha1.LedgerVerb(e.Verb), Exit: ClampInt32(e.Exit), ResultSHA256: e.OutputSHA256,
-			Refused: e.Refused != ""}
+			Refused: e.Refused != "", Side: v1alpha1.TreeSide(e.Side.Recorded()), NoAnswer: noAnswer(e),
+			RanNothing: ranNothing(e)}
 		for _, a := range e.Artifacts {
 			ie.Artifacts = append(ie.Artifacts, a.SHA256)
 		}
@@ -114,251 +116,35 @@ func Index(entries []toolwire.LedgerEntry) []v1alpha1.LedgerIndexEntry {
 	return out
 }
 
-// runResults maps a check run's result onto the status vocabulary.
-var runResults = map[toolwire.RunResult]v1alpha1.CheckRunResult{
-	toolwire.RunPass: v1alpha1.CheckRunPass, toolwire.RunFail: v1alpha1.CheckRunFail,
-	toolwire.RunError: v1alpha1.CheckRunError, toolwire.RunQuarantined: v1alpha1.CheckRunQuarantined,
-}
-
-// checkRunOf is entry e's check run as status records it; ok is false for
-// a run the status cannot hold.
-func checkRunOf(e toolwire.LedgerEntry) (v1alpha1.CheckRun, bool) {
-	r := e.CheckRun
-	result, known := runResults[r.Result]
-	if !known || len(r.Attempts) == 0 || !runToken.MatchString(r.Attempts[0].Run) {
-		return v1alpha1.CheckRun{}, false
-	}
-	run := v1alpha1.CheckRun{CheckDigest: "sha256:" + r.Digest, Result: result, Token: r.Attempts[0].Run,
-		Seq: ClampInt32(e.Seq)}
-	if step, ok := r.AssertionStep(); ok {
-		run.AssertionStep, run.AssertionID = ClampInt32(step+1), r.FailedAssertionID()
-	}
-	return run, true
-}
-
-// expectsFail reports a relay confirmation entry of a check the evaluator
-// proposed to show a defect: its args, which the relay writes, record the
-// expectation (toolwire.ConfirmArgs).
-func expectsFail(e toolwire.LedgerEntry) bool {
-	var a toolwire.ConfirmArgs
-	return json.Unmarshal(e.Args, &a) == nil && a.Expect == toolwire.ExpectFail
-}
-
-// redDryRun is the latest entry before seq recording the agent's dry run
-// of the check of digest red by assertion id at step, or nil; nil too when
-// any dry run of it before seq passed, or a replay of it this round did (a
-// check that ran green shows no defect).
-func redDryRun(entries []toolwire.LedgerEntry, digest string, seq int64, step int, id string) *toolwire.LedgerEntry {
-	if greenDryRun(entries, digest, seq) != nil || greenReplay(entries, digest, seq) {
-		return nil
-	}
-	for i := len(entries) - 1; i >= 0; i-- {
-		e := &entries[i]
-		if e.Seq >= seq || e.Kind != toolwire.KindAgent || e.Verb != toolwire.VerbCheckRun || e.Refused != "" ||
-			e.CheckRun == nil || atBase(*e) || e.CheckRun.Mode != toolwire.ModeDryRun || e.CheckRun.Digest != digest {
-			continue
-		}
-		if at, ok := e.CheckRun.AssertionStep(); ok && at == step && e.CheckRun.FailedAssertionID() == id {
-			return e
-		}
-	}
-	return nil
-}
-
-// greenReplay reports a replay before seq of the check of digest that
-// passed: a saved check this round saw green shows no defect, whatever the
-// agent's own dry runs of it did afterwards (review finding 3).
-func greenReplay(entries []toolwire.LedgerEntry, digest string, seq int64) bool {
-	return slices.ContainsFunc(entries, func(e toolwire.LedgerEntry) bool {
-		return e.Seq < seq && e.Kind == toolwire.KindRelay && e.Verb == toolwire.VerbCheckRun && e.CheckRun != nil &&
-			!atBase(e) && e.CheckRun.Mode == toolwire.ModeReplay && e.CheckRun.Digest == digest &&
-			e.CheckRun.Result == toolwire.RunPass
-	})
-}
-
-// requiredDryRun is the dry run confirmation entry e required: the green
-// one, or, for a check expected to fail whose confirmation is red by
-// assertion, the red one at the same step; nil when there is none.
-func requiredDryRun(entries []toolwire.LedgerEntry, e toolwire.LedgerEntry) *toolwire.LedgerEntry {
-	if !expectsFail(e) {
-		return greenDryRun(entries, e.CheckRun.Digest, e.Seq)
-	}
-	step, ok := e.CheckRun.AssertionStep()
-	if !ok {
-		return nil
-	}
-	return redDryRun(entries, e.CheckRun.Digest, e.Seq, step, e.CheckRun.FailedAssertionID())
-}
-
-// runToken is the grammar of a run token status holds (CheckRun.Token).
-var runToken = regexp.MustCompile(`^[A-Za-z0-9-]{1,40}$`)
-
-// atBase reports an entry recording a run at a workspace's base, which
-// none of the head's readers (replay, confirmations, confirmed checks, the
-// dry runs they require) may read as the head's: a replay or dry run names
-// the side on its entry, a confirmation, whose verb carries no side, in its
-// args (previewtools' base confirmation). A slot's ledger has none.
-func atBase(e toolwire.LedgerEntry) bool {
-	if e.Side == toolwire.SideBase {
-		return true
-	}
-	if e.Verb != toolwire.VerbConfirm {
+// noAnswer reports one of the evaluator's unrefused calls that got nothing
+// back from what it exercised: an http request whose output holds no
+// answered exchange (it got no response), a run whose program never ran
+// (it did not compile), or an exec or run whose program the shim could not
+// start (its output is maul's marker alone, toolwire.NotStarted). Each is
+// read from the verified log, so it holds whatever tools image wrote it.
+func noAnswer(e toolwire.LedgerEntry) bool {
+	if e.Kind != toolwire.KindAgent || e.Refused != "" {
 		return false
 	}
-	var a struct {
-		Side toolwire.Side `json:"side"`
-	}
-	return json.Unmarshal(e.Args, &a) == nil && a.Side == toolwire.SideBase
-}
-
-// BaseRuns are a workspace relay's replays and confirmations at the base,
-// in order, each tagged tree base (status.base.runs), an error run with its
-// cause (toolwire.CheckRunRecord.Cause); the agent's base dry runs are not
-// among them.
-func BaseRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
-	var out []v1alpha1.CheckRun
-	for _, e := range entries {
-		if e.Kind != toolwire.KindRelay || e.CheckRun == nil || !atBase(e) || len(out) == v1alpha1.MaxBaseRuns ||
-			!relayRun(e) {
-			continue
-		}
-		if run, ok := checkRunOf(e); ok {
-			// Why an error run errored, when it is the base tree's: the only
-			// base errors with no base comparison (SPEC-S2 S2-20).
-			run.Tree, run.Cause = v1alpha1.TreeBase, v1alpha1.CheckRunCause(e.CheckRun.Cause())
-			out = append(out, run)
-		}
-	}
-	return out
-}
-
-// relayRun reports a relay entry's check run in its place: a replay on
-// check-run, a confirmation on confirm.
-func relayRun(e toolwire.LedgerEntry) bool {
 	switch e.Verb {
-	case toolwire.VerbCheckRun:
-		return e.CheckRun.Mode == toolwire.ModeReplay
-	case toolwire.VerbConfirm:
-		return e.CheckRun.Mode == toolwire.ModeConfirm
+	case toolwire.VerbHTTP:
+		return !toolwire.HTTPAnswered(e.Output)
+	case toolwire.VerbExec:
+		return toolwire.NotStarted(e.Exit, e.Output)
+	case toolwire.VerbRun:
+		return e.NotRun || toolwire.NotStarted(e.Exit, e.Output)
 	}
 	return false
 }
 
-// ReplayRuns are the relay's replays of the saved checks (a workspace's at
-// its head; BaseRuns has the base's), in order.
-func ReplayRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
-	var out []v1alpha1.CheckRun
-	for _, e := range entries {
-		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbCheckRun || e.CheckRun == nil || atBase(e) ||
-			e.CheckRun.Mode != toolwire.ModeReplay || len(out) == v1alpha1.MaxSavedChecks {
-			continue
-		}
-		if run, ok := checkRunOf(e); ok {
-			out = append(out, run)
-		}
-	}
-	return out
-}
-
-// greenDryRun is the latest entry before seq recording the agent's passing
-// dry run of the check of digest (bare hex), or nil.
-func greenDryRun(entries []toolwire.LedgerEntry, digest string, seq int64) *toolwire.LedgerEntry {
-	for i := len(entries) - 1; i >= 0; i-- {
-		e := &entries[i]
-		if e.Seq < seq && e.Kind == toolwire.KindAgent && e.Verb == toolwire.VerbCheckRun && e.Refused == "" &&
-			e.CheckRun != nil && !atBase(*e) && e.CheckRun.Mode == toolwire.ModeDryRun &&
-			e.CheckRun.Digest == digest && e.CheckRun.Result == toolwire.RunPass {
-			return e
-		}
-	}
-	return nil
-}
-
-// ConfirmationRuns are the relay's confirmation runs (a workspace's at its
-// head), in order, each with
-// the dry run it required (requiredDryRun) and, for a check proposed to
-// show a defect, its expectation.
-func ConfirmationRuns(entries []toolwire.LedgerEntry) []v1alpha1.CheckRun {
-	var out []v1alpha1.CheckRun
-	for _, e := range entries {
-		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbConfirm || e.CheckRun == nil || atBase(e) ||
-			e.CheckRun.Mode != toolwire.ModeConfirm || len(out) == v1alpha1.MaxSavedChecks {
-			continue
-		}
-		run, ok := checkRunOf(e)
-		if !ok {
-			continue
-		}
-		if expectsFail(e) {
-			run.Expect = v1alpha1.CheckExpectFail
-		}
-		if dry := requiredDryRun(entries, e); dry != nil {
-			run.DryRunSeq = ClampInt32(dry.Seq)
-		}
-		out = append(out, run)
-	}
-	return out
-}
-
-// ConfirmedChecks are the checks whose confirmation did what it was
-// proposed to do, each read from the dry run that confirmation required:
-// the check the relay itself validated and ran, by its own digest. A check
-// expected to pass is confirmed by a passing confirmation after a green dry
-// run; one proposed to show a defect (Expect fail) only by a confirmation
-// red by assertion after a dry run red by assertion at the same step, with
-// no green dry run of it. A check over MaxSavedCheckBytes, bound to no
-// outcome under evaluation, or not reread exactly, is left out: what status
-// holds is only what intent-controller may store.
-func ConfirmedChecks(entries []toolwire.LedgerEntry, outcomes []v1alpha1.AcceptanceOutcome) []v1alpha1.SavedCheck {
-	var out []v1alpha1.SavedCheck
-	seen := map[string]bool{}
-	for _, e := range entries {
-		if e.Kind != toolwire.KindRelay || e.Verb != toolwire.VerbConfirm || e.CheckRun == nil || atBase(e) ||
-			e.CheckRun.Mode != toolwire.ModeConfirm || seen[e.CheckRun.Digest] || len(out) == v1alpha1.MaxSavedChecks {
-			continue
-		}
-		red := expectsFail(e)
-		if !red && e.CheckRun.Result != toolwire.RunPass {
-			continue
-		}
-		dry := requiredDryRun(entries, e)
-		if dry == nil {
-			continue
-		}
-		c, ok := checkOf(*dry, e.CheckRun.Digest, outcomes)
-		if !ok {
-			continue
-		}
-		if red {
-			step, _ := e.CheckRun.AssertionStep() // requiredDryRun held it red by assertion
-			c.Expect, c.FailedStep = v1alpha1.CheckExpectFail, ClampInt32(step+1)
-			c.FailedAssertion = e.CheckRun.FailedAssertionID()
-		}
-		seen[e.CheckRun.Digest] = true
-		out = append(out, c)
-	}
-	return out
-}
-
-// checkOf rereads the check a dry-run entry recorded, held to digest: the
-// form the relay ran it as (checks.ParseRecorded).
-func checkOf(dry toolwire.LedgerEntry, digest string, outcomes []v1alpha1.AcceptanceOutcome) (v1alpha1.SavedCheck,
-	bool) {
-	var req toolwire.CheckRunRequest
-	if err := json.Unmarshal(dry.Args, &req); err != nil {
-		return v1alpha1.SavedCheck{}, false
-	}
-	c, err := checks.ParseRecorded(req.Spec, "sha256:"+digest)
-	if err != nil {
-		return v1alpha1.SavedCheck{}, false
-	}
-	body := checks.Canonical(c)
-	bound := slices.ContainsFunc(outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == c.Outcome })
-	if len(body) > v1alpha1.MaxSavedCheckBytes || !bound {
-		return v1alpha1.SavedCheck{}, false
-	}
-	return v1alpha1.SavedCheck{ID: c.ID, Outcome: c.Outcome, Form: v1alpha1.CheckForm(c.Form), Body: string(body),
-		Digest: checks.Digest(c)}, true
+// ranNothing reports a refusal whose code only the relay's own gate writes,
+// before it dispatches the call: no key, or past maxToolCalls (a sandbox's
+// refusal is never recorded under either, previewtools' sandboxRefused).
+// Every other code may be written after the call was sent: unavailable is
+// also "the sandbox did not answer", and a sandbox's own refusal is passed
+// on under its code, so it proves nothing.
+func ranNothing(e toolwire.LedgerEntry) bool {
+	return e.Refused == toolwire.RefusedKey || e.Refused == toolwire.RefusedToolCalls
 }
 
 // Readiness is the relay's readiness wait, its first entry: a relay http

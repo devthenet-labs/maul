@@ -97,12 +97,12 @@ writing it again.
 
 ### Acceptance outcomes
 
-This Project's changes are evaluated before a human reviews them: an agent builds each pull request's change, and the
-commit its branch started from, calls the Go library from programs of its own, and checks that the outcomes the
-approved plan states hold, saving the checks it writes. Nothing runs in a preview. Add one more frontmatter field
-after `estimated_token_budget`, `acceptance`, a list of at most 20 outcomes: each one thing the change must make true,
-or must leave true, in plain words a person could check by calling the library. Write no steps, commands or checks:
-the evaluator decides how to check each outcome. Omit the field when nothing the change does can be seen that way.
+This Project's changes are evaluated before a human reviews them: an agent calls the Go library each pull request
+changes from programs of its own, the way a program using it would, and reports whether each outcome the approved
+plan states holds, citing what it saw. Nothing runs in a preview. Add one more frontmatter field after
+`estimated_token_budget`, `acceptance`, a list of at most 20 outcomes: each one thing the change must make true, or
+must leave true, in plain words a person could check by calling the library. Write no steps, commands or checks: the
+evaluator decides how to try each outcome. Omit the field when nothing the change does can be seen that way.
 
 ```yaml
 acceptance:
@@ -131,12 +131,11 @@ Rules the outcomes keep to:
 
 How to word an outcome so the evaluator can show it:
 
-- The evaluator checks each outcome against the change and against the commit its branch started from, and counts a
-  `change` outcome only if it does not hold there: state what the change makes newly true. A `keep` outcome states
-  what held before the change and must still hold after it.
-- One outcome is one claim a single check can show. Split "X and Y" and "before and after" into separate outcomes;
-  several outcomes may share one `from` line. Aim for about 200 characters, 300 for one that states a rule with its
-  example.
+- A `change` outcome states what the change makes newly true; a `keep` outcome states what held before the change
+  and must still hold after it.
+- One outcome is one claim the evaluator can see hold or not. Split "X and Y" and "before and after" into separate
+  outcomes; several outcomes may share one `from` line. Aim for about 200 characters, 300 for one that states a rule
+  with its example.
 - State the exported function, method or type a caller uses, the input, and the value or error it returns
   ("`pattern.Parse` of a pattern of 65 steps returns an error matching `pattern.ErrTooLong`"). Name them as the code
   does, or will once changed. Where the request states a rule, those values are an example of it, never the whole

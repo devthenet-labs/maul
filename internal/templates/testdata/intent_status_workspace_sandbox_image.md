@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Evaluation:** maul couldn't confirm this: the repository has no accepted runner image to build the pull request in.
+**Evaluation:** maul can't call this ready: the repository has no accepted runner image to build the pull request in.
 
 **Commands now:** `/maul cancel`
 

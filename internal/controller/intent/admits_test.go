@@ -118,7 +118,7 @@ func TestProjectAdmitsIsWhatTheControllerAdmits(t *testing.T) {
 	g := admitsGen{rng: rand.New(rand.NewSource(0xad3175))}
 	var floorsJudged, overJudged, codexOn, evaluated int
 	var delegation [2][2]int // [subagents, workflows][admitted]
-	for i := range 400 {
+	for i := range 600 {
 		s, p := g.settings(), g.project()
 		h := p.Spec.Harness
 		if h.IsCodex() && s.Codex.ID != "" {
@@ -217,8 +217,8 @@ func (g admitsGen) settings() Settings {
 	s.Verification, s.Previews = s.Evaluator, true
 	s.EvaluateCodex = g.rng.Intn(2) == 0
 	if s.Evaluator {
-		s.Evaluate, s.CheckReview = g.ceiling(), g.ceiling()
-		s.EvaluateModel, s.CheckReviewModel = g.pick(admitsClaudeIDs), g.pick(admitsClaudeIDs)
+		s.Evaluate = g.ceiling()
+		s.EvaluateModel = g.pick(admitsClaudeIDs)
 	}
 	s.CostBudgets = g.rng.Intn(3) > 0
 	if g.rng.Intn(4) > 0 {
@@ -267,7 +267,6 @@ func checkModels(t *testing.T, ctx string, s Settings, p *v1alpha1.Project, a *v
 		Build: s.flagModel(h, v1alpha1.IntentStageBuild)}
 	if s.Evaluator && (!h.IsCodex() || s.EvaluateCodex) {
 		want.Evaluate = s.flagModel(h, v1alpha1.IntentStageEvaluate)
-		want.CheckReview = s.flagModel(h, v1alpha1.IntentStageCheckReview)
 	}
 	if a.DefaultModels != want {
 		t.Fatalf("%s: defaultModels = %+v, want %+v", ctx, a.DefaultModels, want)
@@ -283,7 +282,7 @@ func checkStages(t *testing.T, ctx string, rng *rand.Rand, s Settings, p *v1alph
 	t.Helper()
 	runs := s.Evaluator && (!p.Spec.Harness.IsCodex() || s.EvaluateCodex)
 	for _, stage := range []v1alpha1.IntentStage{v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild,
-		v1alpha1.IntentStageRevise, v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview} {
+		v1alpha1.IntentStageRevise, v1alpha1.IntentStageEvaluate} {
 		c := publishedCeiling(a, stage)
 		if roleStage(stage) && !runs {
 			if c != (v1alpha1.ProjectStageCeiling{}) {
@@ -338,7 +337,7 @@ func checkHourly(t *testing.T, ctx string, s Settings, a *v1alpha1.ProjectAdmits
 // checkFloors holds a's runBudgetFloors to budgetUnderReserve: one entry per
 // admitted model it can price, while it judges the Project at all, and for
 // each a budget of the floor passes and one under it is refused, for the
-// evaluate and the checkreview stage alike. It returns the floors judged.
+// evaluate stage. It returns the floors judged.
 func checkFloors(t *testing.T, ctx string, s Settings, p *v1alpha1.Project, a *v1alpha1.ProjectAdmits) int {
 	t.Helper()
 	if !s.CostBudgets || !s.Evaluator || p.Spec.Harness.IsCodex() {
@@ -363,25 +362,20 @@ func checkFloors(t *testing.T, ctx string, s Settings, p *v1alpha1.Project, a *v
 	s.EvaluationCostMax = 0
 	judged := 0
 	for _, f := range a.RunBudgetFloors {
-		for _, stage := range []v1alpha1.IntentStage{v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview} {
-			floor := f.EvaluateMicroUSD
-			if stage == v1alpha1.IntentStageCheckReview {
-				floor = f.CheckReviewMicroUSD
+		stage, floor := v1alpha1.IntentStageEvaluate, f.EvaluateMicroUSD
+		for _, b := range []int64{floor - 1, floor} {
+			q := p.DeepCopy()
+			q.Spec.Models = &v1alpha1.ProjectModels{Evaluate: f.Model}
+			huge := int64(1_000_000_000)
+			q.Spec.Limits.MaxEvaluateCostMicroUSD = &huge
+			setStageLimits(q, stage, v1alpha1.StageLimits{MaxCostMicroUSD: b})
+			u := s.budgetUnderReserve(q)
+			if refused := u.stage == stage; refused != (b < floor) {
+				t.Fatalf("%s: a %s budget of %d on %s against the floor %d: budgetUnderReserve says %+v",
+					ctx, stage, b, f.Model, floor, u)
 			}
-			for _, b := range []int64{floor - 1, floor} {
-				q := p.DeepCopy()
-				q.Spec.Models = &v1alpha1.ProjectModels{Evaluate: f.Model, CheckReview: f.Model}
-				huge := int64(1_000_000_000)
-				q.Spec.Limits.MaxEvaluateCostMicroUSD = &huge
-				setStageLimits(q, stage, v1alpha1.StageLimits{MaxCostMicroUSD: b})
-				u := s.budgetUnderReserve(q)
-				if refused := u.stage == stage; refused != (b < floor) {
-					t.Fatalf("%s: a %s budget of %d on %s against the floor %d: budgetUnderReserve says %+v",
-						ctx, stage, b, f.Model, floor, u)
-				}
-			}
-			judged++
 		}
+		judged++
 	}
 	return judged
 }
@@ -398,7 +392,7 @@ func TestProjectAdmitsHoldsTheBounds(t *testing.T) {
 	}
 	s.Claude.Allowed = NewModelList(ids...)
 	s.CostBudgets, s.Evaluator = true, true
-	s.EvaluateModel, s.CheckReviewModel = "anthropic/claude-opus-5", "anthropic/claude-sonnet-5"
+	s.EvaluateModel = "anthropic/claude-opus-5"
 	classes := resourceclass.Set{}
 	for i := range v1alpha1.MaxAdmittedResourceClasses {
 		classes[fmt.Sprintf("c%02d", i)] = resourceclass.Resources{}
@@ -428,10 +422,8 @@ func publishedCeiling(a *v1alpha1.ProjectAdmits, stage v1alpha1.IntentStage) v1a
 		return a.Stages.Build
 	case v1alpha1.IntentStageRevise:
 		return a.Stages.Revise
-	case v1alpha1.IntentStageEvaluate:
-		return a.Stages.Evaluate
 	}
-	return a.Stages.CheckReview
+	return a.Stages.Evaluate
 }
 
 func setStageLimits(p *v1alpha1.Project, stage v1alpha1.IntentStage, l v1alpha1.StageLimits) {
@@ -444,8 +436,6 @@ func setStageLimits(p *v1alpha1.Project, stage v1alpha1.IntentStage, l v1alpha1.
 		p.Spec.Limits.Revise = l
 	case v1alpha1.IntentStageEvaluate:
 		p.Spec.Limits.Evaluate = l
-	case v1alpha1.IntentStageCheckReview:
-		p.Spec.Limits.CheckReview = l
 	}
 }
 

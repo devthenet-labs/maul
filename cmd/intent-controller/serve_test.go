@@ -509,11 +509,10 @@ func TestUsageMeasurementReachesMeter(t *testing.T) {
 }
 
 // TestEvaluatorSettings: --intent-evaluator reaches the settings with its
-// models, hand-off, ceilings and bounds, the evaluate timeout and the
-// check reviewer's defaults (TestSettingsVerificationFlags: it turns
-// verification on); it is refused without previews, and each of its values
-// outside its bounds stops startup. Off,
-// nothing of it reaches the settings.
+// model, hand-off, ceiling and bounds and the evaluate timeout
+// (TestSettingsVerificationFlags: it turns verification on); it is refused
+// without previews, and each of its values outside its bounds stops
+// startup. Off, nothing of it reaches the settings.
 func TestEvaluatorSettings(t *testing.T) {
 	load := func(t *testing.T, args ...string) (intent.Settings, error) {
 		t.Helper()
@@ -530,20 +529,17 @@ func TestEvaluatorSettings(t *testing.T) {
 	on := []string{"--intent-previews-enabled", "--intent-evaluator"}
 	s, err = load(t, append(on, "--intent-evaluate-timeout", "30m", "--intent-default-handoff", "early",
 		"--intent-handoff-max", "2h", "--intent-evaluate-codex", "--intent-evaluation-cost-max", "4000000",
-		"--intent-max-tool-calls", "120", "--intent-checkreview-model", "anthropic/claude-haiku-5",
-		"--intent-evaluate-max-turns", "140", "--intent-checkreview-max-turns", "5")...)
+		"--intent-max-tool-calls", "120", "--intent-evaluate-max-turns", "140")...)
 	if err != nil {
 		t.Fatalf("settings: %v", err)
 	}
-	if !s.Evaluator || s.EvaluateModel != "anthropic/claude-sonnet-5-5" ||
-		s.CheckReviewModel != "anthropic/claude-haiku-5" || s.DefaultHandoff != v1alpha1.HandoffEarly ||
+	if !s.Evaluator || s.EvaluateModel != "anthropic/claude-sonnet-5-5" || s.DefaultHandoff != v1alpha1.HandoffEarly ||
 		s.HandoffMax != 2*time.Hour || !s.EvaluateCodex || s.EvaluationCostMax != 4000000 || s.MaxToolCalls != 120 {
 		t.Errorf("settings = %+v", s)
 	}
 	if s.Evaluate != (intent.StageCeiling{MaxTurns: 140, TokenBudget: intent.DefaultEvaluateTokenBudget,
-		Timeout: 30 * time.Minute}) ||
-		s.CheckReview.Timeout != intent.DefaultCheckReviewTimeout || s.CheckReview.MaxTurns != 5 {
-		t.Errorf("ceilings = %+v, %+v", s.Evaluate, s.CheckReview)
+		Timeout: 30 * time.Minute}) {
+		t.Errorf("ceiling = %+v", s.Evaluate)
 	}
 	for _, args := range [][]string{
 		{"--intent-evaluator"},
@@ -558,8 +554,6 @@ func TestEvaluatorSettings(t *testing.T) {
 		append(on, "--intent-job-deadline-max", "30m"),
 		append(on, "--intent-evaluate-max-turns", "0"),
 		append(on, "--intent-evaluate-max-turns", "1001"),
-		append(on, "--intent-checkreview-max-turns", "0"),
-		append(on, "--intent-checkreview-max-turns", "1001"),
 	} {
 		if _, err := load(t, args...); err == nil {
 			t.Errorf("settings(%v) succeeded, want a startup error", args)
@@ -567,19 +561,18 @@ func TestEvaluatorSettings(t *testing.T) {
 	}
 }
 
-// TestEvaluatorTurnDefaults: unset, the role stages' turn ceilings are the
-// defaults: evaluate's sized so that the turn cap, the one limit a run
-// still gets its report out of, binds before the cost budget or the wall
-// clock ends the session (S1 bug 3), checkreview's so each review keeps
-// the turns for one repair of its report (S1 bug 8).
+// TestEvaluatorTurnDefaults: unset, the evaluate stage's turn ceiling is
+// its default, sized so that the turn cap, the one limit a run still gets
+// its report out of, binds before the cost budget or the wall clock ends
+// the session (S1 bug 3).
 func TestEvaluatorTurnDefaults(t *testing.T) {
 	opts, root, _ := command(t, "--intent-previews-enabled", "--intent-evaluator")
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
 	s, err := settings(opts, "maul", "maul-agents")
-	if err != nil || s.Evaluate.MaxTurns != 100 || s.CheckReview.MaxTurns != 6 {
-		t.Errorf("default ceilings = %+v, %+v (%v); want 100 and 6 turns", s.Evaluate, s.CheckReview, err)
+	if err != nil || s.Evaluate.MaxTurns != 100 {
+		t.Errorf("default ceiling = %+v (%v); want 100 turns", s.Evaluate, err)
 	}
 }
 
@@ -589,11 +582,10 @@ func TestEvaluatorTurnDefaults(t *testing.T) {
 func TestChartEvaluatorKeysAreFlags(t *testing.T) {
 	_, _, serve := command(t)
 	for _, key := range []string{"MAUL_INTENT_EVALUATOR", "MAUL_INTENT_EVALUATE_MODEL",
-		"MAUL_INTENT_CHECKREVIEW_MODEL", "MAUL_INTENT_EVALUATE_TIMEOUT", "MAUL_INTENT_DEFAULT_HANDOFF",
-		"MAUL_INTENT_HANDOFF_MAX", "MAUL_INTENT_EVALUATE_CODEX", "MAUL_INTENT_EVALUATION_COST_MAX",
-		"MAUL_INTENT_MAX_TOOL_CALLS", "MAUL_INTENT_EVALUATE_MAX_TURNS", "MAUL_INTENT_CHECKREVIEW_MAX_TURNS",
-		"MAUL_INTENT_EVALUATOR_AGENTS", "MAUL_INTENT_TOOLS_IMAGE", "MAUL_INTENT_MAX_TOOL_PODS",
-		"MAUL_INTENT_TOOL_BUILD_TIMEOUT_MAX", "MAUL_INTENT_TOOL_RESOURCES"} {
+		"MAUL_INTENT_EVALUATE_TIMEOUT", "MAUL_INTENT_DEFAULT_HANDOFF", "MAUL_INTENT_HANDOFF_MAX",
+		"MAUL_INTENT_EVALUATE_CODEX", "MAUL_INTENT_EVALUATION_COST_MAX", "MAUL_INTENT_MAX_TOOL_CALLS",
+		"MAUL_INTENT_EVALUATE_MAX_TURNS", "MAUL_INTENT_EVALUATOR_AGENTS", "MAUL_INTENT_TOOLS_IMAGE",
+		"MAUL_INTENT_MAX_TOOL_PODS", "MAUL_INTENT_TOOL_BUILD_TIMEOUT_MAX", "MAUL_INTENT_TOOL_RESOURCES"} {
 		if serve.Flags().Lookup(flagName(key)) == nil {
 			t.Errorf("the chart sets %s, and --%s is not a flag", key, flagName(key))
 		}

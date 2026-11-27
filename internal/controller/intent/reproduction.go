@@ -15,28 +15,31 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
-// The fix-round reproduction (DESIGN 2.2, 2.9 use 2, 4.4, 7.7; SPEC S1-21).
-// An evaluation's verify-fix round is handed, per failure the judgement
-// asks it to fix, a bug report maul renders from its own records: the
-// approved outcome, the failing check's steps (templates, in maul's words)
-// with what each expects, what the check runner observed on the failing
-// run (that run's tools ledger entry), and at most 40 log lines from the
-// run's window. Nothing else of the round reaches it: never the evaluate
-// prompt, the evaluator's notes, report or transcript, another check, a
-// check's digest or the check store (TestBuildHandoffNeverReferencesEvaluator).
+// The fix-round reproduction ("evaluator observed": the cited-call
+// reproduction; DESIGN 2.9 use 2, 4.4). An evaluation's verify-fix round is
+// handed, per failure the judgement asks it to fix, a bug report maul
+// renders from its own records (templates.RenderCitedReproduction): the
+// approved outcome; the calls the evaluator's verdict cites that maul
+// counts (acceptance.ValidCite), each with what it sent and what came back,
+// from the round's verified ledger; the evaluator's own calls before them,
+// what each sent alone (the path that led there); at most 40 log lines
+// from the window of the first cited call; and the evaluator's one-line
+// note on the outcome, labelled as its reading, not checked by maul (owner
+// decision 5). Nothing else of the round reaches it: never the evaluate
+// prompt, the report's body, another outcome's note, the anomalies, the
+// transcript or a run's name (TestBuildHandoffCarriesOnlyCitedEvidence).
 //
 // The log lines come from the ledger too: preview-controller's capture
 // reaches the release namespace only as the outputs of the evaluator's
 // `maul-tool logs` calls, each the component's redacted log since the
-// verification started. A failing run's window is what the component
-// logged between the evaluator's last read before the run and its first
-// read after it; without a read after the run there is no excerpt.
+// verification started. A failing call's window is what the component
+// logged between the evaluator's last read before the call and its first
+// read after it; without a read after the call there is no excerpt.
 
 // maxReproLogLines bounds a component's excerpt (the template bounds a
 // failure's to the same over all its components).
@@ -47,11 +50,12 @@ const maxReproLogLines = 40
 var errorLine = regexp.MustCompile(`(?i)\b(panic|fatal|error|exception|traceback)\b`)
 
 // reproduction renders the failures fix asks a verify-fix round for, of pv
-// against the approved outcomes, with cs the checks the round was judged
-// on.
+// against the approved outcomes, as j judged them: each failure's valid
+// cites (Judge's), the calls before the first of them, its log window and
+// the evaluator's note on it.
 func (p *pass) reproduction(ctx context.Context, pv *v1alpha1.PreviewVerification, acc *v1alpha1.IntentAcceptance,
-	fix *acceptance.FixRequest, cs []v1alpha1.SavedCheck) (string, error) {
-	r := templates.VerifyReproduction{Verification: pv.Name, Round: pv.Spec.Round, Attempt: pv.Spec.Attempt,
+	fix *acceptance.FixRequest, j roundJudgement) (string, error) {
+	r := templates.CitedReproduction{Verification: pv.Name, Round: pv.Spec.Round, Attempt: pv.Spec.Attempt,
 		Workspace: pv.Spec.IsAgents()}
 	var components []string
 	for _, h := range pv.Spec.Heads {
@@ -60,64 +64,31 @@ func (p *pass) reproduction(ctx context.Context, pv *v1alpha1.PreviewVerificatio
 			components = append(components, h.Component)
 		}
 	}
+	calls := p.roundCalls(ctx, pv)
 	entries := ledgerEntries(p.ledgerOf(ctx, pv))
 	for _, f := range fix.Failures {
 		i := slices.IndexFunc(acc.Outcomes, func(o v1alpha1.AcceptanceOutcome) bool { return o.ID == f.Outcome })
-		if i < 0 {
+		d, ok := j.decision(f.Outcome)
+		if i < 0 || !ok || len(d.Cites) == 0 {
 			continue
 		}
-		rf := templates.ReproductionFailure{Outcome: f.Outcome, Statement: acc.Outcomes[i].Outcome}
-		logged := components
-		if k := slices.IndexFunc(cs, func(c v1alpha1.SavedCheck) bool { return c.Digest == f.CheckDigest }); k >= 0 {
-			if parsed, err := checks.Parse([]byte(cs[k].Body)); err == nil {
-				rf.Check = &parsed
-				if parsed.HTTP != nil {
-					logged = []string{parsed.HTTP.Target}
-				}
+		cf := templates.CitedFailure{Outcome: f.Outcome, Statement: acc.Outcomes[i].Outcome, Note: j.note(f.Outcome)}
+		for _, seq := range d.Cites {
+			cf.Cited = append(cf.Cited, calls.call(seq))
+		}
+		cf.Before, cf.Refused, cf.Unkept = calls.sentBefore(d.Cites[0])
+		for _, c := range components {
+			if lines := logWindow(entries, int64(d.Cites[0]), c); len(lines) > 0 {
+				cf.Logs = append(cf.Logs, templates.ReproductionLog{Component: c, Lines: lines})
 			}
 		}
-		seq := failingSeq(pv, f.CheckDigest)
-		if run := checkRunAt(entries, seq, f.CheckDigest); run != nil {
-			rf.Observed = observations(run)
-		}
-		for _, c := range logged {
-			if lines := logWindow(entries, int64(logAnchor(pv, f.CheckDigest, seq)), c); len(lines) > 0 {
-				rf.Logs = append(rf.Logs, templates.ReproductionLog{Component: c, Lines: lines})
-			}
-		}
-		r.Failures = append(r.Failures, rf)
+		r.Failures = append(r.Failures, cf)
 	}
-	out, err := templates.RenderVerifyReproduction(r)
+	out, err := templates.RenderCitedReproduction(r)
 	if err != nil {
 		return "", fmt.Errorf("render the reproduction of verification %s: %w", pv.Name, err)
 	}
 	return untrusted.Cap(out, maxVerifyEvidenceBytes), nil
-}
-
-// failingSeq is the ledger seq of check digest's first failing run in pv
-// (a replay or a confirmation), 0 for none.
-func failingSeq(pv *v1alpha1.PreviewVerification, digest string) int32 {
-	var seq int32
-	for _, r := range slices.Concat(pv.Status.Replay, pv.Status.Confirmations) {
-		if r.CheckDigest == digest && r.Result == v1alpha1.CheckRunFail && (seq == 0 || r.Seq < seq) {
-			seq = r.Seq
-		}
-	}
-	return seq
-}
-
-// logAnchor is the seq a failure's log window is taken around: the failing
-// run's own, or, for the confirmation of a check saved to show a defect
-// (run after the evaluator exited, so no read of a log follows it), the
-// red dry run that confirmation required, which the evaluator read the
-// logs after (the prompt: read the logs after a failing check run).
-func logAnchor(pv *v1alpha1.PreviewVerification, digest string, seq int32) int32 {
-	for _, r := range pv.Status.Confirmations {
-		if r.CheckDigest == digest && r.Seq == seq && r.Expect == v1alpha1.CheckExpectFail && r.DryRunSeq > 0 {
-			return r.DryRunSeq
-		}
-	}
-	return seq
 }
 
 // ledgerEntries decodes a full ledger's lines; a line that does not decode
@@ -132,52 +103,6 @@ func ledgerEntries(lines []string) []toolwire.LedgerEntry {
 		out = append(out, e)
 	}
 	return out
-}
-
-// checkRunAt is the check run of digest ("sha256:<hex>", as status carries
-// it) recorded at seq, nil for none. The ledger records a check run's
-// digest as bare hex (toolwire.CheckRunRecord).
-func checkRunAt(entries []toolwire.LedgerEntry, seq int32, digest string) *toolwire.CheckRunRecord {
-	if seq == 0 {
-		return nil
-	}
-	for _, e := range entries {
-		if e.Seq == int64(seq) && e.CheckRun != nil && "sha256:"+e.CheckRun.Digest == digest {
-			return e.CheckRun
-		}
-	}
-	return nil
-}
-
-// observations are a check run's steps that did not pass, attempt by
-// attempt, each with what its element showed when the runner received it
-// (gate D-B10); an attempt that failed with no step recorded is one
-// observation of its own.
-func observations(r *toolwire.CheckRunRecord) []templates.ReproductionObservation {
-	var out []templates.ReproductionObservation
-	for i, a := range r.Attempts {
-		n := len(out)
-		for _, s := range a.Steps {
-			if s.Result != toolwire.ResultPass {
-				out = append(out, templates.ReproductionObservation{Attempt: i + 1, Step: s.Index + 1,
-					Result: string(s.Result), Detail: s.Detail, Received: received(s.Received, a.Run)})
-			}
-		}
-		if len(out) == n && a.Result != toolwire.ResultPass {
-			out = append(out, templates.ReproductionObservation{Attempt: i + 1, Result: string(a.Result)})
-		}
-	}
-	return out
-}
-
-// received is what a failing step's element showed (toolwire.StepRecord
-// .Received), its attempt's run token written back as checks.RunPlaceholder,
-// as the check's own steps name it; "" for none.
-func received(text, run string) string {
-	if text == "" || run == "" {
-		return text
-	}
-	return strings.ReplaceAll(text, run, checks.RunPlaceholder)
 }
 
 // logWindow is component's excerpt from the window of the run at seq: what

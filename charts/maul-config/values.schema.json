@@ -786,7 +786,7 @@
                             "additionalProperties": false
                         },
                         "checkReview": {
-                            "description": "CheckReview bounds each check reviewer run (read-only, judging the\nround's new saved checks).",
+                            "description": "CheckReview bounds each check reviewer run (read-only, judging the\nround's new saved checks). Retired with the check reviewer: the\nobserved evaluator runs none, so it bounds nothing. Removed in the\nnext release.",
                             "properties": {
                                 "maxCostMicroUSD": {
                                     "description": "MaxCostMicroUSD is the spend budget of one run of the stage in\nmicro-USD (60000000 = $60), at most the Project's per-intent\nlimits.maxCostMicroUSD. It is enforced only while the egress broker\ncounts cost (egressBroker.limits.unit cost): intent-controller then\nstamps every run's agent pod with it, the per-intent ceiling standing\nin when this is unset, and the broker ends the run's model traffic at\nthe smaller of it and the broker's own per-pod cost limit. Under the\ntoken unit (the default) it has no effect.",
@@ -874,7 +874,7 @@
                             "type": "integer"
                         },
                         "maxEvaluateCostMicroUSD": {
-                            "description": "MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in\nmicro-USD: what the intent's evaluate and checkreview runs may spend\ntogether, apart from the build ceiling (maxCostMicroUSD). Past it the\nevaluation ends and the hand-off is released as unconfirmed, never a\nblock. Nil means DefaultMaxEvaluateCostMicroUSD\n(MaxEvaluateCostLimit).",
+                            "description": "MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in\nmicro-USD: what the intent's evaluate runs may spend together, apart\nfrom the build ceiling (maxCostMicroUSD). Past it the evaluation ends\nand the hand-off is released as unconfirmed, never a block. Nil means DefaultMaxEvaluateCostMicroUSD\n(MaxEvaluateCostLimit).",
                             "format": "int64",
                             "maximum": 1000000000,
                             "minimum": 1,
@@ -980,7 +980,7 @@
                             "type": "string"
                         },
                         "checkReview": {
-                            "description": "CheckReview is the check reviewer's model (--intent-checkreview-model\nwhen unset; a codex Project's build model, as for Evaluate).",
+                            "description": "CheckReview is the check reviewer's model (--intent-checkreview-model\nwhen unset; a codex Project's build model, as for Evaluate). Retired\nwith the check reviewer: the observed evaluator runs none. Removed in\nthe next release.",
                             "maxLength": 128,
                             "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$",
                             "type": "string"
@@ -1203,7 +1203,7 @@
                             "type": "string"
                         },
                         "handoffMax": {
-                            "description": "HandoffMax bounds a gated hand-off's wait, counted from CI green at\nthe first PR heads, between 10m and 4h; DefaultHandoffMax when unset.\nPast it the hand-off is released as \"couldn't confirm: out of time\".",
+                            "description": "HandoffMax bounds a gated hand-off's wait, counted from CI green at\nthe first PR heads, between 10m and 4h; DefaultHandoffMax when unset.\nPast it the hand-off is released as \"maul can't call this ready: it ran\nout of time\".",
                             "type": "string"
                         },
                         "manualGatesStatus": {

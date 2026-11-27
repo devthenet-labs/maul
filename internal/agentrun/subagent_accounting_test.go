@@ -98,13 +98,3 @@ func TestAddRepairSumsSubagentTurns(t *testing.T) {
 		t.Errorf("turns = (%d, %d subagent), want (9, 7)", st.NumTurns, st.SubagentTurns)
 	}
 }
-
-// TestAddSessionSumsSubagentTurns: a check review's sessions add their
-// subagent turns to the stage's as they add their main-thread turns.
-func TestAddSessionSumsSubagentTurns(t *testing.T) {
-	st := envelope.Stage{NumTurns: 5, SubagentTurns: 1}
-	addSession(&st, envelope.Stage{NumTurns: 4, SubagentTurns: 2})
-	if st.NumTurns != 9 || st.SubagentTurns != 3 {
-		t.Errorf("turns = (%d, %d subagent), want (9, 3)", st.NumTurns, st.SubagentTurns)
-	}
-}

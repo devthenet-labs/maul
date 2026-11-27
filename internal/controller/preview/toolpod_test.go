@@ -5,6 +5,8 @@ package preview
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -28,7 +30,6 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolpod"
 )
@@ -41,7 +42,8 @@ const (
 	testToolboxImage = "ghcr.io/devthenet-labs/maul-preview-toolbox@sha256:" +
 		"3333333333333333333333333333333333333333333333333333333333333333"
 	testCheckBody = `{"id":"items.body","outcome":"items","form":"http","http":{"target":"api","steps":[` +
-		`{"request":{"method":"POST","path":"/api/echo","json":{"n":"{{run}}"}},"expect":{"bodyContains":"{{run}}"}}]}}`
+		`{"request":{"method":"POST","path":"/api/echo","json":{"n":"{{run}}"}},"expect":{"status":[200],` +
+		`"bodyContains":"{{run}}"}}]}}`
 )
 
 // testOutcomes are an approved plan's outcomes, a manual one included.
@@ -65,15 +67,19 @@ func outcomesDigest(t *testing.T, outcomes []v1alpha1.AcceptanceOutcome) string 
 	return acceptance.OutcomesDigest(plan)
 }
 
-// savedCheck is a saved check of body.
+// savedCheck is a saved check of body as an earlier release stored it, for
+// the tests that hold a host to ignoring one: its id, outcome and form read
+// from body, which is kept as given (in the canonical spelling the retired
+// check grammar wrote), and body's sha256 as its digest.
 func savedCheck(t *testing.T, body string) v1alpha1.SavedCheck {
 	t.Helper()
-	c, err := checks.Parse([]byte(body))
-	if err != nil {
+	var head struct{ ID, Outcome, Form string }
+	if err := json.Unmarshal([]byte(body), &head); err != nil {
 		t.Fatal(err)
 	}
-	return v1alpha1.SavedCheck{ID: c.ID, Outcome: c.Outcome, Form: v1alpha1.CheckForm(c.Form),
-		Body: string(checks.Canonical(c)), Digest: checks.Digest(c)}
+	sum := sha256.Sum256([]byte(body))
+	return v1alpha1.SavedCheck{ID: head.ID, Outcome: head.Outcome, Form: v1alpha1.CheckForm(head.Form), Body: body,
+		Digest: "sha256:" + hex.EncodeToString(sum[:])}
 }
 
 // toolVerification is testVerification as an outcome verification with
@@ -359,7 +365,7 @@ func TestToolConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Host != "shop-1.preview.maul.example.com" || cfg.MaxToolCalls != 120 || cfg.TimeoutSeconds != 1200 ||
-		cfg.ReplayOnly || !cfg.Browser || !cfg.Sandbox || len(cfg.Checks) != 1 || cfg.Checks[0].ID != "items.body" {
+		!cfg.Browser || !cfg.Sandbox {
 		t.Errorf("config %+v", cfg)
 	}
 	if len(cfg.Components) != 2 || cfg.Components[0] != (previewtools.Component{Key: "web", Path: "/",
@@ -378,13 +384,51 @@ func TestToolConfig(t *testing.T) {
 	if err := json.Unmarshal([]byte(data[toolpod.OutcomesKey]), &outcomes); err != nil || len(outcomes) != 2 {
 		t.Errorf("outcomes %s: %v", data[toolpod.OutcomesKey], err)
 	}
-	pv.Spec.Rung = v1alpha1.RungReplay
-	if cfg, err := s.toolConfig(p, pv, targets, time.Minute); err != nil || !cfg.ReplayOnly {
-		t.Errorf("replay rung: %+v, %v", cfg, err)
-	}
-	pv.Spec.Checks[0].Digest = "sha256:" + strings.Repeat("0", 64)
-	if _, err := s.toolConfig(p, pv, targets, time.Minute); err == nil {
-		t.Error("a check whose digest is not its body's was configured")
+}
+
+// TestToolConfigCarriesNoChecks: the relay replays nothing, so a
+// verification that still carries saved checks (written before the
+// evaluator stopped saving them), a replay rung among them, renders a
+// relay config with no checks and no replay; one whose check is forged
+// is configured all the same, since nothing runs it.
+func TestToolConfigCarriesNoChecks(t *testing.T) {
+	_, p := verifyPreview(t, time.Now())
+	s := verifySettings()
+	targets := map[string]string{"web": "10.96.0.10:80", "api": "10.96.0.11:80"}
+	for _, tc := range []struct {
+		name string
+		mut  func(*v1alpha1.PreviewVerification)
+	}{
+		{"a full round with a saved check", func(*v1alpha1.PreviewVerification) {}},
+		{"a replay round", func(pv *v1alpha1.PreviewVerification) { pv.Spec.Rung = v1alpha1.RungReplay }},
+		{"a forged check", func(pv *v1alpha1.PreviewVerification) {
+			pv.Spec.Checks[0].Digest = "sha256:" + strings.Repeat("0", 64)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := toolVerification(t, p)
+			if len(pv.Spec.Checks) == 0 {
+				t.Fatal("the fixture carries no saved check")
+			}
+			tc.mut(pv)
+			cfg, err := s.toolConfig(p, pv, targets, 20*time.Minute)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data, err := toolpod.ConfigData(cfg, pv.Spec.Outcomes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(data[previewtools.ConfigFile]), &raw); err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range []string{"checks", "replayOnly"} {
+				if _, ok := raw[key]; ok {
+					t.Errorf("the relay config carries %q: %s", key, data[previewtools.ConfigFile])
+				}
+			}
+		})
 	}
 }
 

@@ -17,10 +17,8 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	maulv1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
@@ -36,9 +34,6 @@ type fakeSandbox struct {
 	reqs     []toolexec.Request
 	notReady bool
 	do       func(req *toolexec.Request, n int) (toolexec.Result, error)
-	// delay, when set, is the time a fresh request takes before it answers
-	// (the shim's restore), honouring the request's context.
-	delay time.Duration
 }
 
 func (f *fakeSandbox) Do(ctx context.Context, req *toolexec.Request) (toolexec.Result, error) {
@@ -46,13 +41,6 @@ func (f *fakeSandbox) Do(ctx context.Context, req *toolexec.Request) (toolexec.R
 	n := len(f.reqs)
 	f.reqs = append(f.reqs, *req)
 	f.mu.Unlock()
-	if req.Fresh && f.delay > 0 {
-		select {
-		case <-ctx.Done():
-			return toolexec.Result{}, ctx.Err()
-		case <-time.After(f.delay):
-		}
-	}
 	if f.do == nil {
 		return apart(toolexec.Result{}, nil)
 	}
@@ -148,13 +136,6 @@ func (h *harness) callKeyed(verb toolwire.Verb, body string) (int, toolwire.Resp
 	return rec.Code, resp
 }
 
-// dryRunKeyed is `maul-tool check run` of src at side, with the key.
-func (h *harness) dryRunKeyed(src string, side toolwire.Side) (int, toolwire.Response) {
-	h.t.Helper()
-	return h.callKeyed(toolwire.VerbCheckRun, mustJSON(h.t, toolwire.CheckRunRequest{Spec: json.RawMessage(src),
-		Side: side}))
-}
-
 func (h *harness) finishKeyed() toolwire.Ledger {
 	h.t.Helper()
 	code, resp := h.callKeyed(toolwire.VerbFinish, `{}`)
@@ -162,27 +143,6 @@ func (h *harness) finishKeyed() toolwire.Ledger {
 		h.t.Fatalf("finish: %d %+v", code, resp)
 	}
 	return h.verify()
-}
-
-// cliExecCheck is a cli exec check: the binary prints the count.
-const cliExecCheck = `{"id":"count.prints","outcome":"count","form":"exec","exec":{
- "argv":["{{bin}}","--count","{{tree}}/x"],"expect":{"exit":0,"stdoutContains":"count=3"}}}`
-
-// cliRunCheck is a cli run check: a program that runs the binary.
-const cliRunCheck = `{"id":"count.run","outcome":"count","form":"run","run":{"language":"go","files":[
- {"path":"main.go","content":"package main\n// runs {{bin}} on {{tree}}; {{marker}}\nfunc main() {}\n"}],
- "args":["{{run}}"],"expect":{"exit":0,"stdoutContains":"ok"}}}`
-
-func storedExecCheck(t *testing.T) StoredCheck {
-	t.Helper()
-	c, err := checks.Parse([]byte(cliExecCheck))
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
-	if err := checks.Validate(c, checks.Context{Workspace: &checks.Workspace{Binary: "/work/bin/bb"}}); err != nil {
-		t.Fatalf("Validate: %v", err)
-	}
-	return StoredCheck{ID: c.ID, Digest: checks.Digest(c), Body: string(checks.Canonical(c))}
 }
 
 // buildEntries are a ledger's build entries' args, by side.
@@ -344,11 +304,11 @@ func TestBuildResults(t *testing.T) {
 	}
 }
 
-// TestBaseBuildErrorGivesNoBaseEvidence: a base whose build maul cannot
-// tell failed (killed, cut short, an environmental failure, a timeout) is
-// not unbuildable: its runs are errors with no cause, which give no base
-// evidence (unsure), never the n/a that waives rule 5 (review VC-1).
-func TestBaseBuildErrorGivesNoBaseEvidence(t *testing.T) {
+// TestBaseBuildErrorRunsNothingThere: a base whose build did not end in
+// a failure maul can tell is the tree's (a signal, the network, cut output,
+// a timeout, a bind error) runs nothing: an exec or run at the base is
+// refused, not as unbuildable, and the head runs as ever.
+func TestBaseBuildErrorRunsNothingThere(t *testing.T) {
 	for name, res := range map[string]toolexec.Result{
 		"killed":  {Exit: -1, Output: "signal: killed"},
 		"network": {Exit: 1, Output: "go: example.com/m@v1.0.0: dial tcp: i/o timeout"},
@@ -358,8 +318,6 @@ func TestBaseBuildErrorGivesNoBaseEvidence(t *testing.T) {
 			Output: "listen tcp 127.0.0.1:8080: bind: address already in use\nmake: *** Error 1\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			cfg := wsConfig()
-			cfg.Checks = []StoredCheck{storedExecCheck(t)}
 			head := &fakeSandbox{do: printing("count=3", 0)}
 			base := &fakeSandbox{do: func(req *toolexec.Request, _ int) (toolexec.Result, error) {
 				if req.Kind == toolexec.KindBuild {
@@ -367,40 +325,29 @@ func TestBaseBuildErrorGivesNoBaseEvidence(t *testing.T) {
 				}
 				return toolexec.Result{}, nil
 			}}
-			h := newWorkspaceHarness(t, cfg, head, base)
-			h.relay.replay(context.Background())
-			_, resp := h.callKeyed(toolwire.VerbExec, `{"argv":["{{bin}}"],"side":"base"}`)
-			if resp.Refused != toolwire.RefusedUnavailable || strings.HasPrefix(resp.Reason, ReasonBaseUnbuildable) {
-				t.Errorf("a base exec on a base that did not build: %+v", resp)
-			}
-			if _, resp = h.dryRunKeyed(cliExecCheck, ""); resp.Refused != "" {
-				t.Fatalf("head dry run: %+v", resp)
-			}
-			_, resp = h.callKeyed(toolwire.VerbConfirm,
-				`{"digests":["`+strings.TrimPrefix(cfg.Checks[0].Digest, "sha256:")+`"]}`)
-			if resp.Refused != "" {
-				t.Fatalf("confirm: %+v", resp)
-			}
-			var baseRuns int
-			for _, e := range h.finishKeyed().Entries {
-				if e.CheckRun == nil || sideOf(e.CheckRun) != toolwire.SideBase {
-					continue
-				}
-				baseRuns++
-				if e.CheckRun.Result != toolwire.RunError || e.CheckRun.Cause() != "" {
-					t.Errorf("entry %d: base run %s cause %q, want an error with no cause", e.Seq,
-						e.CheckRun.Result, e.CheckRun.Cause())
+			h := newWorkspaceHarness(t, wsConfig(), head, base)
+			for verb, body := range map[toolwire.Verb]string{
+				toolwire.VerbExec: `{"argv":["{{bin}}"],"side":"base"}`,
+				toolwire.VerbRun:  mustJSON(t, toolwire.RunRequest{Side: toolwire.SideBase, Language: "go", Files: runFiles}),
+			} {
+				_, resp := h.callKeyed(verb, body)
+				if resp.Refused != toolwire.RefusedUnavailable || !strings.HasPrefix(resp.Reason, ReasonBaseBuildError) {
+					t.Errorf("a base %s on a base that did not build: %+v", verb, resp)
 				}
 			}
-			if baseRuns != 2 {
-				t.Errorf("%d base runs, want the replay's and the confirmation's", baseRuns)
+			if _, resp := h.callKeyed(toolwire.VerbExec, `{"argv":["{{bin}}"]}`); resp.Refused != "" {
+				t.Fatalf("head exec: %+v", resp)
 			}
+			h.finishKeyed()
 			if len(base.nonBuilds()) != 0 {
 				t.Errorf("the base that did not build ran %+v", base.nonBuilds())
 			}
 		})
 	}
 }
+
+// runFiles is a run program of one file.
+var runFiles = []toolwire.File{{Name: "main.go", Content: []byte("package main\nfunc main(){}\n")}}
 
 // TestBuildPart: the head build part meets acceptance's RoleBuild
 // contract: only a build that built is OK; anything else, an unrun build
@@ -428,16 +375,12 @@ func TestBuildPart(t *testing.T) {
 }
 
 // TestHeadBuildFailedRefusesRuns: a head that did not build runs nothing:
-// no replay, and every exec, run, check run and confirm is refused
-// build-failed; files still reads the pristine tree.
+// every exec and run is refused build-failed; files still reads the
+// pristine tree.
 func TestHeadBuildFailedRefusesRuns(t *testing.T) {
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
 	head, base := &fakeSandbox{do: buildsFail}, &fakeSandbox{}
-	h := newWorkspaceHarness(t, cfg, head, base)
-	h.relay.replay(context.Background())
-	run := mustJSON(t, toolwire.RunRequest{Language: "go", Files: []toolwire.File{{Name: "main.go",
-		Content: []byte("package main\nfunc main(){}\n")}}})
+	h := newWorkspaceHarness(t, wsConfig(), head, base)
+	run := mustJSON(t, toolwire.RunRequest{Language: "go", Files: runFiles})
 	for _, c := range []struct {
 		verb toolwire.Verb
 		body string
@@ -445,8 +388,6 @@ func TestHeadBuildFailedRefusesRuns(t *testing.T) {
 		{toolwire.VerbExec, `{"argv":["{{bin}}"]}`},
 		{toolwire.VerbExec, `{"argv":["ls"],"side":"base"}`},
 		{toolwire.VerbRun, run},
-		{toolwire.VerbCheckRun, mustJSON(t, map[string]json.RawMessage{"check": json.RawMessage(cliExecCheck)})},
-		{toolwire.VerbConfirm, `{"digests":["` + strings.TrimPrefix(cfg.Checks[0].Digest, "sha256:") + `"]}`},
 	} {
 		_, resp := h.callKeyed(c.verb, c.body)
 		if resp.Refused != toolwire.RefusedUnavailable || !strings.HasPrefix(resp.Reason, ReasonBuildFailed) {
@@ -457,405 +398,70 @@ func TestHeadBuildFailedRefusesRuns(t *testing.T) {
 	if resp.Refused != "" || resp.Untrusted != treeGoMod {
 		t.Errorf("files after a failed head build: %+v", resp)
 	}
-	l := h.finishKeyed()
-	for _, e := range l.Entries {
-		if e.CheckRun != nil {
-			t.Errorf("entry %d ran a check after a failed head build", e.Seq)
-		}
-	}
+	h.finishKeyed()
 	if len(head.nonBuilds()) != 0 || len(base.nonBuilds()) != 0 {
 		t.Errorf("a sandbox ran a program after a failed head build: %+v %+v", head.nonBuilds(), base.nonBuilds())
 	}
 }
 
-// sideOf is the side a check run's steps name: base only when every step
-// does.
-func sideOf(rec *toolwire.CheckRunRecord) toolwire.Side {
-	side := toolwire.Side("unset")
-	for _, a := range rec.Attempts {
-		for _, s := range a.Steps {
-			if side != "unset" && s.Side != side {
-				return "mixed"
-			}
-			side = s.Side
-		}
-	}
-	return side
-}
-
-// TestWorkspaceReplayBothSides: each stored check replays alone at the
-// head, then at the base, each with its own fresh run token, the base
-// run's entry and steps naming the base.
-func TestWorkspaceReplayBothSides(t *testing.T) {
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
-	head := &fakeSandbox{do: printing("count=3", 0)}
-	base := &fakeSandbox{do: printing("count=2", 0)}
-	h := newWorkspaceHarness(t, cfg, head, base)
-	h.relay.replay(context.Background())
-	l := h.finishKeyed()
-	var runs []toolwire.LedgerEntry
-	for _, e := range l.Entries {
-		if e.CheckRun != nil {
-			runs = append(runs, e)
-		}
-	}
-	if len(runs) != 2 {
-		t.Fatalf("%d replay entries, want head and base", len(runs))
-	}
-	if runs[0].Side != "" || sideOf(runs[0].CheckRun) != "" || runs[0].CheckRun.Result != toolwire.RunPass {
-		t.Errorf("head replay: %+v", runs[0])
-	}
-	b := runs[1]
-	if b.Side != toolwire.SideBase || sideOf(b.CheckRun) != toolwire.SideBase || b.CheckRun.Result != toolwire.RunFail {
-		t.Errorf("base replay: %+v", b)
-	}
-	if step, ok := b.CheckRun.AssertionStep(); !ok || step != 0 || b.CheckRun.FailedAssertionID() != "stdout" {
-		t.Errorf("a stdout miss after the expected exit is not a stdout assertion: %+v", b.CheckRun)
-	}
-	hr, br := head.nonBuilds(), base.nonBuilds()
-	if len(hr) != 1 || len(br) != 2 {
-		t.Fatalf("head ran %d, base %d programs", len(hr), len(br))
-	}
-	tokens := map[string]bool{hr[0].Run: true, br[0].Run: true, br[1].Run: true}
-	if len(tokens) != 3 || hr[0].Run == "" {
-		t.Errorf("runs share a token: %q %q %q", hr[0].Run, br[0].Run, br[1].Run)
-	}
-	if !slices.Equal(hr[0].Argv, []string{"/work/bin/bb", "--count", "/work/tree/x"}) {
-		t.Errorf("head argv %q", hr[0].Argv)
-	}
-}
-
-// TestBaseRunsBounded: the relay makes at most MaxBaseRuns base runs for
-// replays and confirmations, what status.base.runs keeps; past it a check
-// gets none (Decide: rule 5 not met). The agent's base dry runs spend none.
-func TestBaseRunsBounded(t *testing.T) {
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
-	base := &fakeSandbox{do: printing("count=2", 0)}
-	h := newWorkspaceHarness(t, cfg, &fakeSandbox{do: printing("count=3", 0)}, base)
-	h.relay.baseRuns = MaxBaseRuns - 1
-	for range 3 {
-		h.dryRunKeyed(cliExecCheck, toolwire.SideBase)
-	}
-	h.relay.replay(context.Background())
-	_, resp := h.dryRunKeyed(cliExecCheck, "")
-	_, resp = h.callKeyed(toolwire.VerbConfirm, `{"digests":["`+resp.Observed.CheckRun.Digest+`"]}`)
-	if resp.Refused != "" {
-		t.Fatalf("confirm: %+v", resp)
-	}
-	l := h.finishKeyed()
-	byMode := map[toolwire.CheckRunMode]int{}
-	for _, e := range l.Entries {
-		if e.CheckRun != nil && sideOf(e.CheckRun) == toolwire.SideBase {
-			byMode[e.CheckRun.Mode]++
-		}
-	}
-	if byMode[toolwire.ModeDryRun] != 3 || byMode[toolwire.ModeReplay] != 1 || byMode[toolwire.ModeConfirm] != 0 {
-		t.Fatalf("base runs by mode %v, want 3 dry runs, the last replay the bound allows and no confirmation", byMode)
-	}
-}
-
-// TestBaseUnbuildable: a base that did not build is never run: its
-// replays and confirmations are recorded as errors (n/a), and the agent's
-// base calls are refused; the head runs as ever.
+// TestBaseUnbuildable: a base that did not build is never run: an exec or
+// run there is refused base-unbuildable; the head runs as ever.
 func TestBaseUnbuildable(t *testing.T) {
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
 	head := &fakeSandbox{do: printing("count=3", 0)}
 	base := &fakeSandbox{do: buildsFail}
-	h := newWorkspaceHarness(t, cfg, head, base)
-	h.relay.replay(context.Background())
-	for _, body := range []string{`{"argv":["{{bin}}"],"side":"base"}`} {
-		_, resp := h.callKeyed(toolwire.VerbExec, body)
+	h := newWorkspaceHarness(t, wsConfig(), head, base)
+	for verb, body := range map[toolwire.Verb]string{
+		toolwire.VerbExec: `{"argv":["{{bin}}"],"side":"base"}`,
+		toolwire.VerbRun:  mustJSON(t, toolwire.RunRequest{Side: toolwire.SideBase, Language: "go", Files: runFiles}),
+	} {
+		_, resp := h.callKeyed(verb, body)
 		if resp.Refused != toolwire.RefusedUnavailable || !strings.HasPrefix(resp.Reason, ReasonBaseUnbuildable) {
-			t.Errorf("a base exec on an unbuildable base: %+v", resp)
+			t.Errorf("a base %s on an unbuildable base: %+v", verb, resp)
 		}
 	}
-	_, resp := h.dryRunKeyed(cliExecCheck, "")
-	if resp.Refused != "" || resp.Observed.CheckRun.Result != toolwire.RunPass {
-		t.Fatalf("head dry run: %+v", resp)
-	}
-	_, resp = h.dryRunKeyed(cliExecCheck, toolwire.SideBase)
-	if resp.Refused != toolwire.RefusedUnavailable {
-		t.Fatalf("base dry run on an unbuildable base: %+v", resp)
-	}
-	_, resp = h.callKeyed(toolwire.VerbConfirm, `{"digests":["`+strings.TrimPrefix(cfg.Checks[0].Digest, "sha256:")+`"]}`)
-	if resp.Refused != "" {
-		t.Fatalf("confirm: %+v", resp)
+	_, resp := h.callKeyed(toolwire.VerbExec, `{"argv":["{{bin}}"]}`)
+	if resp.Refused != "" || resp.Untrusted != "count=3" {
+		t.Fatalf("head exec: %+v", resp)
 	}
 	l := h.finishKeyed()
-	var baseRuns int
 	for _, e := range l.Entries {
-		if e.CheckRun == nil || sideOf(e.CheckRun) != toolwire.SideBase {
-			continue
+		if e.Side == toolwire.SideBase && e.Verb != toolwire.VerbBuild && e.Refused == "" {
+			t.Errorf("entry %d ran at the unbuildable base", e.Seq)
 		}
-		baseRuns++
-		if e.CheckRun.Result != toolwire.RunError {
-			t.Errorf("entry %d: a base run on an unbuildable base is %s, not an error", e.Seq, e.CheckRun.Result)
-		}
-	}
-	if baseRuns != 2 {
-		t.Errorf("%d base runs, want the replay's and the confirmation's", baseRuns)
 	}
 	if len(base.nonBuilds()) != 0 {
 		t.Errorf("the unbuildable base ran %+v", base.nonBuilds())
 	}
 }
 
-// TestWorkspaceConfirmBothSides: confirm runs every proposed check at the
-// head, then at the base, the base entry's args and steps naming the base;
-// the response carries the head runs, as in the slot.
-func TestWorkspaceConfirmBothSides(t *testing.T) {
-	head := &fakeSandbox{do: printing("count=3", 0)}
-	base := &fakeSandbox{do: printing("usage: bb", 2)}
-	h := newWorkspaceHarness(t, wsConfig(), head, base)
-	_, resp := h.dryRunKeyed(cliExecCheck, "")
-	if resp.Refused != "" {
-		t.Fatalf("dry run: %+v", resp)
-	}
-	d := resp.Observed.CheckRun.Digest
-	_, resp = h.callKeyed(toolwire.VerbConfirm, `{"digests":["`+d+`"]}`)
-	if resp.Refused != "" || len(resp.Observed.CheckRuns) != 1 || resp.Observed.CheckRuns[0].Result != toolwire.RunPass {
-		t.Fatalf("confirm: %+v", resp)
-	}
-	l := h.finishKeyed()
-	var confirms []toolwire.LedgerEntry
-	for _, e := range l.Entries {
-		if e.Verb == toolwire.VerbConfirm && e.Kind == toolwire.KindRelay {
-			confirms = append(confirms, e)
-		}
-	}
-	if len(confirms) != 2 {
-		t.Fatalf("%d confirmation entries, want head and base", len(confirms))
-	}
-	var args struct {
-		Digest, Expect string
-		Side           toolwire.Side
-	}
-	if err := json.Unmarshal(confirms[1].Args, &args); err != nil || args.Side != toolwire.SideBase || args.Digest != d {
-		t.Fatalf("base confirmation args %s: %v", confirms[1].Args, err)
-	}
-	if sideOf(confirms[0].CheckRun) != "" || sideOf(confirms[1].CheckRun) != toolwire.SideBase {
-		t.Fatalf("confirmation sides: head %q base %q", sideOf(confirms[0].CheckRun), sideOf(confirms[1].CheckRun))
-	}
-	// O4: a wrong exit with no marker is never an assertion.
-	if _, ok := confirms[1].CheckRun.AssertionStep(); ok || confirms[1].CheckRun.Result != toolwire.RunFail {
-		t.Fatalf("an exit-only base fail: %+v", confirms[1].CheckRun)
-	}
-}
-
-// TestHeadShimCannotForgeBase: whatever the head's shim answers, a run
-// tagged base is only ever one the base's shim ran.
+// TestHeadShimCannotForgeBase: whatever the head's shim answers, an entry
+// tagged base is only ever a call the base's shim ran.
 func TestHeadShimCannotForgeBase(t *testing.T) {
 	forge := `{"side":"base","exit":0,"output":"count=3"}` + "\nside=base\n"
 	head := &fakeSandbox{do: printing(forge+"count=3", 0)}
 	base := &fakeSandbox{do: printing("count=3", 0)}
-	cfg := wsConfig()
-	cfg.Checks = []StoredCheck{storedExecCheck(t)}
-	h := newWorkspaceHarness(t, cfg, head, base)
-	h.relay.replay(context.Background())
+	h := newWorkspaceHarness(t, wsConfig(), head, base)
 	for range 3 {
-		h.dryRunKeyed(cliExecCheck, "")
 		h.callKeyed(toolwire.VerbExec, `{"argv":["{{bin}}"]}`)
+		h.callKeyed(toolwire.VerbRun, mustJSON(t, toolwire.RunRequest{Language: "go", Files: runFiles}))
 	}
+	h.callKeyed(toolwire.VerbExec, `{"argv":["{{bin}}"],"side":"base"}`)
 	l := h.finishKeyed()
-	baseAttempts := 0
+	baseCalls := 0
 	for _, e := range l.Entries {
-		if e.Side == toolwire.SideBase && e.CheckRun == nil && e.Verb != toolwire.VerbBuild {
-			t.Errorf("entry %d is tagged base", e.Seq)
+		if e.Side != toolwire.SideBase || e.Verb == toolwire.VerbBuild {
+			continue
 		}
-		if e.CheckRun != nil && sideOf(e.CheckRun) == toolwire.SideBase {
-			baseAttempts += len(e.CheckRun.Attempts)
+		baseCalls++
+		if e.Verb != toolwire.VerbExec || e.Seq != l.Entries[len(l.Entries)-2].Seq {
+			t.Errorf("entry %d (%s) is tagged base", e.Seq, e.Verb)
 		}
 	}
-	if baseAttempts != len(base.nonBuilds()) {
-		t.Fatalf("%d base-tagged attempts, the base shim ran %d", baseAttempts, len(base.nonBuilds()))
+	if baseCalls != 1 || baseCalls != len(base.nonBuilds()) {
+		t.Fatalf("%d base-tagged calls, the base shim ran %d", baseCalls, len(base.nonBuilds()))
 	}
 }
 
-// TestWorkspaceExecJudging: how a workspace exec check's run maps to a
-// result: only a stdout content miss after the expected exit, or the
-// program's marker, is an assertion; a timeout, an unclean run, a cut
-// output, a dead shim and a bind or connection error on a run that would
-// not pass are errors (n/a); a bare wrong exit fails, never by assertion.
-func TestWorkspaceExecJudging(t *testing.T) {
-	const noExit = `{"id":"count.prints","outcome":"count","form":"exec","exec":{"argv":["{{bin}}"],
- "expect":{"stdoutContains":"count=3"}}}`
-	const jsonCheck = `{"id":"count.json","outcome":"count","form":"exec","exec":{"argv":["{{bin}}","--json"],
- "expect":{"exit":0,"stdoutJSON":{"/count":3}}}}`
-	marked := func(req *toolexec.Request) string {
-		m := strings.SplitN(string(req.Files[0].Content), " ", 2)[0]
-		return m + "count-is-three: the count was 2\n"
-	}
-	markedID := func(req *toolexec.Request, id string) string {
-		return strings.SplitN(string(req.Files[0].Content), " ", 2)[0] + " " + id + ": the count was 2\n"
-	}
-	const markerCheck = `{"id":"count.marker","outcome":"count","form":"exec","exec":{"argv":["{{bin}}","check.txt"],
- "files":[{"path":"check.txt","content":"{{marker}} rest"}],"expect":{"exit":0,"stdoutContains":"count=3"}}}`
-	tests := []struct {
-		name   string
-		check  string
-		res    func(req *toolexec.Request) (toolexec.Result, error)
-		result toolwire.AttemptResult
-		id     string // the assertion id, "" for none
-	}{
-		{"pass", cliExecCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "count=3"}, nil
-		}, toolwire.ResultPass, ""},
-		{"stdout miss after the expected exit", cliExecCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "count=2"}, nil
-		}, toolwire.ResultFail, "stdout"},
-		{"stdout miss with no exit expected", noExit, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "", Exit: 2}, nil
-		}, toolwire.ResultFail, ""},
-		{"a bare wrong exit", cliExecCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "count=3", Exit: 1}, nil
-		}, toolwire.ResultFail, ""},
-		{"json miss after the expected exit", jsonCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: `{"count":2}`}, nil
-		}, toolwire.ResultFail, "stdout"},
-		{"not JSON", jsonCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: `panic: boom`}, nil
-		}, toolwire.ResultFail, ""},
-		{"the marker", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: marked(req), Exit: 1}, nil
-		}, toolwire.ResultFail, "marker count-is-three"},
-		// Gate D-B2: an id over 32 characters still names the assertion.
-		{"the marker with a long id", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: markedID(req, "first-json-is-usage-error-first-alone"), Exit: 1}, nil
-		}, toolwire.ResultFail, "marker first-json-is-usage-error-first-alone"},
-		{"the marker with an id past the bound", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: markedID(req, strings.Repeat("a", checks.MaxExecAssertionIDLen+1)),
-				Exit: 1}, nil
-		}, toolwire.ResultFail, ""},
-		// Code review 2026-11-18, relay 1: a marker no line starts with
-		// errs, whatever the exit and the expected text.
-		{"the marker after output with no newline", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "count=3" + marked(req)}, nil
-		}, toolwire.ResultError, ""},
-		{"the marker after a space", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "count=3\n " + marked(req)}, nil
-		}, toolwire.ResultError, ""},
-		{"the marker after a carriage return", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "count=3\r" + marked(req)}, nil
-		}, toolwire.ResultError, ""},
-		{"the marker mid-line, exit 1", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "echo " + marked(req), Exit: 1}, nil
-		}, toolwire.ResultError, ""},
-		{"the marker mid-line, stdout missed", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "count=2" + marked(req)}, nil
-		}, toolwire.ResultError, ""},
-		{"the marker mid-line and at a line start", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "echo " + marked(req) + marked(req) + "count=3\n"}, nil
-		}, toolwire.ResultFail, "marker count-is-three"},
-		{"the marker beside a connection error", markerCheck, func(req *toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: marked(req), Exit: 1, NetError: true}, nil
-		}, toolwire.ResultError, ""},
-		{"a timeout", cliExecCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Exit: -1, TimedOut: true}, nil
-		}, toolwire.ResultError, ""},
-		{"unclean", cliExecCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "count=3", Unclean: true}, nil
-		}, toolwire.ResultError, ""},
-		{"truncated", cliExecCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "count=2", Truncated: true}, nil
-		}, toolwire.ResultError, ""},
-		{"no answer", cliExecCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{}, errors.New("eof")
-		}, toolwire.ResultError, ""},
-		{"refused", cliExecCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Refused: toolwire.RefusedInvalid}, nil
-		}, toolwire.ResultError, ""},
-		{"a connection error on a fail", cliExecCheck, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "dial: connection refused", NetError: true}, nil
-		}, toolwire.ResultError, ""},
-		{"a connection error on a pass", `{"id":"count.refused","outcome":"count","form":"exec","exec":{"argv":["{{bin}}"],
- "expect":{"exit":1,"stdoutContains":"connection refused"}}}`, func(*toolexec.Request) (toolexec.Result, error) {
-			return toolexec.Result{Output: "dial: connection refused", Exit: 1, NetError: true}, nil
-		}, toolwire.ResultPass, ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			head := &fakeSandbox{do: func(req *toolexec.Request, _ int) (toolexec.Result, error) {
-				if req.Kind == toolexec.KindBuild {
-					return toolexec.Result{}, nil
-				}
-				return tt.res(req)
-			}}
-			h := newWorkspaceHarness(t, wsConfig(), head, &fakeSandbox{})
-			_, resp := h.callKeyed(toolwire.VerbCheckRun, mustJSON(t, toolwire.CheckRunRequest{Spec: json.RawMessage(tt.check)}))
-			if resp.Refused != "" {
-				t.Fatalf("dry run refused: %+v", resp)
-			}
-			a := resp.Observed.CheckRun.Attempts[0]
-			s := a.Steps[len(a.Steps)-1]
-			if a.Result != tt.result || s.AssertionID != tt.id || s.Assertion != (tt.id != "") {
-				t.Fatalf("attempt %+v, want %s with assertion %q", a, tt.result, tt.id)
-			}
-			// A marker naming no valid id says so, so the evaluator can
-			// rename it (gate D-B2).
-			if strings.Contains(tt.name, "past the bound") && s.Detail != markedWithoutID {
-				t.Errorf("detail %q, want %q", s.Detail, markedWithoutID)
-			}
-		})
-	}
-}
-
-// TestMarkedRunKeepsTheProgramsLine (gate D-B1): a run that failed by its
-// marker keeps what the program printed after the marker, its own evidence
-// such as the value it observed, beside maul's words; never the marker
-// itself, bounded and valid UTF-8, and the verdict is unchanged.
-func TestMarkedRunKeepsTheProgramsLine(t *testing.T) {
-	const markerCheck = `{"id":"busy.full","outcome":"busy","form":"exec","exec":{"argv":["{{bin}}","check.txt"],
- "files":[{"path":"check.txt","content":"{{marker}} rest"}],"expect":{"exit":0,"stdoutContains":"busy=ok"}}}`
-	for _, tt := range []struct {
-		name, out string // %M is the attempt's marker
-		want      []string
-	}{
-		{"one marked line", "=== RUN\n%M busy-full: Busy returned 45, want 48\n--- FAIL\n",
-			[]string{"the program printed its assertion marker", "busy-full: Busy returned 45, want 48"}},
-		{"two marked lines, CRLF", "%M busy-full: got 45\r\n%M busy-empty: got 1\r\n",
-			[]string{"busy-full: got 45; busy-empty: got 1"}},
-		{"invalid UTF-8 and a long line", "%M busy-full: \xff" + strings.Repeat("é", 4000) + "\n",
-			[]string{"busy-full: �"}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			var marker string
-			head := &fakeSandbox{do: func(req *toolexec.Request, _ int) (toolexec.Result, error) {
-				if req.Kind == toolexec.KindBuild {
-					return toolexec.Result{}, nil
-				}
-				marker = strings.SplitN(string(req.Files[0].Content), " ", 2)[0]
-				return toolexec.Result{Output: strings.ReplaceAll(tt.out, "%M", marker), Exit: 1}, nil
-			}}
-			h := newWorkspaceHarness(t, wsConfig(), head, &fakeSandbox{})
-			spec := mustJSON(t, toolwire.CheckRunRequest{Spec: json.RawMessage(markerCheck)})
-			_, resp := h.callKeyed(toolwire.VerbCheckRun, spec)
-			if resp.Refused != "" {
-				t.Fatalf("dry run refused: %+v", resp)
-			}
-			a := resp.Observed.CheckRun.Attempts[0]
-			s := a.Steps[len(a.Steps)-1]
-			if a.Result != toolwire.ResultFail || s.AssertionID != "marker busy-full" {
-				t.Fatalf("attempt %+v, want a fail by marker busy-full", a)
-			}
-			for _, w := range tt.want {
-				if !strings.Contains(s.Detail, w) {
-					t.Errorf("detail %q lacks %q", s.Detail, w)
-				}
-			}
-			if strings.Contains(s.Detail, marker) || len(s.Detail) > 2<<10 || !utf8.ValidString(s.Detail) {
-				t.Errorf("detail %q (%d bytes) holds the marker, is over its bound or not UTF-8", s.Detail, len(s.Detail))
-			}
-		})
-	}
-}
-
-// TestWorkspaceKey: in a workspace every tool call carries the key,
-// compared in constant time; a call without it, or with another, is
-// refused and recorded, and spends none of the agent's calls. The
-// readiness probe needs none.
 func TestWorkspaceKey(t *testing.T) {
 	cfg := wsConfig()
 	cfg.MaxToolCalls = maulv1.MinToolCalls
@@ -914,11 +520,6 @@ func TestWorkspaceRefusesPreviewVerbs(t *testing.T) {
 			t.Errorf("%s in a workspace: %+v", verb, resp)
 		}
 	}
-	// A preview check is off the workspace's surface.
-	_, resp := h.dryRunKeyed(scoreCheck, "")
-	if resp.Refused != toolwire.RefusedCheck {
-		t.Errorf("an http check in a workspace: %+v", resp)
-	}
 }
 
 // TestSlotRefusesWorkspaceCalls: the slot has one tree: a base side, files
@@ -927,9 +528,7 @@ func TestSlotRefusesWorkspaceCalls(t *testing.T) {
 	ex := &fakeExec{run: func(*toolwire.ExecRequest, int) (toolexec.Result, error) { return toolexec.Result{}, nil }}
 	h := newHarness(t, baseConfig(), routes{}, func(o *Options) { o.Exec = ex })
 	for verb, body := range map[toolwire.Verb]string{
-		toolwire.VerbExec: `{"argv":["ls"],"side":"base"}`,
-		toolwire.VerbCheckRun: mustJSON(t, toolwire.CheckRunRequest{Spec: json.RawMessage(scoreCheck),
-			Side: toolwire.SideBase}),
+		toolwire.VerbExec:  `{"argv":["ls"],"side":"base"}`,
 		toolwire.VerbFiles: `{"op":"ls"}`,
 		toolwire.VerbRun:   `{"language":"go","files":[{"name":"main.go","content":"eA=="}]}`,
 	} {
@@ -990,33 +589,85 @@ func TestRunRefusesSubdirectoryFiles(t *testing.T) {
 	if resp.Refused != toolwire.RefusedInvalid || len(head.nonBuilds()) != 0 {
 		t.Fatalf("a run file in a subdirectory: %+v", resp)
 	}
-	const sub = `{"id":"count.sub","outcome":"count","form":"run","run":{"language":"go","files":[
- {"path":"pkg/main.go","content":"package main\n// {{bin}}\nfunc main() {}\n"}],
- "expect":{"exit":0,"stdoutContains":"ok"}}}`
-	_, resp = h.dryRunKeyed(sub, "")
-	if resp.Refused == "" {
-		if r := resp.Observed.CheckRun; r.Result != toolwire.RunError {
-			t.Fatalf("a run check with a file in a subdirectory: %+v", r)
+}
+
+// TestRunRecordsAProgramThatNeverRan: a run whose program did not compile
+// (the compiler refused it, or its compile was unclean or cut, even at exit
+// 0) is recorded notRun, with the compile's exit and output; a program that
+// compiled and ran is not, whatever its exit, nor is a refused run.
+func TestRunRecordsAProgramThatNeverRan(t *testing.T) {
+	compile := func(res toolexec.Result) func(*toolexec.Request, int) (toolexec.Result, error) {
+		return func(req *toolexec.Request, _ int) (toolexec.Result, error) {
+			switch {
+			case req.Kind == toolexec.KindBuild:
+				return toolexec.Result{}, nil
+			case len(req.Argv) > 1 && req.Argv[0] == "go" && req.Argv[1] == "build":
+				return res, nil
+			case len(req.Argv) > 0 && req.Argv[0] == "go":
+				return toolexec.Result{}, nil
+			}
+			return toolexec.Result{Output: "ran", Exit: 1}, nil
 		}
 	}
-	if len(head.nonBuilds()) != 0 {
-		t.Fatalf("the sandbox ran %+v", head.nonBuilds())
+	for _, tt := range []struct {
+		name    string
+		compile toolexec.Result
+		notRun  bool
+	}{
+		{"does not compile", toolexec.Result{Exit: 1, Output: "# maulcheck\n./main.go:1: undefined: x\n"}, true},
+		{"an unclean compile at exit 0", toolexec.Result{Unclean: true}, true},
+		{"a compile cut at its time limit", toolexec.Result{TimedOut: true}, true},
+		{"compiles and exits 1", toolexec.Result{}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newWorkspaceHarness(t, wsConfig(), &fakeSandbox{do: compile(tt.compile)}, &fakeSandbox{})
+			_, resp := h.callKeyed(toolwire.VerbRun, mustJSON(t, toolwire.RunRequest{Language: "go",
+				Files: []toolwire.File{{Name: "main.go", Content: []byte("package main\nfunc main() {}\n")}}}))
+			if resp.Refused != "" {
+				t.Fatalf("run refused: %+v", resp)
+			}
+			l := h.finishKeyed()
+			var run *toolwire.LedgerEntry
+			for i := range l.Entries {
+				if l.Entries[i].Verb == toolwire.VerbRun {
+					run = &l.Entries[i]
+				}
+			}
+			if run == nil || run.NotRun != tt.notRun {
+				t.Fatalf("run entry %+v, want notRun %v", run, tt.notRun)
+			}
+		})
+	}
+	h := newWorkspaceHarness(t, wsConfig(), &fakeSandbox{do: compile(toolexec.Result{Refused: "busy"})},
+		&fakeSandbox{})
+	_, resp := h.callKeyed(toolwire.VerbRun, mustJSON(t, toolwire.RunRequest{Language: "go",
+		Files: []toolwire.File{{Name: "main.go", Content: []byte("package main\nfunc main() {}\n")}}}))
+	if resp.Refused == "" {
+		t.Fatalf("a compile the sandbox refused is not refused: %+v", resp)
+	}
+	for _, e := range h.finishKeyed().Entries {
+		if e.NotRun {
+			t.Errorf("a refused run is recorded notRun: %+v", e)
+		}
 	}
 }
 
-// TestRunCheckRequests: a run check compiles, then runs, its program in one
-// scratch directory per attempt: maul's go.mod beside the agent's files,
-// the workspace made by go work init, every placeholder substituted, the
-// compile offline and read-only.
-func TestRunCheckRequests(t *testing.T) {
+// TestRunRequests: a run compiles, then runs, its program in one scratch
+// directory of its own: maul's go.mod beside the agent's files, the
+// workspace made by go work init, {{bin}} and {{tree}} substituted, the
+// compile offline and read-only; nothing restores the tree first, so an
+// earlier call's changes stay.
+func TestRunRequests(t *testing.T) {
 	head := &fakeSandbox{do: printing("ok", 0)}
 	cfg := wsConfig()
 	cfg.Workspace.Env = []toolexec.EnvVar{{Name: "GOPROXY", Value: "http://proxy/go"},
 		{Name: "GOFLAGS", Value: "-mod=mod"}, {Name: "GOMODCACHE", Value: "/tmp/go/pkg/mod"}}
 	h := newWorkspaceHarness(t, cfg, head, &fakeSandbox{})
-	_, resp := h.dryRunKeyed(cliRunCheck, "")
-	if resp.Refused != "" || resp.Observed.CheckRun.Result != toolwire.RunPass {
-		t.Fatalf("run check: %+v", resp)
+	_, resp := h.callKeyed(toolwire.VerbRun, mustJSON(t, toolwire.RunRequest{Language: "go", Args: []string{"x"},
+		Files: []toolwire.File{{Name: "main.go",
+			Content: []byte("package main\n// runs {{bin}} on {{tree}}\nfunc main() {}\n")}}}))
+	if resp.Refused != "" || resp.Observed == nil || *resp.Observed.Exit != 0 || resp.Untrusted != "ok" {
+		t.Fatalf("run: %+v", resp)
 	}
 	reqs := head.nonBuilds()
 	if len(reqs) != 3 {
@@ -1028,28 +679,23 @@ func TestRunCheckRequests(t *testing.T) {
 	}
 	if !slices.Equal(winit.Argv, []string{"go", "work", "init", ".", "/work/tree"}) ||
 		!slices.Equal(compile.Argv, []string{"go", "build", "-o", consumerBinary, "."}) ||
-		!slices.Equal(run.Argv, []string{"./" + consumerBinary, compile.Run}) || len(run.Files) != 0 ||
+		!slices.Equal(run.Argv, []string{"./" + consumerBinary, "x"}) || len(run.Files) != 0 ||
 		len(compile.Files) != 0 {
 		t.Fatalf("init %q, compile %q, run %q", winit.Argv, compile.Argv, run.Argv)
-	}
-	if !winit.Fresh || compile.Fresh || run.Fresh {
-		t.Fatalf("fresh: init %t, compile %t, run %t; want only the attempt's first", winit.Fresh, compile.Fresh,
-			run.Fresh)
 	}
 	assertProgram(t, winit, compile, cfg.Workspace.SearchPath)
 }
 
-// assertProgram holds a run check's init and compile requests to what maul
-// writes and passes: the substituted program and maul's go.mod, and the
-// compile environment.
+// assertProgram holds a run's init and compile requests to what maul writes
+// and passes: the substituted program and maul's go.mod, and the compile
+// environment.
 func assertProgram(t *testing.T, winit, compile toolexec.Request, searchPath string) {
 	t.Helper()
 	files := map[string]string{}
 	for _, f := range winit.Files {
 		files[f.Name] = string(f.Content)
 	}
-	if strings.Contains(files["main.go"], "{{") || !strings.Contains(files["main.go"], "/work/bin/bb on /work/tree") ||
-		!strings.Contains(files["main.go"], "MAUL-ASSERTION-FAILED-") {
+	if strings.Contains(files["main.go"], "{{") || !strings.Contains(files["main.go"], "/work/bin/bb on /work/tree") {
 		t.Fatalf("main.go not substituted: %q", files["main.go"])
 	}
 	if files["go.mod"] != "module maulcheck\n\ngo 1.24\n" || len(files) != 2 {
@@ -1073,9 +719,10 @@ func assertProgram(t *testing.T, winit, compile toolexec.Request, searchPath str
 	}
 }
 
-// TestRunCompileFailureIsError: a program that does not compile is an
-// error (n/a at base, never a fail), whatever the compiler said.
-func TestRunCompileFailureIsError(t *testing.T) {
+// TestRunCompileFailureIsAnswered: a program that does not compile answers
+// the compiler's output and exit, its reason saying so, whatever the
+// compiler said, and is never run.
+func TestRunCompileFailureIsAnswered(t *testing.T) {
 	for _, msg := range []string{"./main.go:5:9: undefined: bb.Parse", "package foo is not in std",
 		"no required module provides package example.com/x", "x.y undefined (type T has no field or method Z)"} {
 		head := &fakeSandbox{do: func(req *toolexec.Request, n int) (toolexec.Result, error) {
@@ -1088,8 +735,9 @@ func TestRunCompileFailureIsError(t *testing.T) {
 			return toolexec.Result{Output: "ok"}, nil
 		}}
 		h := newWorkspaceHarness(t, wsConfig(), head, &fakeSandbox{})
-		_, resp := h.dryRunKeyed(cliRunCheck, "")
-		if resp.Refused != "" || resp.Observed.CheckRun.Result != toolwire.RunError {
+		_, resp := h.callKeyed(toolwire.VerbRun, mustJSON(t, toolwire.RunRequest{Language: "go", Files: runFiles}))
+		if resp.Refused != "" || resp.Observed == nil || *resp.Observed.Exit != 1 || resp.Untrusted != msg ||
+			!strings.Contains(resp.Reason, "did not compile") {
 			t.Fatalf("%q: %+v", msg, resp)
 		}
 		for _, r := range head.nonBuilds() {
@@ -1097,26 +745,5 @@ func TestRunCompileFailureIsError(t *testing.T) {
 				t.Fatalf("%q: ran the program after a failed compile", msg)
 			}
 		}
-	}
-}
-
-// TestWorkspaceRedConfirm: in a workspace a check shown red by assertion
-// needs no data of its own run (SPEC S2-04's decision for S2-08: the
-// writable tree is no shared store), so its red confirmation is not
-// refused for the slot's run-data rule.
-func TestWorkspaceRedConfirm(t *testing.T) {
-	head := &fakeSandbox{do: printing("count=2", 0)}
-	h := newWorkspaceHarness(t, wsConfig(), head, &fakeSandbox{do: printing("count=2", 0)})
-	_, resp := h.dryRunKeyed(cliExecCheck, "")
-	if _, ok := resp.Observed.CheckRun.AssertionStep(); !ok {
-		t.Fatalf("dry run not red by assertion: %+v", resp.Observed.CheckRun)
-	}
-	d := resp.Observed.CheckRun.Digest
-	_, resp = h.callKeyed(toolwire.VerbConfirm, `{"digests":["`+d+`"],"expectFail":["`+d+`"]}`)
-	if resp.Refused != "" {
-		t.Fatalf("a workspace red confirmation: %+v", resp)
-	}
-	if r := resp.Observed.CheckRuns[0]; r.Result != toolwire.RunFail {
-		t.Fatalf("red confirmation: %+v", r)
 	}
 }

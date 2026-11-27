@@ -376,14 +376,14 @@ func (s Settings) toolConfigMap(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerific
 
 // toolConfig is what the relay runs: each component by its Service address
 // (targets, the ClusterIP on the Service port, as the tester's), its path
-// on the preview host, the saved checks, the bounds and the wall clock. It
-// is validated as the relay will validate it.
+// on the preview host, the bounds and the wall clock. It carries no saved
+// check and no replay, whatever pv's retired checks and rung say: the
+// relay replays nothing. It is validated as the relay will validate it.
 func (s Settings) toolConfig(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerification, targets map[string]string,
 	wall time.Duration) (previewtools.Config, error) {
 	cfg := previewtools.Config{
 		Host: s.host(p), Viewer: toolViewer, MaxToolCalls: int(pv.Spec.Tools.MaxToolCalls),
-		TimeoutSeconds: int(wall / time.Second), ReplayOnly: pv.Spec.Rung == v1alpha1.RungReplay,
-		Browser: pv.Spec.Tools.Browser, Sandbox: pv.Spec.Tools.Sandbox,
+		TimeoutSeconds: int(wall / time.Second), Browser: pv.Spec.Tools.Browser, Sandbox: pv.Spec.Tools.Sandbox,
 	}
 	for _, c := range p.Spec.Components {
 		addr, ok := targets[c.Name]
@@ -392,10 +392,6 @@ func (s Settings) toolConfig(p *v1alpha1.Preview, pv *v1alpha1.PreviewVerificati
 		}
 		cfg.Components = append(cfg.Components, previewtools.Component{Key: c.Name,
 			Path: v1alpha1.PreviewComponentPath(c), Addr: addr})
-	}
-	for _, c := range pv.Spec.Checks {
-		cfg.Checks = append(cfg.Checks, previewtools.StoredCheck{ID: c.ID, Digest: c.Digest, Body: c.Body,
-			Expect: string(c.Expect)})
 	}
 	if err := cfg.Validate(); err != nil {
 		return previewtools.Config{}, err

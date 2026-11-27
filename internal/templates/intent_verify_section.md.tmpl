@@ -7,21 +7,23 @@ and the evidence in
 code spans and fences no line of it can close. One line per paragraph: GitHub
 renders a line break inside a comment as a hard break. */ -}}
 {{- define "verify_detail" }}
+{{- with .ObservedLead }}
+
+{{ . }}
+{{- end }}
 {{- range .Outcomes }}
 
 {{ .Lead }}
 
 {{ .AppOutput | chomp }}
 {{- end }}
-{{- range .Claims }}
+{{- range .Cited }}
 
 {{ .Lead }}
-{{- with .Calls }}
 
-{{ . | chomp }}
+{{ .Calls | chomp }}
 {{- end }}
-{{- end }}
-{{- range .UnsureNotes }}
+{{- range .EvaluatorNotes }}
 
 {{ . }}
 {{- end }}

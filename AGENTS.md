@@ -65,8 +65,7 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `internal/sandboxprobe` check the trusted prepare init runs: `--mode strict`, the default, for a repository image,
   exit 78 when egress is open, and for the agent evaluator's Job over `--targets internet,k8s,imds,dns`; `--mode wait
   --targets k8s,imds` for every other non-evaluation Job, exit 0 either way) and `preflight` (what
-  `maul check image --run` drives). The agent evaluator's stages `evaluate` and `checkreview` run here too
-  (`internal/agentrun`).
+  `maul check image --run` drives). The agent evaluator's stage `evaluate` runs here too (`internal/agentrun`).
 - `cmd/egress-broker` — the egress credential broker (NOT a controller: no reconcilers, no leases): the reverse
   proxy all claude and codex model traffic goes through, one route per provider (anthropic — key or `claude
   setup-token` bearer via `--anthropic-auth` — plus bedrock SigV4, vertex OAuth, foundry key/entra, and the OpenAI
@@ -212,12 +211,12 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   (`spec.harness`, immutable) and is launched, held for a credential (`credgate.ProviderFor`: codex waits for an OpenAI
   key) and measured on it; off, a codex Project is not Ready (`HarnessNotEnabled`) and a codex run waits Pending. A
   Project may choose each stage's model within its harness (`spec.models`: plan, build (also every revise round),
-  evaluate, checkReview; `models.go`), each a stage flag's model or on `--intent-model-allowlist` (chart
-  `intentController.config.modelAllowlist`, split by harness at startup into `RunHarness.Allowed`), else it is not Ready
-  and its open intents are held Blocked (`ModelNotAllowed`); a run records its Project's choice (`spec.model`, empty
-  when none: the stage flag runs, as before) and a recorded model no longer admitted ends `launch_refused`. A
-  Project's stage `timeout` (clamped to the stage flag) sets each run's wall clock and its Job deadline (timeout + 15m,
-  never under `--intent-job-deadline`, capped by
+  evaluate; `checkReview` is a retired field nothing reads; `models.go`), each a stage flag's model or on
+  `--intent-model-allowlist` (chart `intentController.config.modelAllowlist`, split by harness at startup into
+  `RunHarness.Allowed`), else it is not Ready and its open intents are held Blocked (`ModelNotAllowed`); a run records
+  its Project's choice (`spec.model`, empty when none: the stage flag runs, as before) and a recorded model no longer
+  admitted ends `launch_refused`. A Project's stage `timeout` (clamped to the stage flag) sets each run's wall clock and
+  its Job deadline (timeout + 15m, never under `--intent-job-deadline`, capped by
   `--intent-job-deadline-max`, under which every stage flag plus 15m must fit; the floor is not tied to the stage
   timeouts, so a longer stage stretches only its own Jobs). With `--broker-limit-unit cost` (chart:
   `egressBroker.limits.unit: cost`; default tokens, nothing stamped) every run's immutable grant records a cost
@@ -255,28 +254,27 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `VerificationOff` `EvaluatorOff` and its issues say so, the preview linked at once), plans state
   acceptance outcomes, not criteria, and each round is an outcome `PreviewVerification` plus, once preview-controller's
   `status.tools` names the slot tool pod, an `evaluate` IntentRun (`<intent>-ev-…`, launched only while that round is
-  still current) and one `checkreview` run per round (`-cr-`) for the new confirmed checks; the proven ones go to an
-  immutable Intent-owned ConfigMap `<intent>-checks-<n>` (`checkstore.go`), the round is judged by
-  `acceptance.Decide` (`evaluate_judge.go`), a reproduced failure gets a maul-rendered reproduction
-  (`reproduction.go`), and the gated hand-off holds the preview link (`handoff.go`; `--intent-default-handoff`,
-  `--intent-handoff-max`, `/maul preview`). Evaluation spend has its own ceiling (`--intent-evaluation-cost-max`,
+  still current); the round is judged by `acceptance.Judge` (`evaluate_judge.go`: each verdict counts only when it
+  cites an entry of the PV's verified `status.ledger` that `acceptance.ValidCite` admits, the evaluator's own unrefused
+  head-side http, browser (exit 0), exec or run call that got its answer (`noAnswer` unset); `heldOutcomes` keeps an
+  outcome seen not to hold at the same heads from passing; outcome-only fingerprints, `acceptance.OutcomeFingerprint`,
+  for the repeated-failure stop), a failure gets a maul-rendered cited-call reproduction (`reproduction.go`,
+  `templates.RenderCitedReproduction`), and the gated hand-off holds the preview link (`handoff.go`;
+  `--intent-default-handoff`, `--intent-handoff-max`,
+  `/maul preview`). Evaluation spend has its own ceiling (`--intent-evaluation-cost-max`,
   `limits.maxEvaluateCostMicroUSD`); a codex Project is evaluated only with `--intent-evaluate-codex`, else its hand-off
-  is early and it carries `EvaluatorUnverified`. No role run owns a Repository, reads a tree or pushes.
-  Each round's rung (S3 minimal, `rung.go`; people's guide `docs/intents/evaluator.md#the-cost-ladder-replay-rounds`)
-  is `acceptance.StartRung`'s: `replay` (the saved checks only, no evaluate or checkreview run, $0 model) only at the
-  heads and outcomes of `status.verification.modelRound` (the latest full round judged on its report) when that
-  round was `clear` (no fail verdict, no contrary entry; a look-around anomaly is a note, never an objection) and
-  every non-manual outcome has a stored check
-  Decide could pass it on; else `full` (round 1, a replan, moved heads: the scoped rung is not built, an objecting
-  model round, an uncovered outcome, `/maul verify explore` from either surface, `VerifyRequest.Explore`, a retry of
-  a full round). Decide judges a replay round unchanged, so it never fails an outcome; an unsure one (on a non-manual
-  outcome or a failing environment) asks for one automatic full round at the same heads
-  (`status.verification.escalation`, once per head set, not spaced by verifyInterval, below the evaluation ceiling;
-  the hand-off waits for it); a dispute's follow-up that cannot replay is full and spends it. Replay rounds run past
-  the evaluation ceiling and count toward `maxVerifications`; `status.verification.rung` and the PV's `spec.rung`
-  record the rung, the verification comment's heading says "replayed saved checks, no model". Seeded properties:
-  `TestStartRungReplaysOnlyWhatItMay` and `TestReplayRoundNeverPassesWhatAFullRoundWouldNot` (acceptance),
-  `TestReplayRoundJudgedAsAFullRoundWithTheSameEvidence` (through `judgeRound`).
+  is early and it carries `EvaluatorUnverified`. No role run owns a Repository, reads a tree or pushes. Every round is
+  a full evaluation: the PV's `spec.rung` and the run's `spec.evaluation.rung` are always `full` (retired fields kept
+  for one release, as are the saved-check fields of `status.acceptance`), and `/maul verify explore` is parsed as a
+  plain `/maul verify`. The checkreview stage is retired: never launched (`errStageRetired`), and a run an earlier
+  release left is aborted and its Job deleted (`run_controller.go` `retireRun`); `--intent-checkreview-model` and
+  `--intent-checkreview-max-turns` are hidden, ignored and warned of at startup (`logRetiredFlags`). At the upgrade
+  (`verify_migrate.go`) an open intent whose verification an earlier release judged (no `status.verification.judge`
+  marker, `v1alpha1.JudgeObserved`) has that result withdrawn once (`withdraw`: in-flight round dropped, judgement
+  cleared, condition `VerificationSuperseded`, the comment's `templates.WithdrawnSentence`) and gets one fresh round
+  (`verifySupersede`, not counted in `maxVerifications`, held to the evaluation ceiling; gauge
+  `maul.intent.verification_superseded`); every record this release starts carries the marker (`newVerification`).
+  Guide `docs/intents/evaluator.md#migrating-from-saved-checks`.
   A round runs on a host behind the `toolHost` port (`toolhost.go`: `placement`, `verifies`, `heads`, `gate`, whose
   `place` fills the host's spec fields): `slotHost` (`toolhost_slot.go`, S1, preview-controller's slot tool pod) or,
   with `--intent-evaluator-agents` (slice S2, default off; chart `intentController.verification.agents.enabled`, which
@@ -330,14 +328,14 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   `--preview-max-evaluations` bounds tool pods at once (0, the slot count).
 - `cmd/preview-tools` — OPTIONAL (with the agent evaluator; `Dockerfile.preview-tools`, a digest-pinned image, chart
   `preview.verification.tools.image`): the `tools` container of the evaluator's slot tool pod, maul's relay over
-  `internal/previewtools`. It serves the `toolwire` verbs on 8090 (refusing local callers), runs every tool call and
-  check, and writes the ledger v2 (`MAUL-TOOLS:` entries, count and sha256 in the summary line and the termination
-  message) on its stdout, which only it writes. The image adds Node and the exactly pinned `@playwright/cli`,
-  `playwright-core` and `@playwright/test`, and (S2) the static `tool-exec`. The same image is the agents tool pod's:
-  with `Config.Mode` `workspace` the relay drives two workspace shims (head, base) instead of a preview, and two
-  subcommands (`prepare.go`, `seed.go`, engine `internal/previewtools/prepare`; an unknown first argument exits 2) are
-  its trusted inits: `prepare` fetches both trees from the artifact server, verifies each digest, extracts through
-  `os.Root`, copies `tool-exec` into `maul-bin` (0555) and runs the strict probe in-process over
+  `internal/previewtools`. It serves the `toolwire` verbs on 8090 (refusing local callers), runs every tool call, and
+  writes the ledger v2 (`MAUL-TOOLS:` entries, count and sha256 in the summary line and the termination
+  message) on its stdout, which only it writes. The image adds Node and the exactly pinned `@playwright/cli` (with
+  `playwright` and `playwright-core`, which nothing else uses now), and (S2) the static `tool-exec`. The same image is
+  the agents tool pod's: with `Config.Mode` `workspace` the relay drives two workspace shims (head, base) instead of a
+  preview, and two subcommands (`prepare.go`, `seed.go`, engine `internal/previewtools/prepare`; an unknown first
+  argument exits 2) are its trusted inits: `prepare` fetches both trees from the artifact server, verifies each digest,
+  extracts through `os.Root`, copies `tool-exec` into `maul-bin` (0555) and runs the strict probe in-process over
   `internet,k8s,imds,dns`; `seed` copies one side's pristine tree into its work volume under that side's UID only.
 - `cmd/cdp-shim` — OPTIONAL (with the evaluator; `Dockerfile.preview-browser`, beside Chromium): the `browser`
   container's keyed CDP shim over `internal/cdpshim`. Chromium speaks CDP only over a pipe; the shim serves it to a
@@ -347,12 +345,12 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   agent-written programs run here, holding nothing. In the agents tool pod it is the workspace shim of `sandbox-head`
   and `sandbox-base`, run from the read-only `maul-bin` copy inside the repository's own image; it refuses UID 0.
 - `cmd/maul-tool` — the evaluator's one shell CLI (`internal/maultool`), shipped in the claude and codex agent-runner
-  images: `maul-tool http|browser|exec|logs|events|check run|check results`, and for an agents round
-  `files ls|grep|read [--base]`, `run <dir> [--base] [-- args]` and `--base` on `exec` and `check run`, sent to its
+  images: `maul-tool http|browser|exec|logs|events`, and for an agents round
+  `files ls|grep|read [--base]`, `run <dir> [--base] [-- args]` and `--base` on `exec`, sent to its
   tool pod over `toolwire` (`MAUL_TOOLS_URL`; the per-evaluation key from `/work/input/tools-key`,
   `maultool.KeyFile`, when it exists, as `X-Maul-Tools-Key`, never printed; the run's cutoff from
   `MAUL_TOOLS_DEADLINE`, which agent-runner sets per evaluate run, printed as `[maul-tool time left]` after the ledger
-  line; a failed text step's `Received` text quoted on its own `[observed]` line). Not deployed on its own.
+  line). Not deployed on its own.
 - `cmd/status-server` — the human-facing status page (NOT a controller: no reconcilers, no leases): the embedded SPA +
   JSON projection of Findings/FindingRollups, SSE refetch signal, OIDC sign-in, the access-review-gated
   approve/retry/expedite/suspend/resume actions, and the user-menu demo tooling (replay → Integration `spec.replay`;
@@ -619,12 +617,12 @@ e2e/                SEPARATE Go module: envtest carries the CRDs, the real binar
                     intent_agents_test.go runs the no-preview evaluator (S2) end to end:
                     a cli pass (gated link-less hand-off, a foreign key refused, the
                     evaluator only after status.tools, preview-controller never touching
-                    the agents PV), an agents fix round, a library new symbol (compile
-                    error at base: no base comparison), a head build failure
-                    (Unconfirmed, no fix), a base connect error (unsure,
-                    no-base-evidence) and a running tool pod deleted when its heads
-                    move. kubelet_workspace_test.go is the kubelet's part for role=tools
-                    Jobs: the real prepare engine (no strict probe: envtest hosts have
+                    the agents PV), an agents fix round, a library new symbol (the
+                    base run only context), a head build failure (Unconfirmed, no
+                    fix), a pass citing only a base run (unsure, no-valid-evidence),
+                    a base that does not build or errs (the head's run still counts)
+                    and a running tool pod deleted when its heads move. kubelet_workspace_test.go is the kubelet's part
+                    for role=tools Jobs: the real prepare engine (no strict probe: envtest hosts have
                     open egress) and seeds, the real toolexec workspace servers
                     in-process behind a socket filter standing in for the mount
                     namespace, and the real preview-tools built with e2edial
@@ -697,13 +695,12 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `--attribution-mode attribute` the tool Job is annotated `org` (`Settings.Attribution`, `ToolPodSpec.AttributedTo`,
   which refuses any other value) and carries no budget, which the budget Job policy exempts a tool Job from (and
   refuses on one) while the agents tool pod is on; collects only the `tools` log via
-  `toolledger.Parse` (a log holding the key is `ledger-mismatch`), writes builds, the head's runs, confirmed checks,
-  `status.base` from `toolledger.BaseRuns` (unbuildable only when a base build ran and failed) and the head build's
-  `previewtools.BuildPart` (not built: Infra `tools-build-failed`; built but its kept copy failed, the relay's
-  `FinishKeptCopyFailed`: Infra `kept-copy-failed`); tears down at settle, a finished Job after the
-  10-minute `linger` for the isolation probe, a running one at once, an orphan Secret with its settled PV; the
-  `Sweeper` is always registered and, with the host off, deletes every `role: tools` Job: the rollback lever),
-  `controller/preview` (fixed slot workload renderer,
+  `toolledger.Parse` (a log holding the key is `ledger-mismatch`), writes the ledger index (`toolledger.ApplyStatus`,
+  a base call's entry `side: base`), the builds and the head build's `previewtools.BuildPart` (not built: Infra
+  `tools-build-failed`), and never `status.base`, `replay`, `confirmations` or `confirmed` (retired fields); tears down
+  at settle, a finished Job after the 10-minute `linger` for the isolation probe, a running one at once, an orphan
+  Secret with its settled PV; the `Sweeper` is always registered and, with the host off, deletes every `role: tools`
+  Job: the rollback lever), `controller/preview` (fixed slot workload renderer,
   bounded rollout, cleanup and orphan sweep; no forge access; with `--preview-auth-required`, default off, it renders
   each slot's pinned sign-in annotations from the chart's JSON, the one the slot admission policy compares, and the
   sweep reports a slot Ingress without the current or previous generation's set (auth-session-timeout judged, as the
@@ -751,14 +748,19 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   plan prompt states which network profile each repository's build would get (`BuildProfile`,
   `Encode`/`DecodeBuildProfiles`, carried as `MAUL_BUILD_NETWORK_PROFILES`). For a Project with no preview (S2) the
   evaluate prompt is its own template (`prompt_evaluate_workspace.md.tmpl`, `EvaluateWorkspace`; shared sections in
-  `prompt_evaluate_parts.md.tmpl`), the check review and plan prompts take `ReviewWorkspace` and `PlanWorkspace`, the
-  reproduction of an agents round uses the workspace wording (`VerifyReproduction.Workspace`), and the hand-off is
-  link-less (`Workspace` on `IntentPreview`/`IntentPreviewComment`); S1's slot prompts and comments are
-  byte-identical. A round that settles without a judgement records one `v1alpha1.SettleCause` (`CauseOf` of its last
-  attempt's reason, kept in `status.verification.unavailableReason`), and `CauseWords` (`intent_settle.go`) is the one
-  table its hand-off reason, not-run reply and commit status are named from; `whyWords` gives a reason's words with or
-  without a preview (an Infra environment is maul's own, never "the preview failed"), and `OutcomeCount` is the one
-  outcome count.
+  `prompt_evaluate_parts.md.tmpl`), the plan prompt takes `PlanWorkspace`, the reproduction of an agents round uses
+  the workspace wording (`CitedReproduction.Workspace`), and the hand-off is link-less (`Workspace` on
+  `IntentPreview`/`IntentPreviewComment`). Both evaluate prompts teach `acceptance.ValidCite` in the evaluator's
+  terms (what counts as evidence, at most 8 cites per outcome, its own page scripts and programs labelled). An observed
+  round's comment (`VerifySection.Observed`) words results as seen to hold or not by maul's evaluator, never confirmed
+  (`ObservedOutcomeWords`, `ObservedLead`), lists each counted call (`VerifyCitedCall`: `Own`, `OutputNotKept`), and
+  the verify-fix round gets `RenderCitedReproduction` (the cited calls, the calls before them, the log window, the
+  evaluator's note labelled as its reading); `TestVerdictWordsNeverOverstate` holds every reason, label and line
+  free of confirmed, verified, proves and re-ran. A round that settles without a judgement records one
+  `v1alpha1.SettleCause` (`CauseOf` of its last attempt's reason, kept in `status.verification.unavailableReason`), and
+  `CauseWords` (`intent_settle.go`) is the one table its hand-off reason, not-run reply and commit status are named
+  from; `whyWords` gives a reason's words with or without a preview (an Infra environment is maul's own, never "the
+  preview failed"), and `OutcomeCount` is the one outcome count.
 - `webhook`, `telemetry`, `cli`, `version` — service plumbing (the webhook server is used by
   integration-controller only).
 - `attribution` — run attribution's pure core (per-user credentials design, L1): the `--attribution-mode` switch
@@ -826,14 +828,14 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   approver's save) and `components/ProjectSettingsView.tsx`.
 - `projectsettings` — the Project settings page's pure core (stdlib and `api/v1alpha1` only, a test pins that): one
   table of the editable spec fields (`Fields`: id, lock group, kind, the CRD's range, default, when a change takes
-  effect; never the intent repository, labels, a repository's name, url or preview, the harness, surfaces, or the check
-  reviewer's model and limits), `Gate` (the session's GitHub id against `status.approvers`, the live list and
+  effect; never the intent repository, labels, a repository's name, url or preview, the harness, surfaces, or the
+  retired `checkReview` model and limits), `Gate` (the session's GitHub id against `status.approvers`, the live list and
   `ApproversMaxAge`), `Apply`, `Check` (locks, switches, ceilings, floors, `status.admits`: models, classes, the
   controller's ceilings, run-budget bounds, the delegation switches; only changed fields, a cleared one by its landing
-  value), `Confirmations`,
-  and `Decide`, which runs them in order and hands back the Project to patch only when all agree; `View` (bounds, the
-  approvers' GitHub state, the other field managers with their operation, the last edit), the `Policy` the chart renders
-  once for the server and the admission policy (`DefaultPolicy` pinned to the chart's defaults), the
+  value), `Confirmations`, and `projectsettings.Decide`, which runs them in order and hands back the Project to patch
+  only when all agree; `View` (bounds, the approvers' GitHub state, the other field managers with their operation, the
+  last edit), the `Policy` the chart renders once for the server and the admission policy (`DefaultPolicy` pinned to
+  the chart's defaults), the
   `maul.run/settings-edited` record (`NewEdit`, `ParseEdit`), and `CheckApprovers`, which `maul setup project` shares.
   `RunBudget` is pinned to the controller's `stageBudget`; the admission policy is held to `Check` by a seeded property
   against a real API server (chart envtest).
@@ -882,64 +884,51 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `acceptance` (stdlib and `httpstep` only, import pin): slice 1's criterion grammar, kept only to read a plan that
   states criteria (`Validate`, the only `CriterionError` source; `Normalize` folds the request/expect/capture
   shorthand into steps; `Digest` of the full list, manual included; nothing runs or judges a criterion: the tester's
-  judge, observation wire and their CRD mirrors are deleted); `EvaluationFingerprint` is the evaluator's fix
-  fingerprint. `v1alpha1.EmptyListDigest` (the sha256 of `[]`) is pinned to both `Digest(nil)` and
-  `OutcomesDigest(nil)`. `untrusted`
+  judge, observation wire and their CRD mirrors are deleted). `v1alpha1.EmptyListDigest` (the sha256 of `[]`) is pinned
+  to both `Digest(nil)` and `OutcomesDigest(nil)`. `untrusted`
   (`Visible`, moved from intent's `visibleDiagnostic`) bounds and makes legible every outsider's
   text before a human or model sees it. For the agent evaluator,
   `acceptance` also holds the plan's outcome grammar (`PlanOutcome`, `ValidateOutcomes`, at most 20, kinds `change` and
   `keep`, `manual`; `report.(*Plan).CheckEvaluator` refuses a criteria plan with `ErrSliceOneCriteria`),
-  `NotCovered` (the issue's list items no outcome quotes in `from`, for the plan comment) and `Decide` (`decide.go`:
-  the six pass rules
-  of DESIGN 4.3, the dispute rule, failed only on a deterministic check failure the evaluator agrees with, unsure
-  otherwise, a failing environment downgrading the hand-off, look-around anomalies never read: they are reviewer
-  notes; seeded property: no pass without all six),
-  `StartRung` (`rung.go`: the cost ladder's rung, replay or full, sharing Decide's own `passes` for coverage) and
-  `ModelRoundClear` (a full round whose evaluator raised nothing).
-  `api/v1alpha1.AcceptanceOutcome` mirrors `PlanOutcome` (`crdconv`). For S2, `Decide` takes `BaseRuns{Runs, Required,
-  Unbuildable}` and rule 5 discriminates: a `change` outcome's check must be red by assertion at base, or err there only
-  for a `RunCause` that `NoComparison` admits (`compile`, `vendored-tree`, `replace-outside-tree`, `no-module`,
-  `base-unbuildable`); a pass, a bare fail, and any error without a cause (timeout, unclean, cut output, bind/connect,
-  refusal) give no base evidence, as does a missing run of a required base: unsure `no-base-evidence`. A `keep`
-  outcome's check fails rule 5 only red by assertion at base. `RoleBuild` (a head build part built only `Completed`,
-  exit 0) failing makes every outcome unsure `tools-build-failed`; a program form (`exec`, `CheckFormRun`) failing other
-  than by assertion is unsure `not-asserted` in both placements (O4).
+  `NotCovered` (the issue's list items no outcome quotes in `from`, for the plan comment) and the observed judge
+  (`judge.go`, "evaluator observed"): `Judge(JudgeInput) Judgement` takes each outcome's first verdict at its word only
+  when it cites an entry `ValidCite` admits (the round's ledger verified and its index whole; the evaluator's own
+  `agent` call, unrefused, not at the base, verb `http`, `browser` with exit 0, `exec` or `run`, and not `noAnswer`: an
+  http request with no response, a run whose program did not compile, an exec or run whose program the sandbox could
+  not start, its output only maul's marker, `toolwire.NotStarted`; logs, events, files and the retired check verbs
+  never count), first rule wins: unverified `infra`, head not built `tools-build-failed`, `manual`, a failing
+  environment `env-failed`/`infra`, `not-reported`, `evaluator-unsure`, `no-valid-evidence`, a cited fail
+  `seen-not-to-hold` (failed, a fix), a cited pass on a held outcome `held-finding`, a cited pass on an outcome an
+  anomaly of the same report names (`Contrary`, from `anomalies[].outcome`) `contrary-note`, else `seen-to-hold`; at
+  most `MaxCites` (8) valid cites kept, the lowest; it never reads a note or another outcome's verdict, and of the
+  anomalies only the outcomes they name. Seeded properties P1-P10 (`judge_property_test.go`, seed 20261123, with an
+  independent oracle of `ValidCite`). `result.go` holds the types it shares (`OutcomeRef`, `Claim*`, `Result*`,
+  `FixRequest`, `Handoff*`); `fingerprint.go` the repeated-failure fingerprint over the failing outcomes alone
+  (`OutcomeFingerprint`, `OutcomeFingerprintPiece`, `maul-evaluation-fingerprint/2`), never anything the evaluator
+  chose. `api/v1alpha1.AcceptanceOutcome` mirrors `PlanOutcome` (`crdconv`).
 - `httpstep` — one HTTP step's grammar and the tool facts, PURE (stdlib only, import pin), moved out of `acceptance`
   for the evaluator: `Step`/`Request`/`Expect`, `Value`, `StatusList`, `NormalizeSteps` (method GET, status [200]),
   `ValidateStep` and its parts (`CheckPath`, `CheckPointer`, `ValidateMatcher`, `ValidateHeaderMatcher`), `{{run}}` and
   `{{capture.x}}` substitution (`Substitute`, `BuildRequest`), the matcher engine (`MatchValue`, `MatchHeaderValue`,
-  `JSONEqual`), `Transport`, `PartFact` and its roles, `ClassifyEnvironment`, `TargetWait` and `RunCause`.
-  Consumers: `acceptance`, `checks`, `previewtools`, `toolledger`, the controllers, `templates`.
-- `checks` (+ `checks/playwright`) — the evaluator's saved-check grammar, pure: a check is bound to one outcome and is
-  `http` (slice 1's steps plus `$range`, `$includes`, header presence), `browser` (a JSON step grammar: `goto`,
-  `waitForURL`, `click`, `fill`, `select`, `press`, `scroll`; scoped locators, never a snapshot ref; assertions
-  `visible`, `legible`, `text`, `count`, `url`, the box relations, `size`, `clickable`; never a colour literal) or
-  `exec` (an argv run in the sandbox), or (S2) `run` (`run.go`: a Go consumer program of at most 8 files, args, an
-  optional timeout, judged as exec is). `Canonical`/`Digest` key a check however it was spelled; `Validate(c,
-  Context{Preview|Workspace})` refuses with a named rule (not substantive, unscoped to `{{run}}` data, too many steps,
-  over 8 KiB, `RuleOffSurface`; an empty or double context refuses every check); a workspace refuses http and browser,
-  a cli check runs `{{bin}}` (`BinPlaceholder`), a library check is a `run`, each asserting on stdout content;
-  `{{tree}}` (`TreePlaceholder`) is the writable tree. A label, role name or select label may say `exact`
-  (Playwright's); `ParseProposal`, the only reading of an agent's own check (the relay's check run, agent-runner's
-  check files), writes `exact: true` where it says nothing, a `count`'s locators excepted, into the canonical body and
-  digest, so a check saved before (no `exact`) replays unchanged; `ParseRecorded` rereads a ledger's request as the
-  form whose digest it was recorded under (G4-B-BR-1). `checks/playwright` compiles a
-  browser check to a readable `.spec.ts` at a fixed 1280x800, maul's page functions (`pagefns.js`) judging human
-  visibility, WCAG contrast and hit-tested clicks, indeterminate as a check error, never a fail.
-  A `text` assertion is two statements: the runner's expectation, then `maul.text`, which holds only when what
-  meets the matcher is text that is shown, not hidden or clipped away (the `text` page function; defect gate 7).
+  `JSONEqual`; the substitution and matcher helpers have had no caller since saved checks went), `Transport`,
+  `PartFact` and its roles, `ClassifyEnvironment`, `HeadBuildFailed`, `TargetWait` and `RunCause`.
+  Consumers: `acceptance`, `previewtools`, `toolledger`, the controllers, `templates`.
 - `toolwire` — the evaluator's tool wire and ledger v2, stdlib only: one endpoint per verb (`POST /v1/<verb>`), typed
   requests held to their bounds, one `Response` keeping the application's bytes (`Untrusted`) apart from maul's
-  measurements (`Observed`); `LedgerEntry` lines (`MAUL-TOOLS:`), evidence lines and the `Summary` (count and sha256)
+  measurements (`Observed`); `LedgerEntry` lines (`MAUL-TOOLS:`; `notRun` on a run whose program did not compile,
+  `HTTPAnswered` an http output holding an answered exchange), evidence lines and the `Summary` (count and sha256)
   that is also the termination message; `Verify` holds a log to it. The contract between `maul-tool`, agent-runner,
   `preview-tools` and the controllers, and the capture's shared key names. S2 adds `files` (ls, literal grep, read;
   pristine tree, capped) and `run`, the relay-internal `VerbBuild` (no endpoint), `Side` (`""` head, the only recorded
-  spelling, or `base`, accepted only on exec/run/files/build/check-run; write it through `Side.Recorded()`),
-  `StepCause` (`Known`), and `KeyHeader` (`X-Maul-Tools-Key`, 64 lower-case hex, `IsKey`).
+  spelling, or `base`, accepted only on exec/run/files/build; write it through `Side.Recorded()`), the retired check
+  verbs (`check-run`, `check-results`, `confirm`: `RetiredVerb`, no endpoint, a line carrying a check run record does
+  not verify), and `KeyHeader` (`X-Maul-Tools-Key`, 64 lower-case hex, `IsKey`). `workspace.go` holds the
+  spellings the prompts and the relay share: `BinPlaceholder` (`{{bin}}`), `TreePlaceholder` (`{{tree}}`) and
+  `DefaultViewport` (1280x800, every browser session's window, which the plan prompt states).
 - `previewtools` — `cmd/preview-tools`'s engine: the `Relay` (one call at a time; `http` through the gateway's header
   hygiene, `browser` through the pinned Playwright CLI with an allowlist and a pre-opened session, `exec` through the
-  exec shim, `logs`/`events` from the captured files, `check run`/`results`, and agent-runner's `confirm` and `finish`),
-  the replay of saved checks each alone with a fresh run token, artifacts served by sha256, and `GuardListener`
+  exec shim, `logs`/`events` from the captured files, and agent-runner's `finish`), artifacts served by sha256, and
+  `GuardListener`
   refusing loopback and own-pod callers. `previewtools/node` is the pinned Node side. Workspace mode (S2,
   `workspace.go`, `files.go`, `run.go`; `Config.Workspace{Build, Binary, Language, BuildTimeoutSeconds, SearchPath,
   Env}`): every call needs the key (constant time; a refusal is a ledger entry, `key-refused`), the key file fixed at
@@ -947,19 +936,14 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   1-2 are the head and base builds in parallel (verb build, `BuildArgs`; `ledgerTail` keeps a build output's end under
   the entry cap); `BuildPart` is the head's `RoleBuild` part; a head that did not build finishes the relay there
   (`FinishBuildFailed`) before it is ever Ready, so no evaluator is launched (S2-B5), and refuses everything after
-  (`build-failed`), a base that did not build answers its runs unbuilt (`base-unbuildable`). Every saved check replays,
-  and every proposed one is confirmed, at head then base, each alone under fresh tokens (at most `MaxBaseRuns`). `run`
+  (`build-failed`), and a base that did not build refuses every exec and run there (`base-unbuildable`, or
+  `base-build-error` for a build that did not end in a failure maul can tell is the tree's). The base is exploration
+  only: its calls are ledgered with side base and never count. `run`
   writes a minimal consumer `go.mod` (`module maulcheck`, the pristine tree's `go` line), runs
   `go work init . /work/tree` and `go build` under `GOPROXY=off`, `GOFLAGS=-mod=readonly`, `GOENV=off` (the shim sets
   `GOTOOLCHAIN=local`); a vendored tree, a replace leaving the tree or an unreadable go.mod refuses it with that cause.
-  `CauseCompile` only for a clean exit 1, uncut, the `# maulcheck` header first and then only diagnostics in the
-  program's own top-level files (`compilerRefused`), with no environmental marker anywhere; else no cause.
-  `judgeWorkspace`: no answer, refused, unclean or timed out is an error, the marker a fail by assertion, cut output an
-  error, a wrong exit a bare fail, a stdout content miss after the expected exit a fail by assertion; a non-pass naming
-  a bind or connection error (`NetError`) is an error. Substitution order `{{marker}}`, `{{bin}}`, `{{tree}}`,
-  `{{run}}`; exploratory calls substitute only `{{bin}}` and `{{tree}}`, each in a fresh scratch dir, `HOME`, the
-  caches, the tmp root and the writable tree shared within a side; every check run starts from the tree, `HOME` and
-  the caches as the build left them, with an empty `TMPDIR` of its own (the tmp root itself is not reset).
+  Calls substitute only `{{bin}}` and `{{tree}}`, each in a fresh scratch dir, `HOME`, the
+  caches, the tmp root and the writable tree shared within a side, nothing restored between calls.
   `previewtools/prepare` (stdlib only) is the trusted inits' engine: a digest-verified fetch into unlinked temp files,
   extraction refusing absolute or `..` paths, hard links, devices, fifos, links leaving the tree, entries through a
   link, duplicates, oversize (480 MiB) and a non-empty destination, then a+rX, `Install` of tool-exec, and `Seed`.
@@ -970,25 +954,25 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `KindBuild` in the side's tree, 10m by default and at most 20m, keeping a 256 KiB output tail, `AllowedEnv` (the
   search path and the build's network profile, refusing a variable the shim sets itself: `HOME`, `TMPDIR`, `GOCACHE`,
   `GOTOOLCHAIN`, the npm cache), the UID-wide sweep before every answer (`Result.Unclean` when something survives,
-  nothing more runs until a sweep is clean), `Result.NetError`, `Request.Fresh` (every check run's first program: the
-  tree, `/work/bin` and `HOME` put back from the copy `/work/kept` taken after the build (at most `MaxKeptBytes`, else
-  `KeepFailed`) and held to their in-memory digests, refused when they cannot be; the caches (GOCACHE, npm's) pruned to
-  the build's own entries by an in-memory manifest of type, mode, size, inode and ctime, never copied (a removed Go entry
-  only a miss, an npm one fetched again or an install error, never another answer); an empty `TMPDIR` of the run's
-  own under `Options.Tmp`, shared by its later requests; `fresh.go`, `cache.go`), UID 0 refused) and `cmd/maul-tool`
+  nothing more runs until a sweep is clean), `Result.NetError`, no copy kept and nothing restored (the tree,
+  `/work/bin`, `HOME`, the caches and the tmp root are the side's, each program seeing what earlier ones left; a
+  request still asking `fresh` is refused at the wire), UID 0 refused) and `cmd/maul-tool`
   (the CLI: `[observed]` lines before `[untrusted output]`, screenshots fetched by sha256 into `shots/` under the scratch
   directory only). Each imports only the stdlib, `toolwire` and, for the shim,
   `x/net/websocket` (tests pin that).
 - `toolledger` — the pure reading of a tool pod's ledger, shared by both hosts (pin: stdlib, `toolwire`,
-  `api/v1alpha1`, `httpstep` and `checks`): `Parse` (the `tools` log held to its termination summary), `Index`,
-  `ReplayRuns`, `ConfirmationRuns`, `ConfirmedChecks` (bodies from the ledger's own dry-run records), the dry-run
-  lookups and `Readiness`, all skipping base entries so they return the head's runs only, `BaseRuns` (base replays and
-  base confirmations tagged `tree: base`, capped at `MaxBaseRuns`, the only source of `status.base.runs`),
+  `api/v1alpha1` and `httpstep`): `Parse` (the `tools` log held to its termination summary), `Index` (the status
+  index, a base call's entry `side: base`, an evaluator call that got no answer `noAnswer`, a refusal the relay's gate
+  made before sending the call anywhere, no key or past `maxToolCalls`, `ranNothing`), `Readiness`,
   `ConfigMapData` (oldest outputs dropped first) and `Key`; `ApplyStatus` (the one ledger-to-status write both hosts
-  make: replay, confirmations, confirmed checks, and the summary the host names its ConfigMaps on), `EvaluatorCalled`
-  and `RoundReason` (full round with no evaluator call: `evaluator-not-run`, or `tools-not-ready` with no
-  `status.tools`; replay round cut short: `replay-incomplete`). Its trust root: a log that does not hold is Infra
-  `ledger-mismatch`, never a verdict.
+  make: the index and the summary the host names its ConfigMaps on; never the retired replay, confirmation, confirmed or
+  base fields), `OwnCalls` (which calls the comments and the status page label as the evaluator's own page script or
+  program, failing closed: a browser call unless its kept line shows a verb other than `eval`, every `run`, and an
+  `exec` other than an agents round's bare run of the built binary after nothing of the evaluator's ran at that side,
+  since `/work` is writable; a refused exec or run there counts as having run unless `ranNothing`),
+  `ReadStored` (a `<pv>-ledger` line, shown only where it is the index's call and its output re-hashes),
+  `EvaluatorCalled` and `RoundReason` (a round with no evaluator call: `evaluator-not-run`, or `tools-not-ready` with no
+  `status.tools`). Its trust root: a log that does not hold is Infra `ledger-mismatch`, never a verdict.
 - `toolpod` — what both hosts render alike, values only (pin: stdlib, core/v1, `api/v1alpha1`, `previewtools`):
   `Security(uid)`, `Deadlines` (Job, pod and relay wall clock), `NewKey`, `ConfigData`. `toolpod/podstate` (pin:
   stdlib, core/v1) is how both hosts read a tool pod: `TerminationMessage`, `ImageID` (empty past the status field's
@@ -1013,15 +997,15 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   `mismatch` (settled Off, the switched-off error) otherwise. intent-controller reads the approved plan's outcomes
   into `status.acceptance` on the first review pass (a plan stating criteria: `ErrSliceOneCriteria`, a replan notice
   under the evaluator, else a record of their digest alone), and at the gate (CI green, no human round pending, the
-  heads, the bounds) creates an immutable outcome `PreviewVerification` (`ic/verify_*.go`, `evaluate_*.go`). A
-  reproduced failure starts a verify-fix round (a `revise` run, trigger `verify`, own `verifyFixRounds()` counter,
-  `maxVerifyFixes`, `RepeatedFailure` stop by fingerprint, never a block); the human always wins (`humanPending` halts
-  auto-fix; a Pending fix is cancelled through `status.verification.cancelRun`). It posts the `maul/acceptance` commit
-  status on the open heads in the evaluated head set of a verifying Project, and on no other pull request of the
-  intent (`acceptanceOn`; a status of an earlier pass outside it is answered once by a final error) (statuses write:
-  `intentperm.CommitStatus`, an Optional grant,
+  heads, the bounds) creates an immutable outcome `PreviewVerification` (`ic/verify_*.go`, `evaluate_*.go`). An
+  outcome seen not to hold starts a verify-fix round (a `revise` run, trigger `verify`, own `verifyFixRounds()`
+  counter, `maxVerifyFixes`, `RepeatedFailure` stop by the failing outcomes' fingerprint, never a block); the human
+  always wins (`humanPending` halts auto-fix; a Pending fix is cancelled through `status.verification.cancelRun`). It
+  posts the `maul/acceptance` commit status on the open heads in the evaluated head set of a verifying Project, and on
+  no other pull request of the intent (`acceptanceOn`; a status of an earlier pass outside it is answered once by a
+  final error) (statuses write: `intentperm.CommitStatus`, an Optional grant,
   never part of Ready; without it the Project's `AcceptanceStatusUnavailable` and no status; success only in the
-  `outcomes` mode, when every outcome is confirmed or an approver accepted it at the current heads, or for a plan
+  `outcomes` mode, when every outcome is seen to hold or an approver accepted it at the current heads, or for a plan
   declaring none an approver's `/maul accept all`; a final error once verification is switched off; digest-deduped,
   impostor-checked once per poll), a verification comment, a sticky-comment section, and settles
   `/maul verify [fix|--reset]` and `/maul accept <id>|all` from both surfaces (`verify_commands.go`). `VerifyFailing`
@@ -1132,23 +1116,23 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   foreground command's output is printed live as `MAUL-OUTPUT:` chunks (`output.go`: read from the file the CLI
   keeps it in, via the optional `harness.TaskWatcher`; bounded per command and per process by constants; never
   persisted, never a turn, never idle-watchdog progress; `jobs.scanLog` skips it), and one lock serialises every
-  stdout line. The evaluator's stages `evaluate` (`evaluate.go`, `evaluate_tools.go`: the strict JSON handoff from
-  `/work/input`, the `SandboxEvaluate` posture in `/work/scratch`, then `confirm` and `finish` sent to the tool pod;
-  its envelope is only the model's claim) and `checkreview` (`checkreview.go`: one fresh session per new check,
-  answering `proves`, `does_not_prove` or `unclear`) run on maul's image with no tree; `report.Evaluation` and
-  `report.CheckReview` are their reports, the plan report gains `acceptance` outcomes. On an agents round the evaluate
-  handoff names the surface (`EvaluateTools.Workspace{Surface, Binary, Language, Build}`) and carries `Tools.Key`,
-  which agent-runner writes to `input/tools-key` (0400, `maultool.KeyFile`) before the model runs, adds to the
-  scrubber, and sends with its own `confirm` and `finish` (a key on a slot round is refused); the check review handoff
-  carries `Workspace{surface, binary, language, build, base_unbuildable}` and each item's `head`/`base` run (result,
-  assertion, the base run's `cause`): a green item's head run must be `pass`, a red one's `fail` by its
-  `failed_assertion`. Whether the REAL model writes
-  that report as the decoder demands is `TestEvaluatorReportProbe` (`evaluate_report_probe_test.go`, `mise run
-  evaluator-report-probe`): the real evaluate prompt and its out-of-turns repair prompt for a tiny synthetic round,
-  the pinned CLI, a stand-in maul-tool (the test binary re-entered), the report through `readReportAs` and
-  `parseEvaluation`'s two steps; it needs `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` and costs about $0.20,
-  and CI runs it when those prompts, the schema or the CLI pin change, only where the repository secret
-  `EVALUATOR_PROBE_ANTHROPIC_API_KEY` or `EVALUATOR_PROBE_CLAUDE_CODE_OAUTH_TOKEN` exists (otherwise it warns and passes).
+  stdout line. The evaluator's stage `evaluate` (`evaluate.go`, `evaluate_tools.go`: the strict JSON handoff from
+  `/work/input`, the `SandboxEvaluate` posture in `/work/scratch`, then only `finish` sent to the tool pod, naming
+  at most 6 screenshots the verdicts cite first; its envelope is only the model's claim) runs on maul's image with no
+  tree; `report.Evaluation` is its report (verdicts and anomalies only, decoded strictly, so a report carrying the
+  retired `disputes`, `proposed`, `retire` or `contrary` keys is refused and repaired like any other), and the plan
+  report gains `acceptance` outcomes. `MAUL_PHASE=checkreview` is a configuration error: the stage is retired. On an
+  agents round the evaluate handoff names the surface (`EvaluateTools.Workspace{Surface, Binary, Language, Build}`) and
+  carries `Tools.Key`, which agent-runner writes to `input/tools-key` (0400, `maultool.KeyFile`) before the model runs,
+  adds to the scrubber, and sends with its own `finish` (a key on a slot round is refused). Whether the REAL model
+  writes that report as the decoder demands, and observes as the judge counts, is `TestEvaluatorReportProbe`
+  (`evaluate_report_probe_test.go`, `mise run evaluator-report-probe`): the real evaluate prompt and its out-of-turns
+  repair prompt for a tiny synthetic round, the pinned CLI, a stand-in maul-tool (the test binary re-entered, keeping a
+  ledger), the report through `readReportAs` and `parseEvaluation`, then `acceptance.Judge` over that ledger (the
+  working outcome seen to hold, the broken one seen not to, each on a cited call); it needs `ANTHROPIC_API_KEY` or
+  `CLAUDE_CODE_OAUTH_TOKEN` and costs about $0.20, and CI runs it when those prompts, the schema, the judge or the CLI
+  pin change, only where the repository secret `EVALUATOR_PROBE_ANTHROPIC_API_KEY` or
+  `EVALUATOR_PROBE_CLAUDE_CODE_OAUTH_TOKEN` exists (otherwise it warns and passes).
 - `jobs` — the Kubernetes Job the agent runs in. The isolation model lives here, and it STRENGTHENED with the
   broker: a brokered (claude, codex) pod holds no credential of any kind — its projected SA token (audience-bound,
   agent container only, never the init) is an identity document, not a capability; claude's fixed, non-secret
@@ -1182,7 +1166,8 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   reserved per-Job names). The prepare init runs `agent-runner sandbox-probe`: strict inside the injection script on a
   repository image, else the wait probe (`--mode=wait --targets=k8s,imds`, `|| echo`, never fails the Job) as the
   script's last step, both with `MAUL_SANDBOX_PROBE_TIMEOUT` (default 20s); evaluation Jobs run neither.
-  `evaluator.go` is the agent evaluator's and check reviewer's Job shape (`Spec.Role`): maul's image, no tree, no
+  `evaluator.go` is the agent evaluator's Job shape (`Spec.Role`; `RoleCheckReview` stays only because the chart's
+  policies select by it for one release): maul's image, no tree, no
   artifact fetch, no network profile, no resolver whatever `Config.DNS` says (the broker and the tool pod are host
   entries), `maul.run/role` on Job and pod, and for the evaluator `maul.run/preview-verification` plus a prepare ending
   in the strict probe over every target, DNS included (`Config.SandboxProbeDNS`).

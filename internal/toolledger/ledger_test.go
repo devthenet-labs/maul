@@ -13,7 +13,6 @@ import (
 	"time"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
@@ -88,50 +87,122 @@ func TestIndexAndReadiness(t *testing.T) {
 	}
 }
 
-// What status holds of the ledger is read from the ledger alone: a
-// confirmation whose check is over the saved bound, bound to no outcome
-// under evaluation, or that failed, confirms nothing.
-func TestConfirmedChecks(t *testing.T) {
-	at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	var entries []toolwire.LedgerEntry
-	add := func(e toolwire.LedgerEntry) {
-		e.Seq, e.TS = int64(len(entries)+1), at
-		entries = append(entries, e)
+// The index records each entry's tree in the ledger's own encoding: base
+// for a base-side call, no side for the head however the head was spelled
+// and for a verb that takes no side, so a base call is never read as
+// evidence about the head (acceptance.ValidCite).
+func TestIndexRecordsSide(t *testing.T) {
+	sha := strings.Repeat("c", 64)
+	entry := func(seq int64, verb toolwire.Verb, side toolwire.Side) toolwire.LedgerEntry {
+		return toolwire.LedgerEntry{Seq: seq, Kind: toolwire.KindAgent, Verb: verb, Side: side, OutputSHA256: sha}
 	}
-	pass := []toolwire.Attempt{{Run: "0123456789abcdef", Result: toolwire.ResultPass}}
-	propose := func(body string, confirmed toolwire.RunResult) string {
-		c, err := checks.Parse([]byte(body))
-		if err != nil {
-			t.Fatal(err)
+	idx := Index([]toolwire.LedgerEntry{
+		entry(1, toolwire.VerbExec, toolwire.SideBase),
+		entry(2, toolwire.VerbExec, ""),
+		entry(3, toolwire.VerbExec, toolwire.SideHead),
+		entry(4, toolwire.VerbRun, toolwire.SideBase),
+		entry(5, toolwire.VerbHTTP, ""),
+	})
+	want := []v1alpha1.TreeSide{v1alpha1.TreeBase, "", "", v1alpha1.TreeBase, ""}
+	if len(idx) != len(want) {
+		t.Fatalf("index has %d entries, want %d", len(idx), len(want))
+	}
+	for i, w := range want {
+		if idx[i].Side != w {
+			t.Errorf("entry %d side = %q, want %q", idx[i].Seq, idx[i].Side, w)
 		}
-		d := strings.TrimPrefix(checks.Digest(c), "sha256:")
-		args, _ := json.Marshal(toolwire.CheckRunRequest{Spec: checks.Canonical(c)})
-		add(toolwire.LedgerEntry{Kind: toolwire.KindAgent, Verb: toolwire.VerbCheckRun, Args: args,
-			CheckRun: &toolwire.CheckRunRecord{Digest: d, Mode: toolwire.ModeDryRun, Result: toolwire.RunPass,
-				Attempts: pass}})
-		attempts := pass
-		if confirmed == toolwire.RunFail {
-			attempts = []toolwire.Attempt{{Run: "a", Result: toolwire.ResultFail}, {Run: "b", Result: toolwire.ResultFail}}
+	}
+}
+
+// TestIndexRecordsNoAnswer: the index marks the evaluator's call that got
+// nothing back from what it exercised (noAnswer), which no claim can rest
+// on (acceptance.ValidCite): an http request whose entry holds no answered
+// exchange (no response: DNS, refused, timeout, TLS, reset), and a run
+// whose program never ran (notRun). An answered exchange of any status, an
+// exec or a run of any exit, a refused call and the relay's own readiness
+// wait are not marked.
+func TestIndexRecordsNoAnswer(t *testing.T) {
+	sha := strings.Repeat("c", 64)
+	entry := func(kind toolwire.Kind, verb toolwire.Verb, output string) toolwire.LedgerEntry {
+		return toolwire.LedgerEntry{Kind: kind, Verb: verb, Output: output, OutputSHA256: sha}
+	}
+	notRun := entry(toolwire.KindAgent, toolwire.VerbRun, "# maulcheck\n./main.go:1: undefined: x\n")
+	notRun.NotRun, notRun.Exit = true, 1
+	ran := entry(toolwire.KindAgent, toolwire.VerbRun, "boom\n")
+	ran.Exit = 1
+	refused := entry(toolwire.KindAgent, toolwire.VerbHTTP, "")
+	refused.Refused = "navigation"
+	notStarted := func(verb toolwire.Verb, exit int, output string) toolwire.LedgerEntry {
+		e := entry(toolwire.KindAgent, verb, output)
+		e.Exit = exit
+		return e
+	}
+	for _, tt := range []struct {
+		name  string
+		entry toolwire.LedgerEntry
+		want  bool
+	}{
+		{"http with no response", entry(toolwire.KindAgent, toolwire.VerbHTTP, ""), true},
+		{"http whose output is not an exchange", entry(toolwire.KindAgent, toolwire.VerbHTTP, "HTTP/1.1 200"), true},
+		{"http answered 200", entry(toolwire.KindAgent, toolwire.VerbHTTP, "HTTP 200\n\nok"), false},
+		{"http answered 503", entry(toolwire.KindAgent, toolwire.VerbHTTP, "HTTP 503\n\n"), false},
+		{"refused http", refused, false},
+		{"the relay's readiness wait", entry(toolwire.KindRelay, toolwire.VerbHTTP, `[]`), false},
+		{"a run whose program did not compile", notRun, true},
+		{"a run that ran and exited 1", ran, false},
+		{"an exec with no output", entry(toolwire.KindAgent, toolwire.VerbExec, ""), false},
+		// FD 2: a program the shim could not start ran nothing; its output
+		// is maul's own marker alone, at exit 127 (not found) or 126.
+		{"an exec whose program was not found", notStarted(toolwire.VerbExec, 127,
+			`[maul: could not start make: exec: "make": executable file not found in $PATH]`), true},
+		{"an exec whose program could not start", notStarted(toolwire.VerbExec, 126,
+			"[maul: could not start ./tool: fork/exec ./tool: permission denied]"), true},
+		{"a run whose compiled program could not start", notStarted(toolwire.VerbRun, 126,
+			"[maul: could not start ./maulcheck: fork/exec ./maulcheck: exec format error]"), true},
+		{"the marker at another exit", notStarted(toolwire.VerbExec, 1,
+			"[maul: could not start make: exec: \"make\": executable file not found in $PATH]"), false},
+		{"the marker with output after it", notStarted(toolwire.VerbExec, 127,
+			"[maul: could not start x: no]\nmore"), false},
+		{"the marker after output", notStarted(toolwire.VerbExec, 127,
+			"out\n[maul: could not start x: no]"), false},
+		{"a shell that ran and found no program", notStarted(toolwire.VerbExec, 127,
+			"sh: 1: make: not found\n"), false},
+		{"a refused exec", func() toolwire.LedgerEntry {
+			e := notStarted(toolwire.VerbExec, 0, "")
+			e.Refused = toolwire.RefusedUnavailable
+			return e
+		}(), false},
+		{"a browser call", entry(toolwire.KindAgent, toolwire.VerbBrowser, ""), false},
+	} {
+		tt.entry.Seq = 1
+		if got := Index([]toolwire.LedgerEntry{tt.entry})[0].NoAnswer; got != tt.want {
+			t.Errorf("%s: noAnswer %v, want %v", tt.name, got, tt.want)
 		}
-		add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbConfirm, Args: json.RawMessage(`{}`),
-			CheckRun: &toolwire.CheckRunRecord{Digest: d, Mode: toolwire.ModeConfirm, Result: confirmed,
-				Attempts: attempts}})
-		return d
 	}
-	good := propose(testCheckBody, toolwire.RunPass)
-	propose(strings.ReplaceAll(testCheckBody, "items", "other"), toolwire.RunPass)
-	propose(strings.Replace(testCheckBody, "items.body", "items.fails", 1), toolwire.RunFail)
-	big := strings.Replace(testCheckBody, "/api/echo", "/api/"+strings.Repeat("a", v1alpha1.MaxSavedCheckBytes), 1)
-	if _, err := checks.Parse([]byte(big)); err == nil {
-		propose(strings.Replace(big, "items.body", "items.big", 1), toolwire.RunPass)
-	}
-	got := ConfirmedChecks(entries, testOutcomes())
-	if len(got) != 1 || got[0].Digest != "sha256:"+good || got[0].ID != "items.body" {
-		t.Errorf("confirmed %+v", got)
-	}
-	runs := ConfirmationRuns(entries)
-	if len(runs) < 3 || runs[0].DryRunSeq != 1 || runs[0].Seq != 2 || runs[2].Result != v1alpha1.CheckRunFail {
-		t.Errorf("confirmations %+v", runs)
+}
+
+// TestIndexRecordsRanNothing (FD 1): only a refusal under a code the
+// relay's gate alone writes, before it sends a call anywhere (no key, past
+// maxToolCalls), shows that nothing ran. Every other refusal may have come
+// after the call was sent, and an unrefused call ran.
+func TestIndexRecordsRanNothing(t *testing.T) {
+	for _, tt := range []struct {
+		refused string
+		want    bool
+	}{
+		{toolwire.RefusedKey, true},
+		{toolwire.RefusedToolCalls, true},
+		{toolwire.RefusedUnavailable, false},
+		{toolwire.RefusedInvalid, false},
+		{toolwire.RefusedVerb, false},
+		{"", false},
+	} {
+		for _, verb := range []toolwire.Verb{toolwire.VerbExec, toolwire.VerbRun} {
+			e := toolwire.LedgerEntry{Seq: 1, Kind: toolwire.KindAgent, Verb: verb, Refused: tt.refused}
+			if got := Index([]toolwire.LedgerEntry{e})[0].RanNothing; got != tt.want {
+				t.Errorf("%s refused %q: ranNothing %v, want %v", verb, tt.refused, got, tt.want)
+			}
+		}
 	}
 }
 

@@ -16,7 +16,6 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 )
 
 // subject is what a request was re-checked against.
@@ -155,9 +154,9 @@ func normalizeRepoURL(u string) string {
 
 // approvedOutcomes holds pv to its Intent as preview-controller holds a
 // slot outcome verification: exactly the approved outcomes under their
-// digest; its saved checks under the check store's digest (none before a
-// first check is saved), each parsing, its id, outcome, form and digest its
-// body's, within the bound, bound to an approved outcome; and its tools.
+// digest, and its tools. Saved checks are no part of it (the relay replays
+// none), so neither pv's retired checks nor the Intent's check store are
+// read.
 func approvedOutcomes(pv *v1alpha1.PreviewVerification, in *v1alpha1.Intent) bool {
 	a := in.Status.Acceptance
 	if a == nil || len(a.Outcomes) == 0 || len(pv.Spec.Outcomes) == 0 || pv.Spec.Tools == nil {
@@ -169,27 +168,6 @@ func approvedOutcomes(pv *v1alpha1.PreviewVerification, in *v1alpha1.Intent) boo
 	if !ok || !ok2 || digest != a.OutcomesDigest || digest != pv.Spec.OutcomesDigest ||
 		acceptance.OutcomesDigest(requested) != digest {
 		return false
-	}
-	if a.Checks == nil {
-		return len(pv.Spec.Checks) == 0 && pv.Spec.ChecksDigest == ""
-	}
-	return pv.Spec.ChecksDigest == a.Checks.Digest && savedChecksValid(pv.Spec.Checks, a.Outcomes)
-}
-
-// savedChecksValid reports whether every saved check parses, its id,
-// outcome, form and digest its body's, within the bound, bound to one of
-// outcomes.
-func savedChecksValid(saved []v1alpha1.SavedCheck, outcomes []v1alpha1.AcceptanceOutcome) bool {
-	ids := map[string]bool{}
-	for _, o := range outcomes {
-		ids[o.ID] = true
-	}
-	for _, sc := range saved {
-		c, err := checks.Parse([]byte(sc.Body))
-		if err != nil || c.ID != sc.ID || c.Outcome != sc.Outcome || string(c.Form) != string(sc.Form) ||
-			checks.Digest(c) != sc.Digest || len(sc.Body) > v1alpha1.MaxSavedCheckBytes || !ids[sc.Outcome] {
-			return false
-		}
 	}
 	return true
 }

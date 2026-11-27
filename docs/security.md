@@ -138,7 +138,7 @@ A cluster whose network plugin does not enforce NetworkPolicy cannot isolate pre
 An outcome is one result the approved plan promises; a round is one evaluation of the pull request heads, and each round
 gets a fresh random key that every tool call must present.
 
-With the [agent evaluator](intents/evaluator.md) on, an agent explores a preview and writes checks. It is split so that
+With the [agent evaluator](intents/evaluator.md) on, an agent uses a preview through maul's tools. It is split so that
 no part holds both the model and the application:
 
 - **The evaluator** is an agent pod that reaches only the broker and its round's tool pod. It has no DNS, no internet
@@ -151,8 +151,10 @@ no part holds both the model and the application:
   no ServiceAccount token and no model credential, and reaches only the artifact server and, if its build has one, its
   network profile. Every call to it needs the round's key.
 
-The evaluator's own report never passes an outcome. maul passes one only on a check it stored and re-ran itself, which a
-second model then judged to prove the outcome.
+The evaluator's report passes an outcome only when its verdict cites a call of the round's ledger that used the
+application: maul checks the citation against the ledger the relay wrote, never the evaluator's account of it. Whether
+the call shows what the verdict says is for the reviewers, who see every cited call; treat a pass as "the evaluator saw
+this", not as proof.
 
 ## The status page
 

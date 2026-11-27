@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +20,6 @@ import (
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/ghclient"
 	"github.com/devthenet-labs/maul/internal/jobs"
-	"github.com/devthenet-labs/maul/internal/templates"
 )
 
 // evaluationReport is an evaluator's report on outcomesPlan's outcomes.
@@ -51,9 +49,7 @@ func (e *env) evaluatorOn(cost float64) {
 		s.Evaluator = true
 		s.Evaluate = StageCeiling{MaxTurns: DefaultEvaluateMaxTurns, TokenBudget: DefaultEvaluateTokenBudget,
 			Timeout: DefaultEvaluateTimeout}
-		s.CheckReview = StageCeiling{MaxTurns: DefaultCheckReviewMaxTurns,
-			TokenBudget: DefaultCheckReviewTokenBudget, Timeout: DefaultCheckReviewTimeout}
-		s.EvaluateModel, s.CheckReviewModel = "anthropic/claude-sonnet-5", "anthropic/claude-haiku-5"
+		s.EvaluateModel = "anthropic/claude-sonnet-5"
 		s.DefaultHandoff, s.HandoffMax = v1alpha1.HandoffGated, time.Hour
 		s.EvaluationCostMax, s.MaxToolCalls = 6000000, 300
 	}
@@ -112,12 +108,25 @@ func (e *env) playTools(name string, phase v1alpha1.PreviewVerificationPhase, ip
 		pv.Status.Tools = &v1alpha1.ToolsStatus{PodIP: ip, Port: jobs.ToolsPort, Ready: ready}
 	}
 	if phase == v1alpha1.VerificationObserved {
-		pv.Status.Ledger = &v1alpha1.LedgerSummary{Count: 5, SHA256: strings.Repeat("a", 64)}
+		pv.Status.Ledger = observedLedger(5)
 	}
 	// PreviewVerification carries no status subresource in the fake client.
 	if err := e.c.Update(context.Background(), pv); err != nil {
 		e.t.Fatal(err)
 	}
+}
+
+// observedLedger is a verified ledger's summary in status as a tool host
+// writes it: n entries, each the evaluator's own unrefused http call at the
+// head (acceptance.ValidCite admits every one), so a verdict citing any of
+// 1..n counts.
+func observedLedger(n int32) *v1alpha1.LedgerSummary {
+	l := &v1alpha1.LedgerSummary{Count: n, SHA256: strings.Repeat("a", 64)}
+	for seq := int32(1); seq <= n; seq++ {
+		l.Entries = append(l.Entries, v1alpha1.LedgerIndexEntry{Seq: seq, Kind: v1alpha1.LedgerKindAgent,
+			Verb: v1alpha1.LedgerVerbHTTP, ResultSHA256: strings.Repeat("b", 64)})
+	}
+	return l
 }
 
 // TestEvaluatorCreatedAfterToolsStatus: the evaluation round creates its
@@ -240,10 +249,10 @@ func checkEvaluateHandoff(t *testing.T, raw string, pv *v1alpha1.PreviewVerifica
 
 // TestEvaluationRoundCollects: the evaluator's report is kept on its run,
 // and once preview-controller settles the verification the round is judged,
-// both in hand: until maul judges the facts every outcome is unsure and the
-// verification Unconfirmed. With no check proven for the outcomes its
-// evaluator passed, the round asks for its heads' one recheck (recheckable),
-// a full round started by itself, and nothing more.
+// both in hand: until then the verification stays Evaluating. Judged, the
+// outcomes the evaluator saw hold, citing its own calls, pass, the manual
+// one waits for a person (Unconfirmed), and nothing more runs by itself:
+// no saved check, no follow-up round.
 func TestEvaluationRoundCollects(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
@@ -267,35 +276,34 @@ func TestEvaluationRoundCollects(t *testing.T) {
 	if v.State != v1alpha1.VerificationUnconfirmed || len(v.Outcomes) != 3 {
 		t.Fatalf("verification = %+v, want Unconfirmed with every outcome", v)
 	}
+	want := map[string]v1alpha1.OutcomeResultValue{oVersion: v1alpha1.OutcomePassed,
+		oHealthy: v1alpha1.OutcomePassed, oManual: v1alpha1.OutcomeUnsure}
 	for _, o := range v.Outcomes {
-		if o.Result != v1alpha1.OutcomeUnsure {
-			t.Errorf("outcome %s = %s, never passed before maul judges it", o.ID, o.Result)
+		if o.Result != want[o.ID] {
+			t.Errorf("outcome %s = %s, want %s", o.ID, o.Result, want[o.ID])
 		}
 	}
 	if v.EvaluationCostMicroUSD != 400000 {
 		t.Errorf("evaluation cost = %d, want the evaluate run's 400000", v.EvaluationCostMicroUSD)
 	}
-	if esc := v.Escalation; esc == nil || esc.Round != 1 || esc.HeadSetDigest != v.HeadSetDigest {
-		t.Errorf("escalation %+v, want round 1's recheck at its heads", esc)
+	if v.Escalation != nil || v.ModelRound != nil || v.Rung != "" {
+		t.Errorf("escalation %+v, model round %+v, rung %q: the retired ladder written", v.Escalation,
+			v.ModelRound, v.Rung)
 	}
-	recheck := e.roundOf(name, 2)
-	if recheck.Spec.Rung != v1alpha1.RungFull || recheck.Spec.HeadSetDigest != pv.Spec.HeadSetDigest ||
-		recheck.Annotations[annotationVerificationTrigger] != verificationByAutomatic {
-		t.Errorf("round 2 = %s at %s by %q, want the full recheck at round 1's heads, automatic",
-			recheck.Spec.Rung, recheck.Spec.HeadSetDigest, recheck.Annotations[annotationVerificationTrigger])
+	if n := len(e.runsOf(name, v1alpha1.IntentStageCheckReview)); n != 0 {
+		t.Errorf("%d check review runs, want none", n)
 	}
 	e.review(name, 3)
-	if n := len(e.verifications(name)); n != 2 {
-		t.Errorf("verifications = %d, want the round and its one recheck", n)
+	if n := len(e.verifications(name)); n != 1 {
+		t.Errorf("verifications = %d, want the round alone", n)
 	}
 }
 
 // TestEvaluationCeilingSparesTheFixBudget: the evaluation's spend counts
 // against its own ceiling only. An evaluation dearer than the Project's
 // shared ceiling neither blocks the intent nor stops a revise round's lease;
-// once the evaluation ceiling is spent, neither the recheck round 1 asks for
-// nor a requested round starts (Unconfirmed, the request consumed) and the
-// intent is still not blocked.
+// once the evaluation ceiling is spent, a requested round does not start
+// (Unconfirmed, the request consumed) and the intent is still not blocked.
 func TestEvaluationCeilingSparesTheFixBudget(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 2.0, func(p *v1alpha1.Project) {
 		p.Spec.Limits.MaxCostMicroUSD = 1000000
@@ -321,9 +329,8 @@ func TestEvaluationCeilingSparesTheFixBudget(t *testing.T) {
 	if p.atCeiling() || p.evaluationSpend() != 2000000 || p.sharedSpend() >= 1000000 {
 		t.Fatalf("shared %d at ceiling %v, evaluation %d", p.sharedSpend(), p.atCeiling(), p.evaluationSpend())
 	}
-	if v := in.Status.Verification; v.Escalation == nil || len(e.verifications(name)) != 1 {
-		t.Fatalf("escalation %+v, %d verifications; want the recheck asked for and held at the ceiling",
-			v.Escalation, len(e.verifications(name)))
+	if n := len(e.verifications(name)); n != 1 {
+		t.Fatalf("%d verifications; want the round alone", n)
 	}
 
 	// The evaluation ceiling, lowered under what was spent: a request
@@ -490,10 +497,8 @@ func (e *env) runPtrs(name string) []*v1alpha1.IntentRun {
 	return out
 }
 
-// TestRoleHandoffBounds: the evaluate handoff drops changed paths, then
-// its oldest refusals, to fit agent-runner's bound and refuses one that
-// cannot fit; the check review
-// handoff is refused empty or over its bound, never cut.
+// TestRoleHandoffBounds: the evaluate handoff drops changed paths to fit
+// agent-runner's bound and refuses one that cannot fit.
 func TestRoleHandoffBounds(t *testing.T) {
 	h := agentrun.EvaluateHandoff{Round: 1, RunToken: "ev1a1-abcdef"}
 	for range 4000 {
@@ -503,49 +508,8 @@ func TestRoleHandoffBounds(t *testing.T) {
 	if err != nil || len(raw) > evaluateHandoffMaxBytes {
 		t.Fatalf("encode = %d bytes, %v", len(raw), err)
 	}
-	// Then the oldest refusals go, after the changed paths and before the
-	// handoff is refused: the newest refusal is kept.
-	h.ChangedPaths, h.Request = nil, strings.Repeat("r", evaluateHandoffMaxBytes-20<<10)
-	for i := range templates.PriorRefusedMax {
-		h.PriorRefused = append(h.PriorRefused, agentrun.PriorRefusal{Outcome: "o", Check: fmt.Sprintf("c-%d", i),
-			Reason: strings.Repeat("x", 1000)})
-	}
-	if raw, err = encodeEvaluateHandoff(h); err != nil || len(raw) > evaluateHandoffMaxBytes {
-		t.Fatalf("encode with refusals = %d bytes, %v", len(raw), err)
-	}
-	if !strings.Contains(raw, fmt.Sprintf(`"c-%d"`, templates.PriorRefusedMax-1)) || strings.Contains(raw, `"c-0"`) {
-		t.Error("the oldest refusals were not the ones dropped")
-	}
-	h.PriorRefused, h.Request = nil, strings.Repeat("r", evaluateHandoffMaxBytes)
+	h.ChangedPaths, h.Request = nil, strings.Repeat("r", evaluateHandoffMaxBytes)
 	if _, err := encodeEvaluateHandoff(h); err == nil {
 		t.Error("an evaluate handoff over its bound with nothing to drop was encoded")
-	}
-	if _, err := encodeCheckReviewHandoff(agentrun.CheckReviewHandoff{}); err == nil {
-		t.Error("an empty check review handoff was encoded")
-	}
-	big := agentrun.CheckReviewHandoff{Request: "r", Components: []agentrun.EvaluateComponent{{Key: "a", Path: "/"}}}
-	for range 100 {
-		big.Reviews = append(big.Reviews, agentrun.CheckReviewItem{Check: strings.Repeat("c", 8<<10)})
-	}
-	if _, err := encodeCheckReviewHandoff(big); err == nil {
-		t.Error("a check review handoff over its bound was encoded")
-	}
-	one, err := encodeCheckReviewHandoff(agentrun.CheckReviewHandoff{
-		Reviews: []agentrun.CheckReviewItem{{CheckDigest: "sha256:x", Outcome: "o"}}})
-	if err != nil || !strings.HasPrefix(one, `{"reviews":[`) {
-		t.Errorf("encode = %s, %v", one, err)
-	}
-	// Coverage design C1: over the bound, the shared context goes before
-	// any review would: the request, then the components.
-	fits := agentrun.CheckReviewHandoff{Request: strings.Repeat("r", 32<<10),
-		Components: []agentrun.EvaluateComponent{{Key: "a", Path: "/"}}}
-	for range 60 {
-		fits.Reviews = append(fits.Reviews, agentrun.CheckReviewItem{Check: strings.Repeat("c", 8<<10)})
-	}
-	raw, err = encodeCheckReviewHandoff(fits)
-	if err != nil || len(raw) > checkReviewHandoffMaxBytes || strings.Contains(raw, `"request"`) ||
-		!strings.Contains(raw, `"components"`) {
-		t.Errorf("encode = %d bytes, %v; want the request dropped, the components and every review kept", len(raw),
-			err)
 	}
 }

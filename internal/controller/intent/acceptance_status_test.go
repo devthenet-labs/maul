@@ -50,20 +50,16 @@ func (e *env) postStatus(sha string, s ghclient.CommitStatus) {
 }
 
 // evaluating is a new intent under the evaluator in review, its Preview
-// live, its version and health checks stored, and its first round created
-// and evaluating; it returns the env, the intent, its pull request's head
-// and the two checks.
-func evaluatingIntent(t *testing.T, mutate ...func(*v1alpha1.Project)) (*env, string, string, v1alpha1.SavedCheck,
-	v1alpha1.SavedCheck) {
+// live, and its first round created and evaluating; it returns the env,
+// the intent and its pull request's head.
+func evaluatingIntent(t *testing.T, mutate ...func(*v1alpha1.Project)) (*env, string, string) {
 	t.Helper()
 	e, name := newEvaluatorEnv(t, 0.4, mutate...)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
 	if v := e.verification(name); v.State != v1alpha1.VerificationEvaluating {
 		t.Fatalf("verification = %+v, want Evaluating", v)
 	}
-	return e, name, e.get(name).Status.PullRequests[0].HeadSHA, version, health
+	return e, name, e.get(name).Status.PullRequests[0].HeadSHA
 }
 
 // TestAcceptanceStatusFollowsTheVerification: maul/acceptance is pending
@@ -72,16 +68,16 @@ func evaluatingIntent(t *testing.T, mutate ...func(*v1alpha1.Project)) (*env, st
 // post nothing. A pass with a manual outcome open is never green; once an
 // approver accepts it, success, naming them.
 func TestAcceptanceStatusFollowsTheVerification(t *testing.T) {
-	e, name, head, version, health := evaluatingIntent(t)
+	e, name, head := evaluatingIntent(t)
 	e.review(name, 1)
 	if s := e.latestAcceptance(head); s.State != statusPending || !strings.HasPrefix(s.Description,
-		"maul is checking this") {
+		templates.EvaluatingLead) {
 		t.Fatalf("while evaluating: %+v", s)
 	}
-	e.evalRound(name, replays(version, health, v1alpha1.CheckRunPass, v1alpha1.CheckRunPass)...)
+	e.evalRound(name)
 	e.review(name, 3)
 	s := e.latestAcceptance(head)
-	if s.State == statusSuccess || !strings.Contains(s.Description, "2/3 outcomes confirmed") {
+	if s.State == statusSuccess || !strings.Contains(s.Description, "2/3 outcomes seen to hold") {
 		t.Fatalf("once passed with the manual outcome open: %+v", s)
 	}
 	pr := e.get(name).Status.PullRequests[0]
@@ -119,10 +115,10 @@ func TestAcceptanceStatusStates(t *testing.T) {
 	})
 	for _, gates := range []bool{true, false} {
 		t.Run(map[bool]string{true: "manual gates", false: "manual open"}[gates], func(t *testing.T) {
-			e, name, head, version, health := evaluatingIntent(t, func(p *v1alpha1.Project) {
+			e, name, head := evaluatingIntent(t, func(p *v1alpha1.Project) {
 				p.Spec.Verification.ManualGatesStatus = gates
 			})
-			e.evalRound(name, replays(version, health, v1alpha1.CheckRunPass, v1alpha1.CheckRunPass)...)
+			e.evalRound(name)
 			e.review(name, 3)
 			if s := e.latestAcceptance(head); s.State == statusSuccess {
 				t.Fatalf("status = %+v, want never success with the manual outcome open", s)
@@ -134,7 +130,7 @@ func TestAcceptanceStatusStates(t *testing.T) {
 // TestAcceptanceStatusUnavailable: when maul could not run the checks the
 // status is error, never success.
 func TestAcceptanceStatusUnavailable(t *testing.T) {
-	e, name, head, _, _ := evaluatingIntent(t)
+	e, name, head := evaluatingIntent(t)
 	for range v1alpha1.MaxVerificationAttempts {
 		e.playTools(e.verification(name).Ref.Name, v1alpha1.VerificationInfra, "", false)
 		e.review(name, 3)
@@ -246,7 +242,7 @@ func TestAcceptanceStatusSwitchedOff(t *testing.T) {
 		{"controller", func(e *env) { e.verifying(false, true); e.evaluating(false) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e, name, head, _, _ := evaluatingIntent(t)
+			e, name, head := evaluatingIntent(t)
 			e.review(name, 1)
 			if s := e.latestAcceptance(head); s.State != statusPending {
 				t.Fatalf("while evaluating: %+v", s)
@@ -272,7 +268,7 @@ func TestAcceptanceStatusSwitchedOff(t *testing.T) {
 func TestAcceptanceStatusSwitchedOffStaysOff(t *testing.T) {
 	for _, creator := range []string{testBot, "mallory"} {
 		t.Run(creator, func(t *testing.T) {
-			e, name, head, _, _ := evaluatingIntent(t)
+			e, name, head := evaluatingIntent(t)
 			e.review(name, 1)
 			e.evaluating(false)
 			e.review(name, 4)
@@ -280,7 +276,7 @@ func TestAcceptanceStatusSwitchedOffStaysOff(t *testing.T) {
 				t.Fatalf("once switched off: %+v", s)
 			}
 			e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: statusSuccess,
-				Description: "1/1 outcomes confirmed", Creator: creator})
+				Description: "1/1 outcomes seen to hold", Creator: creator})
 			e.review(name, 2)
 			s := e.latestAcceptance(head)
 			if s.Creator != testBot || s.State != statusError || s.Description != switchedOff.description {
@@ -332,7 +328,7 @@ func TestAcceptanceStatusImpostor(t *testing.T) {
 // not an impostor's: in maul's own state, nothing is re-posted and no one
 // is named (in another, TestAcceptanceStatusOwnLostWriteIsRestated).
 func TestAcceptanceStatusOwnLaterStatusIsNoImpostor(t *testing.T) {
-	e, name, head, _, _ := evaluatingIntent(t)
+	e, name, head := evaluatingIntent(t)
 	e.review(name, 2)
 	e.postStatus(head, ghclient.CommitStatus{Context: acceptanceContext, State: e.latestAcceptance(head).State,
 		Creator: testBot})
@@ -363,7 +359,7 @@ func TestAcceptanceStatusOwnLostWriteIsRestated(t *testing.T) {
 			if tc.failing {
 				e, name, _ = failingEvaluation(t)
 			} else {
-				e, name, _, _, _ = evaluatingIntent(t)
+				e, name, _ = evaluatingIntent(t)
 			}
 			head := e.get(name).Status.PullRequests[0].HeadSHA
 			e.review(name, 2)
@@ -500,10 +496,8 @@ func TestAcceptanceStatusWithoutStatusesWrite(t *testing.T) {
 		t.Fatalf("project conditions = %+v", conds)
 	}
 	e.evaluateReporting(failingReport)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
-	e.evalRound(name, replays(version, health, v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)...)
+	e.evalRound(name)
 	e.review(name, 2)
 	if v := e.verification(name); v.State != v1alpha1.VerificationFailing && v.State != v1alpha1.VerificationFixing {
 		t.Fatalf("not verified: %+v", v)

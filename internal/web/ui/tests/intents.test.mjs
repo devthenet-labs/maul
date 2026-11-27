@@ -5,9 +5,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
+  EXCERPT_LIMIT,
   INTENTS_VIEW_FILES,
   OUTPUT_KEEP,
   OUTPUT_LIMIT_NOTE,
+  citedCalls,
   costShare,
   evidenceImageURL,
   formatDuration,
@@ -439,8 +441,84 @@ test("shortDigest cuts a digest to 12 hex characters", () => {
 
 test("the demo evaluate run has an evaluation, other runs none", () => {
   const ev = mockRunEvaluation("storefront-7", "storefront-7-ev-r1-a1");
-  assert.ok(ev && ev.outcomes.length > 0 && ev.checks.length > 0);
+  assert.ok(ev && ev.outcomes.length > 0);
+  assert.ok(ev.outcomes.some((o) => citedCalls(o, ev.ledger, ev.intent, ev.run).length > 0), "no outcome cites a call");
+  assert.equal("checks" in ev, false, "the demo still carries the retired checks");
   assert.equal(mockRunEvaluation("storefront-7", "storefront-7-plan-r1-a1"), null);
+});
+
+// The cited calls of one outcome, as a transcripts-tier reader is served
+// them: an http call, the evaluator's own page script with its stored
+// screenshot and a long output, a call whose output was cut to fit, and a
+// seq the index does not hold.
+const citedLedger = () => ({
+  count: 7,
+  sha256: "c".repeat(64),
+  outputs: true,
+  entries: [
+    { seq: 1, kind: "agent", verb: "http", resultSHA256: "1".repeat(64), args: '{"path":"/api/basket"}', output: "HTTP/1.1 200 OK" },
+    {
+      seq: 2,
+      kind: "agent",
+      verb: "browser",
+      own: true,
+      resultSHA256: "2".repeat(64),
+      args: '{"verb":"eval","args":["() => document.title"]}',
+      output: `### Result\n${"line of output\n".repeat(200)}`,
+      artifacts: [{ sha256: "e".repeat(64), image: `2-${"e".repeat(64)}.png` }, { sha256: "f".repeat(64) }],
+    },
+    { seq: 3, kind: "agent", verb: "exec", own: true, exit: 1, resultSHA256: "3".repeat(64), args: '{"argv":["node","t.js"]}', outputDropped: true },
+    { seq: 4, kind: "agent", verb: "exec", side: "base", resultSHA256: "4".repeat(64), args: '{"argv":["x"]}', output: "base" },
+  ],
+});
+
+test("citedCalls shows each cited call's request, an excerpt, its screenshot and whose script it ran", () => {
+  const calls = citedCalls({ id: "o", outcome: "", kind: "change", cites: [1, 2, 3, 9] }, citedLedger(), "alpha-7", "alpha-7-ev-r1-a1");
+  assert.deepEqual(
+    calls.map((c) => c.seq),
+    [1, 2, 3, 9],
+  );
+  const [http, script, cut, missing] = calls;
+  assert.equal(http.request, '{"path":"/api/basket"}');
+  assert.equal(http.excerpt, "HTTP/1.1 200 OK");
+  assert.equal(http.own, "");
+  assert.deepEqual(http.images, []);
+
+  assert.equal(script.own, "the evaluator's own page script");
+  assert.match(script.request, /eval/);
+  assert.ok(script.excerpt.startsWith("### Result\nline of output"), script.excerpt);
+  assert.ok(script.excerpt.length <= EXCERPT_LIMIT && script.excerptCut, "a long output is cut to its excerpt");
+  assert.ok(script.excerpt.endsWith("line of output"), "the excerpt is cut at a line");
+  assert.deepEqual(script.images, [`/api/intents/alpha-7/runs/alpha-7-ev-r1-a1/evidence/2-${"e".repeat(64)}.png`]);
+
+  assert.equal(cut.own, "the evaluator's own program");
+  assert.equal(cut.outputNotKept, true);
+  assert.equal(cut.excerpt, "");
+  assert.equal(cut.exit, 1);
+
+  assert.equal(missing.indexed, false);
+  assert.equal(missing.request, "");
+});
+
+test("citedCalls at the intents tier names the calls and shows none of their content", () => {
+  const ledger = citedLedger();
+  ledger.outputs = false;
+  for (const e of ledger.entries) {
+    delete e.args;
+    delete e.output;
+    delete e.own;
+    delete e.outputDropped;
+    for (const a of e.artifacts ?? []) delete a.image;
+  }
+  const calls = citedCalls({ id: "o", outcome: "", kind: "change", cites: [1, 2, 3] }, ledger, "alpha-7", "r");
+  for (const c of calls) {
+    assert.equal(c.indexed, true);
+    assert.equal(c.request + c.excerpt + c.own, "", JSON.stringify(c));
+    assert.equal(c.outputNotKept, false, "a reader who may not see outputs is not told one was lost");
+    assert.deepEqual(c.images, []);
+  }
+  assert.deepEqual(citedCalls({ id: "o", outcome: "", kind: "change" }, ledger, "a", "r"), []);
+  assert.deepEqual(citedCalls({ id: "o", outcome: "", kind: "change", cites: [1] }, undefined, "a", "r")[0].indexed, false);
 });
 
 test("an agents round's hand-off line never mentions a preview", () => {
@@ -454,6 +532,6 @@ test("an agents round's hand-off line never mentions a preview", () => {
   }
   assert.equal(
     handoffLine({ mode: "gated", released: true, reason: "ready" }, undefined, " 5 Nov"),
-    "Preview handed over 5 Nov: maul checked the approved outcomes.",
+    "Preview handed over 5 Nov: maul's evaluator saw every approved outcome hold, citing calls maul recorded.",
   );
 });

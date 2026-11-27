@@ -142,8 +142,8 @@ func Fields() []Field {
 }
 
 // StageNames are the stages that have limits, in spec.limits' spelling:
-// every stage the controller runs, the check reviewer's included, though the
-// page offers no limit of that one (Fields has none).
+// every stage the controller runs. The retired check reviewer's is none of
+// them (limits.checkReview stays in the schema for one release, pinned).
 func StageNames() []string {
 	out := make([]string, 0, len(stages))
 	for _, s := range stages {
@@ -358,10 +358,10 @@ func delegation(s *v1alpha1.ProjectSpec) *v1alpha1.ProjectDelegation {
 // stage is one stage that has limits, a model of its own or not.
 type stage struct {
 	name string
-	// limits and doc are the stage's limits in a spec and in a document. A
-	// stage with no doc has limits the page does not offer (the check
-	// reviewer, being retired: the owner's decision 8): they are no rows of
-	// the table, but still count toward its run budget.
+	// limits and doc are the stage's limits in a spec and in a document.
+	// The retired check reviewer's limits (limits.checkReview) are no stage:
+	// the controller runs none, so they count toward no run budget, and the
+	// admission policy pins them until the next release removes the field.
 	limits func(*v1alpha1.ProjectLimits) *v1alpha1.StageLimits
 	doc    func(*ProjectSettingsStages) *ProjectSettingsStage
 	// ceiling is the controller's ceiling for the stage.
@@ -387,9 +387,6 @@ var stages = []stage{
 		limits:  func(l *v1alpha1.ProjectLimits) *v1alpha1.StageLimits { return &l.Evaluate },
 		doc:     func(d *ProjectSettingsStages) *ProjectSettingsStage { return &d.Evaluate },
 		ceiling: func(c *v1alpha1.ProjectStageCeilings) *v1alpha1.ProjectStageCeiling { return &c.Evaluate }},
-	{name: "checkReview", role: true,
-		limits:  func(l *v1alpha1.ProjectLimits) *v1alpha1.StageLimits { return &l.CheckReview },
-		ceiling: func(c *v1alpha1.ProjectStageCeilings) *v1alpha1.ProjectStageCeiling { return &c.CheckReview }},
 }
 
 // table is every editable field but the per-repository one.
@@ -401,9 +398,7 @@ func buildTable() []row {
 	rows = append(rows, modelRows()...)
 	rows = append(rows, limitRows()...)
 	for _, s := range stages {
-		if s.doc != nil {
-			rows = append(rows, stageRows(s)...)
-		}
+		rows = append(rows, stageRows(s)...)
 	}
 	rows = append(rows, delegationRows()...)
 	return append(rows, checkRows()...)

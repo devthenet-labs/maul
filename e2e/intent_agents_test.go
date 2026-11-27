@@ -20,7 +20,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/jobs"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -225,19 +224,6 @@ func (e *evalEnv) agentsVerification(t *testing.T, name string) v1alpha1.Preview
 	return out
 }
 
-// baseRedByAssertion reports a base run of a check failing at its
-// assertion, every base run naming the base tree.
-func baseRedByAssertion(runs []v1alpha1.CheckRun) bool {
-	red := false
-	for _, r := range runs {
-		if r.Tree != v1alpha1.TreeBase {
-			return false
-		}
-		red = red || (r.Result == v1alpha1.CheckRunFail && r.AssertionID != "")
-	}
-	return red
-}
-
 // checkNoPreview asserts the intent never had a Preview: no slot was ever
 // taken for it.
 func (e *evalEnv) checkNoPreview(t *testing.T) {
@@ -254,11 +240,11 @@ func (e *evalEnv) checkNoPreview(t *testing.T) {
 // TestIntentAgentsCLIPasses (cases 1, 6, 7 and 9): a correct cli build.
 // The plan states one outcome; the agents host builds the head and the
 // merge base in their own sandboxes; the scripted evaluator runs the built
-// program, writes an exec check, dry-runs it at the head (green) and the
-// base (red: the base does not greet), and proposes it; the tools container
-// confirms it at both sides, the reviewer answers proves, and maul judges
-// the outcome confirmed. The hand-off is gated while maul checks and then
-// ready, with no link and no slot: the Project has no preview.
+// program at the head, sees it greet, runs it at the base for context, and
+// passes the outcome citing the head run. maul counts the pass on that
+// cited call (never the base's): no check is written, confirmed, reviewed
+// or stored. The hand-off is gated while maul checks and then ready, with
+// no link and no slot: the Project has no preview.
 // preview-controller runs beside it and never writes the agents
 // verification.
 func TestIntentAgentsCLIPasses(t *testing.T) {
@@ -271,7 +257,7 @@ func TestIntentAgentsCLIPasses(t *testing.T) {
 	})
 	release := e.kubelet.holdToolsReady(t)
 	number, name, pr := e.agentsToEvaluating(t)
-	e.waitStatus(t, pr.HeadSHA, "pending", "maul is checking this")
+	e.waitStatus(t, pr.HeadSHA, "pending", "maul is evaluating this")
 	pv := e.checkHeldToolPod(t, name)
 	release()
 
@@ -286,13 +272,13 @@ func TestIntentAgentsCLIPasses(t *testing.T) {
 		t.Errorf("the ledger records %d key refusals, want the two foreign calls:\n%s", got, tool.Stdout)
 	}
 	checkNotPreviewControllers(t, &pv)
-	if acc := in.Status.Acceptance; acc.Checks == nil || acc.Checks.Count != 1 || len(acc.Reviews) != 1 {
-		t.Errorf("acceptance checks %+v reviews %+v; want the check stored and reviewed", acc.Checks, acc.Reviews)
+	if acc := in.Status.Acceptance; (acc.Checks != nil && acc.Checks.Count > 0) || len(acc.Reviews) != 0 {
+		t.Errorf("acceptance checks %+v reviews %+v; want nothing stored or reviewed", acc.Checks, acc.Reviews)
 	}
-	checkConfirmedAtBoth(t, e.agentsVerification(t, name), pr.HeadSHA)
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	checkSeenAtHead(t, e.agentsVerification(t, name), in.Status.Verification, pr.HeadSHA)
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	e.waitStatusComment(t, name, number, "the status comment to say ready with no link", func(body string) bool {
-		return strings.Contains(body, "Ready: maul checked the approved outcomes.") &&
+		return strings.Contains(body, readyLabel) &&
 			!strings.Contains(body, previewHostSuffix)
 	})
 	e.checkNoPreview(t)
@@ -343,88 +329,30 @@ func checkNotPreviewControllers(t *testing.T, pv *v1alpha1.PreviewVerification) 
 	}
 }
 
-// checkConfirmedAtBoth asserts the round's workspace at head and its merge
-// base, one check confirmed, and the base built with the check red by its
-// assertion there: the base does not greet, so the check tells the change
-// apart.
-func checkConfirmedAtBoth(t *testing.T, pv v1alpha1.PreviewVerification, head string) {
+// checkSeenAtHead asserts the round's workspace at head and its merge
+// base, and the one outcome seen to hold on calls of the head alone: the
+// evaluator's base run, made for context, is never among its cites.
+func checkSeenAtHead(t *testing.T, pv v1alpha1.PreviewVerification, v *v1alpha1.IntentVerification, head string) {
 	t.Helper()
 	if ws := pv.Spec.Workspace; ws == nil || ws.HeadSHA != head || ws.BaseSHA == head {
 		t.Errorf("workspace %+v, want the head %s and its merge base", ws, head)
 	}
-	if len(pv.Status.Confirmed) != 1 {
-		t.Errorf("confirmed %d checks, want one", len(pv.Status.Confirmed))
+	if len(pv.Status.Confirmed) != 0 {
+		t.Errorf("confirmed %d checks, want none", len(pv.Status.Confirmed))
 	}
-	if b := pv.Status.Base; b == nil || b.Unbuildable || !baseRedByAssertion(b.Runs) {
-		t.Errorf("base %+v, want it built and the check red by assertion there", b)
+	if len(v.Outcomes) != 1 || v.Outcomes[0].Reason != "seen-to-hold" || len(v.Outcomes[0].Cites) == 0 {
+		t.Fatalf("outcomes %+v, want one seen to hold on a cited call", v.Outcomes)
 	}
-}
-
-// TestIntentAgentsRecheckPasses is TestIntentEvaluateRecheckPasses (#428) on
-// a Project with no preview: on a correct cli build the evaluator passes the
-// outcome and the reviewer refuses its check as too weak. Round 1 is held
-// only by that refusal, so maul checks once more by itself: round 2, full
-// and automatic at the same heads, whose evaluator is shown the refused
-// check and amends it, which the reviewer accepts. Round 2 passes, the
-// hand-off is ready with no link and maul/acceptance is success; no round 3.
-func TestIntentAgentsRecheckPasses(t *testing.T) {
-	e := startAgents(t, agentsOptions{
-		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBase},
-		surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
-		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-pass", "MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet",
-			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally", "MAUL_FAKE_CLAUDE_REVIEW": "weak-refused"},
-	})
-	number, name, pr := e.toReview(t)
-	in := e.waitEval(t, name, "the recheck to pass", func(v *v1alpha1.IntentVerification) bool {
-		return v.Round == 2 && v.State == v1alpha1.VerificationPassed
-	})
-	v := in.Status.Verification
-	for _, o := range v.Outcomes {
-		if o.Result != "passed" || o.Reason != "confirmed" {
-			t.Errorf("outcome %+v, want confirmed on the recheck's amended check", o)
+	for _, seq := range v.Outcomes[0].Cites {
+		if e := pv.Status.Ledger.Entries[seq-1]; e.Side == v1alpha1.TreeBase || e.Verb != v1alpha1.LedgerVerbExec {
+			t.Errorf("cited entry %+v, want an exec at the head", e)
 		}
 	}
-	first, recheck := e.round(t, name, 1), e.round(t, name, 2)
-	if !first.Spec.IsAgents() || !recheck.Spec.IsAgents() {
-		t.Errorf("rounds %s and %s, want both on the agents host", first.Name, recheck.Name)
+	if !slices.ContainsFunc(pv.Status.Ledger.Entries, func(e v1alpha1.LedgerIndexEntry) bool {
+		return e.Side == v1alpha1.TreeBase && e.Kind == v1alpha1.LedgerKindAgent
+	}) {
+		t.Errorf("index %+v, want the evaluator's base run recorded at the base", pv.Status.Ledger.Entries)
 	}
-	if recheck.Spec.Rung != v1alpha1.RungFull || recheck.Spec.HeadSetDigest != first.Spec.HeadSetDigest ||
-		recheck.Annotations["maul.run/verification-trigger"] != "automatic" {
-		t.Errorf("round 2 = %s at %s by %q, want the full recheck at round 1's heads, automatic", recheck.Spec.Rung,
-			recheck.Spec.HeadSetDigest, recheck.Annotations["maul.run/verification-trigger"])
-	}
-	if esc := v.Escalation; esc == nil || esc.Round != 1 || !esc.Recheck || v.Automatic != 2 {
-		t.Errorf("escalation %+v, automatic %d; want round 1's recheck, counted", esc, v.Automatic)
-	}
-	if n := len(e.stageRuns(t, name, v1alpha1.IntentStageEvaluate)); n != 2 {
-		t.Errorf("evaluate runs = %d, want round 1's and the recheck's", n)
-	}
-	refused, proven := 0, 0
-	for _, r := range in.Status.Acceptance.Reviews {
-		switch {
-		case r.Answer == "does_not_prove" && r.Check == "greets":
-			refused++
-		case r.Answer == "proves" && r.Check == "greets.again":
-			proven++
-		default:
-			t.Errorf("review %+v, want round 1's check refused and the recheck's proven", r)
-		}
-	}
-	if refused != 1 || proven != 1 {
-		t.Errorf("%d refused, %d proven; want round 1's refused and the amended one proven", refused, proven)
-	}
-	checkConfirmedAtBoth(t, recheck, pr.HeadSHA)
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
-	eventually(t, "round 2's comment to say maul checked once more", func() bool {
-		return strings.Contains(strings.Join(e.gh.Comments(number), ""), "### maul: verification 2, attempt 1 "+
-			"(maul checked once more by itself: a check was not accepted)")
-	})
-	if h := e.intent(t, name).Status.Verification.Handoff; h == nil || !h.Released ||
-		h.Reason != v1alpha1.HandoffReasonReady {
-		t.Errorf("handoff %+v, want released ready after the recheck", h)
-	}
-	consistently(t, "no round 3", func() bool { return len(e.verifications(t, name)) == 2 })
-	e.checkNoPreview(t)
 }
 
 // tallyKeepOutcome is a plan stating that echoing stays: true at the base,
@@ -454,43 +382,31 @@ func main() {
 
 // TestIntentAgentsFixRound (case 2, wave 4): an agents fix round end to
 // end. The build plants a defect: --echo no longer prints its text, as the
-// base does. The scripted evaluator's exec check, run with its run's own
-// token, is red by its assertion at the head; it fails the outcome on that
-// run and proposes the check expecting a fail; maul confirms it red at the
-// head and green at the base and, a defect present from the first round,
-// holds it for a person (suspected defect, never an automatic fix). An
-// approver's /maul verify fix starts one verify-fix round, whose build
-// writes the program right. At the fix's head the next round's replay of
-// the saved check passes: the outcome is confirmed and the hand-off ready.
+// base does. The scripted evaluator runs the program at the head, sees the
+// text missing and fails the outcome citing that run; maul counts the fail
+// and, a failure seen in round 1 as in any round, starts one verify-fix
+// round, whose build writes the program right. At the fix's head the next
+// round's evaluator sees the text: the outcome holds and the hand-off is
+// ready.
 func TestIntentAgentsFixRound(t *testing.T) {
 	e := startAgents(t, agentsOptions{
 		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBase},
 		surfaces: tallyCLI(), build: tallyBreaksEcho, outcomes: tallyKeepOutcome,
 		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-fail",
-			"MAUL_FAKE_CLAUDE_CLI_ARGS": "--echo {{run}}", "MAUL_FAKE_CLAUDE_CHECK_TEXT": "{{run}}"},
+			"MAUL_FAKE_CLAUDE_CLI_ARGS": "--echo offbeat", "MAUL_FAKE_CLAUDE_CHECK_TEXT": "offbeat"},
 		// One tool pod at a time: a settled round's lingering Job must not
 		// hold the slot the next round needs (U26).
 		intentArgs: []string{"--intent-max-tool-pods", "1"},
 	})
-	number, name, pr := e.toReview(t)
-	in := e.waitEval(t, name, "round 1 to hold a suspected defect", func(v *v1alpha1.IntentVerification) bool {
-		return len(v.Outcomes) == 1 && v.Outcomes[0].Reason == acceptance.ReasonSuspectedDefect &&
-			v.Suspected != nil
-	})
-	if len(e.verifyRuns(t, name)) != 0 {
-		t.Errorf("a fix round started on a defect present from round 1: %s", e.describeRuns(t, name))
-	}
-	pv := e.agentsVerification(t, name)
-	if b := pv.Status.Base; b == nil || len(b.Runs) == 0 || b.Runs[0].Result != v1alpha1.CheckRunPass {
-		t.Errorf("base %+v, want the check green at the base", b)
-	}
-
+	_, name, pr := e.toReview(t)
 	// The fix's build waits until it is handed the right program.
 	release := e.kubelet.hold(t, "build")
-	// A person confirms the defect once maul has recorded it.
-	afterSecond(in.Status.Verification.Suspected.RecordedAt.Time)
-	e.requestRound(t, number)
 	fix := e.waitFixRun(t, name)
+	in := e.intent(t, name)
+	if o := in.Status.Verification.Outcomes; in.Status.Verification.Round != 1 || len(o) != 1 ||
+		o[0].Result != v1alpha1.OutcomeFailed || o[0].Reason != "seen-not-to-hold" {
+		t.Errorf("verification %+v, want round 1 failed on the cited run", in.Status.Verification)
+	}
 	e.kubelet.setAgentEnv("MAUL_FAKE_BUILD_EXTRA_CONTENT", tallyGreets)
 	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_EVALUATE", "cli-pass")
 	release()
@@ -510,74 +426,12 @@ func TestIntentAgentsFixRound(t *testing.T) {
 	if in.Status.VerifyFixes != 1 || len(e.verifyRuns(t, name)) != 1 {
 		t.Errorf("verify fixes %d, fix rounds %d; want one fix", in.Status.VerifyFixes, len(e.verifyRuns(t, name)))
 	}
-	e.waitStatus(t, head, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, head, "success", "1/1 outcomes seen to hold")
 	runs := e.kubelet.WorkspaceRuns()
 	if len(runs) < 2 {
 		t.Fatalf("%d agents tool pods ran, want one per round", len(runs))
 	}
-	if last := runs[len(runs)-1]; !strings.Contains(string(last.Stdout), `"mode":"replay"`) {
-		t.Errorf("the last round's ledger replays no saved check:\n%s", last.Stdout)
-	}
 	e.checkLingering(t, runs[0])
-}
-
-// TestIntentAgentsRedCheckWithoutRunData (G3-B-CLI-1): on a cli round, a
-// check showing a defect need not name its run: every check run starts
-// from the tree, build output and home as the build left them, so there
-// is no shared data for the slot's run-data rule to guard. The scripted
-// evaluator's exec check runs --echo on a fixed word, red by its
-// assertion at the head; maul confirms it red there and green at the base,
-// stores it once reviewed and holds the defect for a person, as it does a
-// check that names its run. An approver's /maul verify fix starts the fix,
-// and at the fix's head the saved check's replay passes: the outcome is
-// confirmed.
-func TestIntentAgentsRedCheckWithoutRunData(t *testing.T) {
-	e := startAgents(t, agentsOptions{
-		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBase},
-		surfaces: tallyCLI(), build: tallyBreaksEcho, outcomes: tallyKeepOutcome,
-		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-fail",
-			"MAUL_FAKE_CLAUDE_CLI_ARGS": "--echo offbeat", "MAUL_FAKE_CLAUDE_CHECK_TEXT": "offbeat"},
-		intentArgs: []string{"--intent-max-tool-pods", "1"},
-	})
-	number, name, pr := e.toReview(t)
-	in := e.waitEval(t, name, "round 1 to hold a suspected defect", func(v *v1alpha1.IntentVerification) bool {
-		return len(v.Outcomes) == 1 && v.Outcomes[0].Reason == acceptance.ReasonSuspectedDefect &&
-			v.Suspected != nil
-	})
-	if c := in.Status.Acceptance.Checks; c == nil || c.Count != 1 {
-		t.Errorf("check store %+v, want the red check stored", c)
-	}
-	pv := e.agentsVerification(t, name)
-	if len(pv.Status.Confirmed) != 1 || strings.Contains(pv.Status.Confirmed[0].Body, "{{run}}") {
-		t.Fatalf("confirmed %+v, want one check naming no run", pv.Status.Confirmed)
-	}
-	if b := pv.Status.Base; b == nil || len(b.Runs) == 0 || b.Runs[0].Result != v1alpha1.CheckRunPass {
-		t.Errorf("base %+v, want the check green at the base", b)
-	}
-	if len(e.verifyRuns(t, name)) != 0 {
-		t.Errorf("a fix round started on a defect present from round 1: %s", e.describeRuns(t, name))
-	}
-
-	release := e.kubelet.hold(t, "build")
-	afterSecond(in.Status.Verification.Suspected.RecordedAt.Time)
-	e.requestRound(t, number)
-	fix := e.waitFixRun(t, name)
-	e.kubelet.setAgentEnv("MAUL_FAKE_BUILD_EXTRA_CONTENT", tallyGreets)
-	e.kubelet.setAgentEnv("MAUL_FAKE_CLAUDE_EVALUATE", "cli-pass")
-	release()
-	in = e.waitFor(t, name, "the fix pushed and back in review", func(in *v1alpha1.Intent) bool {
-		run := e.run(t, fix.Name)
-		return in.Status.Phase == v1alpha1.IntentInReview && run.Status.PushedCommit != "" &&
-			in.Status.PullRequests[0].HeadSHA == run.Status.PushedCommit
-	})
-	head := in.Status.PullRequests[0].HeadSHA
-	if head == pr.HeadSHA {
-		t.Fatalf("the fix did not move the head from %s", head)
-	}
-	e.waitEval(t, name, "the round at the fix's head to pass", func(v *v1alpha1.IntentVerification) bool {
-		return v.State == v1alpha1.VerificationPassed && v.Heads[0].Revision == head
-	})
-	e.waitStatus(t, head, "success", "1/1 outcomes confirmed")
 }
 
 // checkLingering asserts a settled round's finished tool Job lingers (wave
@@ -651,12 +505,11 @@ func Check(s string) error {
 
 // TestIntentAgentsLibraryNewSymbol (case 3): a library outcome resting on
 // a symbol the change adds. The scripted evaluator reads the tree's go.mod,
-// runs a consumer program referring to strs.ErrTooLong at the head and the
-// base, and saves it as a run check printing its run's own token. At the
-// base the consumer does not compile: a compiler diagnostic in the
-// consumer's own main.go (undefined: lib.ErrTooLong), so the base run is an
-// error with the compile cause, which maul reads as "no base comparison"
-// (n/a). The outcome passes on the other rules, and the base still built.
+// runs a consumer program referring to strs.ErrTooLong at the head, where it
+// prints, and at the base, where it does not compile (the base run is
+// context, recorded at the base). It passes the outcome citing the read and
+// the head run: maul counts the head run (a read alone would not count) and
+// the outcome is seen to hold.
 func TestIntentAgentsLibraryNewSymbol(t *testing.T) {
 	e := startAgents(t, agentsOptions{
 		files: map[string]string{"go.mod": strsGoMod, "strs.go": strsBase},
@@ -669,20 +522,15 @@ func TestIntentAgentsLibraryNewSymbol(t *testing.T) {
 	in := e.waitEval(t, name, "the evaluation to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed
 	})
-	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed {
-		t.Errorf("outcomes %+v, want too-long passed", o)
+	o := in.Status.Verification.Outcomes
+	if len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed || len(o[0].Cites) != 1 {
+		t.Fatalf("outcomes %+v, want too-long passed on the one head run it cites", o)
 	}
 	pv := e.agentsVerification(t, name)
-	b := pv.Status.Base
-	if b == nil || b.Unbuildable || len(b.Runs) == 0 {
-		t.Fatalf("base %+v, want it built and the check run there", b)
+	if c := pv.Status.Ledger.Entries[o[0].Cites[0]-1]; c.Verb != v1alpha1.LedgerVerbRun || c.Side == v1alpha1.TreeBase {
+		t.Errorf("cited entry %+v, want the head run", c)
 	}
-	for _, r := range b.Runs {
-		if r.Tree != v1alpha1.TreeBase || r.Result != v1alpha1.CheckRunError || r.Cause != v1alpha1.CheckRunCauseCompile {
-			t.Errorf("base run %+v, want an error with the compile cause", r)
-		}
-	}
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	runs := e.kubelet.WorkspaceRuns()
 	if len(runs) != 1 {
 		t.Fatalf("%d agents tool pods ran, want one", len(runs))
@@ -744,59 +592,6 @@ func TestIntentAgentsHeadBuildFails(t *testing.T) {
 	}
 }
 
-// tallyBaseNetError is a base whose --greet names a connection error:
-// whatever the base prints when it cannot reach what it dials.
-const tallyBaseNetError = `package main
-
-import (
-	"fmt"
-	"os"
-)
-
-func main() {
-	if len(os.Args) > 1 && os.Args[1] == "--greet" {
-		fmt.Println("dial tcp 127.0.0.1:7: connect: connection refused")
-		os.Exit(1)
-	}
-	fmt.Println("usage: tally")
-}
-`
-
-// TestIntentAgentsBaseNetError (case 5, wave 4): the check passes at the
-// head, but at the base its program's output names a connection error. On a
-// pod whose loopback both sides share, the other side's leftover can cause
-// one, so the base run is an error with no cause: no base evidence. The
-// check cannot tell the change apart, so the outcome is unsure
-// (no-base-evidence), never a pass; and no fix round, which only a failed
-// outcome starts.
-func TestIntentAgentsBaseNetError(t *testing.T) {
-	e := startAgents(t, agentsOptions{
-		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBaseNetError},
-		surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
-		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-pass", "MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet",
-			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally"},
-	})
-	_, name, pr := e.toReview(t)
-	in := e.waitEval(t, name, "the round to end unconfirmed", func(v *v1alpha1.IntentVerification) bool {
-		return v.State == v1alpha1.VerificationUnconfirmed && len(v.Outcomes) == 1
-	})
-	if o := in.Status.Verification.Outcomes[0]; o.Result != v1alpha1.OutcomeUnsure ||
-		o.Reason != acceptance.ReasonNoBaseEvidence {
-		t.Errorf("outcome %+v, want unsure, no-base-evidence", o)
-	}
-	pv := e.agentsVerification(t, name)
-	if b := pv.Status.Base; b == nil || len(b.Runs) == 0 || b.Runs[0].Result != v1alpha1.CheckRunError ||
-		b.Runs[0].Cause != "" {
-		t.Errorf("base %+v, want an error run with no cause", b)
-	}
-	if st, ok := e.gh.LatestStatus(pr.HeadSHA, acceptanceStatus); ok && st.State == "success" {
-		t.Errorf("maul/acceptance %+v: no base evidence is no pass", st)
-	}
-	if len(e.verifyRuns(t, name)) != 0 {
-		t.Errorf("a fix round started on an unsure outcome: %s", e.describeRuns(t, name))
-	}
-}
-
 // tallyAlreadyGreets is a base that already answers --greet as the outcome
 // states: the change outcome's check cannot tell the head from it.
 const tallyAlreadyGreets = `package main
@@ -843,62 +638,43 @@ func ledgerBuild(pv v1alpha1.PreviewVerification, side v1alpha1.TreeSide) v1alph
 	return ""
 }
 
-// waitUnsureNoBaseEvidence waits for intent name's one outcome to end
-// unsure with no base evidence, never passed: maul/acceptance says it could
-// not confirm, and no fix round starts, which only a failed outcome does.
-func (e *evalEnv) waitUnsureNoBaseEvidence(t *testing.T, name, head string) v1alpha1.PreviewVerification {
-	t.Helper()
+// TestIntentAgentsBaseCiteNeverCounts: the base already greets. The
+// scripted evaluator runs the program at the base alone and passes the
+// outcome citing that base run: a call at the base is exploration of other
+// code, never evidence about the head, so maul counts nothing: the outcome
+// is unsure (no-valid-evidence), never passed, maul/acceptance says it
+// could not confirm, and no fix round starts.
+func TestIntentAgentsBaseCiteNeverCounts(t *testing.T) {
+	e := startAgents(t, agentsOptions{
+		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyAlreadyGreets},
+		surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
+		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "base-cite", "MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet",
+			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally"},
+	})
+	_, name, pr := e.toReview(t)
 	in := e.waitEval(t, name, "the round to end unconfirmed", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationUnconfirmed && len(v.Outcomes) == 1
 	})
 	if o := in.Status.Verification.Outcomes[0]; o.Result != v1alpha1.OutcomeUnsure ||
-		o.Reason != acceptance.ReasonNoBaseEvidence {
-		t.Errorf("outcome %+v, want unsure, no-base-evidence", o)
+		o.Reason != "no-valid-evidence" || len(o.Cites) != 0 {
+		t.Errorf("outcome %+v, want unsure on no valid evidence", o)
 	}
-	if v := in.Status.Verification; v.Passed != 0 || v.Failed != 0 {
-		t.Errorf("verification %+v, want nothing passed or failed", v)
+	pv := e.agentsVerification(t, name)
+	if !slices.ContainsFunc(pv.Status.Ledger.Entries, func(x v1alpha1.LedgerIndexEntry) bool {
+		return x.Side == v1alpha1.TreeBase && x.Verb == v1alpha1.LedgerVerbExec && x.Kind == v1alpha1.LedgerKindAgent
+	}) {
+		t.Errorf("index %+v, want the evaluator's base run recorded at the base", pv.Status.Ledger.Entries)
 	}
-	e.waitStatus(t, head, "error", "maul couldn't confirm this: 0/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "error", "maul can't call this ready: 0/1 outcomes seen to hold")
 	if len(e.verifyRuns(t, name)) != 0 {
 		t.Errorf("a fix round started on an unsure outcome: %s", e.describeRuns(t, name))
-	}
-	return e.agentsVerification(t, name)
-}
-
-// TestIntentAgentsGreenAtBase (review T2, rule 5): the base already greets,
-// so the change outcome's check passes at the head and at the base alike.
-// The scripted evaluator passes the outcome on its head run and proposes
-// the check; maul confirms it green at both sides and, since it does not
-// tell the change apart, never passes the outcome: unsure, no base
-// evidence.
-func TestIntentAgentsGreenAtBase(t *testing.T) {
-	e := startAgents(t, agentsOptions{
-		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyAlreadyGreets},
-		surfaces: tallyCLI(), build: tallyGreets, outcomes: tallyGreetOutcome,
-		env: map[string]string{"MAUL_FAKE_CLAUDE_EVALUATE": "cli-pass", "MAUL_FAKE_CLAUDE_CLI_ARGS": "--greet",
-			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally"},
-	})
-	_, name, pr := e.toReview(t)
-	pv := e.waitUnsureNoBaseEvidence(t, name, pr.HeadSHA)
-	if got := ledgerBuild(pv, v1alpha1.TreeBase); got != v1alpha1.BuildBuilt {
-		t.Errorf("base build %q, want built", got)
-	}
-	b := pv.Status.Base
-	if b == nil || b.Unbuildable || len(b.Runs) == 0 {
-		t.Fatalf("base %+v, want it built and the check run there", b)
-	}
-	for _, r := range b.Runs {
-		if r.Tree != v1alpha1.TreeBase || r.Result != v1alpha1.CheckRunPass {
-			t.Errorf("base run %+v, want the check green at the base", r)
-		}
 	}
 }
 
 // TestIntentAgentsBaseUnbuildable (review T2): the base does not compile
-// (undefined: fmt), a refusal of the base tree itself, so the base is
-// unbuildable and every base run is an error with the base-unbuildable
-// cause: no base comparison, which rule 5 admits. The check passes at the
-// head on every other rule, so the outcome is confirmed.
+// (undefined: fmt), so its build fails. The base is exploration only: the
+// evaluator's head run shows the outcome hold, so the outcome is seen to
+// hold, whatever the base did.
 func TestIntentAgentsBaseUnbuildable(t *testing.T) {
 	e := startAgents(t, agentsOptions{
 		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyDoesNotBuild},
@@ -910,37 +686,28 @@ func TestIntentAgentsBaseUnbuildable(t *testing.T) {
 	in := e.waitEval(t, name, "the evaluation to pass", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationPassed
 	})
-	o := in.Status.Verification.Outcomes
-	if len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed ||
-		!strings.HasSuffix(o[0].Line, "; no base comparison: the base did not build") {
-		t.Errorf("outcomes %+v, want greets passed with no base comparison, the base not built", o)
+	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed {
+		t.Errorf("outcomes %+v, want greets passed", o)
 	}
 	pv := e.agentsVerification(t, name)
 	if got := ledgerBuild(pv, v1alpha1.TreeBase); got != v1alpha1.BuildFailed {
 		t.Errorf("base build %q, want failed", got)
 	}
-	if b := pv.Status.Base; b == nil || !b.Unbuildable {
-		t.Errorf("base %+v, want it unbuildable", b)
-	}
-	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes confirmed")
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	runs := e.kubelet.WorkspaceRuns()
 	if len(runs) != 1 {
 		t.Fatalf("%d agents tool pods ran, want one", len(runs))
 	}
-	ledger := string(runs[0].Stdout)
-	for _, want := range []string{"undefined: fmt", `"cause":"base-unbuildable"`} {
-		if !strings.Contains(ledger, want) {
-			t.Errorf("the ledger does not record %s:\n%s", want, ledger)
-		}
+	if ledger := string(runs[0].Stdout); !strings.Contains(ledger, "undefined: fmt") {
+		t.Errorf("the ledger does not record the base's compile error:\n%s", ledger)
 	}
 }
 
 // TestIntentAgentsBaseBuildError (review T2, VC-1): the base's build fails
 // for a reason outside its own files (it imports a package no module
-// provides), which maul cannot tell is the tree's: a build error, not a
-// failed build, so the base is not unbuildable and every base run is an
-// error with no cause. That is no base evidence: unsure, never a pass on
-// the head alone.
+// provides), which maul cannot tell is the tree's: the ledger records a
+// build error, not a failed build. The base is exploration only, so the
+// outcome the head run shows holding is seen to hold.
 func TestIntentAgentsBaseBuildError(t *testing.T) {
 	e := startAgents(t, agentsOptions{
 		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBaseImportsMissing},
@@ -949,12 +716,16 @@ func TestIntentAgentsBaseBuildError(t *testing.T) {
 			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally"},
 	})
 	_, name, pr := e.toReview(t)
-	pv := e.waitUnsureNoBaseEvidence(t, name, pr.HeadSHA)
+	in := e.waitEval(t, name, "the evaluation to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed
+	})
+	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed {
+		t.Errorf("outcomes %+v, want greets passed: the base is exploration only", o)
+	}
+	pv := e.agentsVerification(t, name)
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	if got := ledgerBuild(pv, v1alpha1.TreeBase); got != v1alpha1.BuildError {
 		t.Errorf("base build %q, want error", got)
-	}
-	if b := pv.Status.Base; b == nil || b.Unbuildable {
-		t.Errorf("base %+v, want it not unbuildable", b)
 	}
 	runs := e.kubelet.WorkspaceRuns()
 	if len(runs) != 1 {
@@ -966,9 +737,6 @@ func TestIntentAgentsBaseBuildError(t *testing.T) {
 		if !strings.Contains(ledger, want) {
 			t.Errorf("the ledger does not record %s:\n%s", want, ledger)
 		}
-	}
-	if strings.Contains(ledger, `"cause":"base-unbuildable"`) {
-		t.Errorf("the ledger counts a base build error as unbuildable:\n%s", ledger)
 	}
 }
 
@@ -986,10 +754,9 @@ func main() {}
 // TestIntentAgentsBaseBuildNetError (review 2026-11-18 finding 7): the
 // base's build fails, but its output names a bind error, which may be the
 // environment's (the other side's build holding the port), never evidence
-// the base tree is unbuildable. The build is an error, not a failed build,
-// so rule 5 is not waived: every base run is an error with no cause, and
-// the outcome the check passes at the head is unsure (no-base-evidence),
-// never a pass.
+// the base tree is unbuildable: the ledger records a build error, not a
+// failed build. The base is exploration only, so the outcome the head run
+// shows holding is seen to hold.
 func TestIntentAgentsBaseBuildNetError(t *testing.T) {
 	e := startAgents(t, agentsOptions{
 		files:    map[string]string{"go.mod": tallyGoMod, "main.go": tallyBaseBuildBindError},
@@ -998,12 +765,16 @@ func TestIntentAgentsBaseBuildNetError(t *testing.T) {
 			"MAUL_FAKE_CLAUDE_CHECK_TEXT": "hello from tally"},
 	})
 	_, name, pr := e.toReview(t)
-	pv := e.waitUnsureNoBaseEvidence(t, name, pr.HeadSHA)
+	in := e.waitEval(t, name, "the evaluation to pass", func(v *v1alpha1.IntentVerification) bool {
+		return v.State == v1alpha1.VerificationPassed
+	})
+	if o := in.Status.Verification.Outcomes; len(o) != 1 || o[0].Result != v1alpha1.OutcomePassed {
+		t.Errorf("outcomes %+v, want greets passed: the base is exploration only", o)
+	}
+	pv := e.agentsVerification(t, name)
+	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	if got := ledgerBuild(pv, v1alpha1.TreeBase); got != v1alpha1.BuildError {
 		t.Errorf("base build %q, want error", got)
-	}
-	if b := pv.Status.Base; b == nil || b.Unbuildable {
-		t.Errorf("base %+v, want it not unbuildable", b)
 	}
 	runs := e.kubelet.WorkspaceRuns()
 	if len(runs) != 1 {
@@ -1015,9 +786,6 @@ func TestIntentAgentsBaseBuildNetError(t *testing.T) {
 		if !strings.Contains(ledger, want) {
 			t.Errorf("the ledger does not record %s:\n%s", want, ledger)
 		}
-	}
-	if strings.Contains(ledger, `"cause":"base-unbuildable"`) {
-		t.Errorf("the ledger counts a base build's bind error as unbuildable:\n%s", ledger)
 	}
 }
 

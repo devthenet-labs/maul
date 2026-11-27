@@ -237,8 +237,8 @@ func (p *pass) atCeiling() bool {
 	return p.sharedSpend() >= maxCostMicroUSD(p.proj)
 }
 
-// evaluationSpend is what the Intent's evaluate and checkreview runs have
-// spent, in micro-USD, summed as syncUsage sums every run's: what the
+// evaluationSpend is what the Intent's evaluate runs (and the checkreview
+// runs an earlier release left) have spent, in micro-USD, summed as syncUsage sums every run's: what the
 // evaluation ceiling (evaluationCeiling) is held to, and never the shared
 // ceiling, so evaluation can never use up the budget fix rounds need
 // (DESIGN 5).
@@ -264,7 +264,7 @@ func (p *pass) atEvaluationCeiling() bool {
 	return p.evaluationSpend() >= p.set.evaluationCeiling(p.proj)
 }
 
-// errEvaluationCeiling: lease refused an evaluate or checkreview run at the
+// errEvaluationCeiling: lease refused an evaluate run at the
 // intent's evaluation ceiling. Unlike errAtCeiling it never blocks the
 // intent: the round ends unconfirmed, and fix rounds keep their budget.
 var errEvaluationCeiling = errors.New("the intent's evaluations are at their cost ceiling")

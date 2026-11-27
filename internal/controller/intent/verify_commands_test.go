@@ -6,6 +6,7 @@ package intent
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -331,7 +332,7 @@ func TestPreviewCommand(t *testing.T) {
 		t.Fatalf("hand-off = %+v", h)
 	}
 	if v.Requested != nil || v.AutoFix.State != before.AutoFix.State || v.Reset.Generation != 0 ||
-		!slices.Equal(v.Outcomes, before.Outcomes) || v.State != before.State {
+		!reflect.DeepEqual(v.Outcomes, before.Outcomes) || v.State != before.State {
 		t.Errorf("/maul preview changed more than the hand-off: %+v", v)
 	}
 	if body := e.onlyReply(id); !strings.Contains(body, "the preview link is shown now") {

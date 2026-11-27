@@ -26,7 +26,7 @@ import (
 // evalRound plays one outcome round of intent name to its judgement: the
 // tool pod Ready, the evaluator run, the stored checks replayed as runs,
 // the reviews settled. It returns the round's PreviewVerification.
-func (e *env) evalRound(name string, runs ...v1alpha1.CheckRun) v1alpha1.PreviewVerification {
+func (e *env) evalRound(name string) v1alpha1.PreviewVerification {
 	e.t.Helper()
 	v := e.verification(name)
 	if v.Ref == nil {
@@ -38,7 +38,7 @@ func (e *env) evalRound(name string, runs ...v1alpha1.CheckRun) v1alpha1.Preview
 	e.review(name, 1)
 	e.runRuns()
 	e.runRuns()
-	e.replayed(pv.Name, runs...)
+	e.playTools(pv.Name, v1alpha1.VerificationObserved, toolPodIP, true)
 	e.settleReviews(name)
 	return *e.pvNamed(pv.Name)
 }
@@ -53,25 +53,15 @@ func outcomeRequest(t *testing.T, pv *v1alpha1.PreviewVerification) {
 	}
 }
 
-// replays are runs of version and health's checks with these results, the
-// version check's first.
-func replays(version, health v1alpha1.SavedCheck, vr, hr v1alpha1.CheckRunResult) []v1alpha1.CheckRun {
-	return []v1alpha1.CheckRun{{CheckDigest: version.Digest, Result: vr, Token: "t1", Seq: 2},
-		{CheckDigest: health.Digest, Result: hr, Token: "t2", Seq: 3}}
-}
-
 // outcomeEnv is newEvaluatorEnv whose evaluator reports the version
-// outcome failing and the health outcome passing, with both outcomes'
-// checks stored and reviewed proves. It returns the env, the intent's name
-// and the two checks.
-func outcomeEnv(t *testing.T) (*env, string, v1alpha1.SavedCheck, v1alpha1.SavedCheck) {
+// outcome failing and the health outcome passing. It returns the env and
+// the intent's name.
+func outcomeEnv(t *testing.T) (*env, string) {
 	t.Helper()
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.evaluateReporting(failingReport)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
-	return e, name, version, health
+	return e, name
 }
 
 // failingEvaluation is failingVerification's outcome twin: a new intent of
@@ -81,8 +71,8 @@ func outcomeEnv(t *testing.T) (*env, string, v1alpha1.SavedCheck, v1alpha1.Saved
 // PreviewVerification's name.
 func failingEvaluation(t *testing.T) (*env, string, string) {
 	t.Helper()
-	e, name, version, health := outcomeEnv(t)
-	pv := e.evalRound(name, replays(version, health, v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)...)
+	e, name := outcomeEnv(t)
+	pv := e.evalRound(name)
 	if v := e.verification(name); v.State != v1alpha1.VerificationFailing || v.Failed != 1 {
 		t.Fatalf("verification = %s %+v, want Failing on the version outcome", v.State, v.Outcomes)
 	}
@@ -92,7 +82,7 @@ func failingEvaluation(t *testing.T) (*env, string, string) {
 // TestOutcomeFixRoundStartsAndPushes is TestVerifyFixRoundStartsAndPushes
 // on outcomes: a reproduced failure at maul's own heads starts one
 // acceptance-fix round on the app's repository, consuming the round by
-// UID; its handoff records the evaluation's fingerprint; it pushes and is
+// UID; its handoff records the outcome fingerprint (v2); it pushes and is
 // counted as a verify fix, not a revision.
 func TestOutcomeFixRoundStartsAndPushes(t *testing.T) {
 	e, name, pvName := failingEvaluation(t)
@@ -121,8 +111,12 @@ func TestOutcomeFixRoundStartsAndPushes(t *testing.T) {
 		t.Fatalf("verify run = %s %s %q", run.Status.Phase, run.Status.Outcome, run.Status.Detail)
 	}
 	cm := e.runInput(run)
-	if sig := cm.Data[keyVerifySignature]; !strings.HasPrefix(sig, acceptance.EvaluationFingerprintVersion+":") {
-		t.Errorf("signature = %q, want the evaluation's fingerprint", sig)
+	if sig := cm.Data[keyVerifySignature]; !strings.HasPrefix(sig, acceptance.OutcomeFingerprintVersion+":") {
+		t.Errorf("signature = %q, want the evaluation's outcome fingerprint", sig)
+	}
+	if pieces := cm.Data[keyVerifySignatures]; !strings.HasPrefix(pieces, acceptance.OutcomePiecePrefix+oVersion+" ") ||
+		strings.Contains(pieces, "\n") {
+		t.Errorf("pieces = %q, want the failing outcome's alone", pieces)
 	}
 	if cm.Data[keyCheckSignature] != "" {
 		t.Errorf("a verify round recorded a check signature %q", cm.Data[keyCheckSignature])
@@ -132,7 +126,7 @@ func TestOutcomeFixRoundStartsAndPushes(t *testing.T) {
 // fixedAndFailingAgain drives intent name's fix round to push, the Preview
 // live at the fixed heads, and plays round 2 there with runs; it returns
 // the verification.
-func (e *env) fixedAndFailingAgain(name string, runs ...v1alpha1.CheckRun) *v1alpha1.IntentVerification {
+func (e *env) fixedAndFailingAgain(name string) *v1alpha1.IntentVerification {
 	e.t.Helper()
 	e.drive(name, v1alpha1.IntentRevising, repoImage)
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
@@ -141,7 +135,7 @@ func (e *env) fixedAndFailingAgain(name string, runs ...v1alpha1.CheckRun) *v1al
 	if again := e.verification(name); again.Ref == nil || again.Round != 2 {
 		e.t.Fatalf("no re-verification at the fixed heads: %+v", again)
 	}
-	e.evalRound(name, runs...)
+	e.evalRound(name)
 	e.review(name, 3)
 	return e.verification(name)
 }
@@ -153,8 +147,7 @@ func (e *env) fixedAndFailingAgain(name string, runs ...v1alpha1.CheckRun) *v1al
 // review.
 func TestOutcomeFixRepeatedFailureHalts(t *testing.T) {
 	e, name, _ := failingEvaluation(t)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	v := e.fixedAndFailingAgain(name, replays(version, health, v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)...)
+	v := e.fixedAndFailingAgain(name)
 	in := e.get(name)
 	if in.Status.Phase != v1alpha1.IntentInReview || len(e.verifyRuns(name)) != 1 ||
 		v.AutoFix.State != v1alpha1.AutoFixHalted || v.AutoFix.Reason != v1alpha1.AutoFixRepeatedFailure {

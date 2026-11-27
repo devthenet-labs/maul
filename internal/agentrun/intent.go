@@ -27,15 +27,15 @@ const (
 	fakeHarness   = "fake"
 )
 
-// runIntent runs an intent stage: PhasePlan, PhaseBuild, PhaseEvaluate or
-// PhaseCheckReview. Like Run it returns an error only for a fatal,
+// runIntent runs an intent stage: PhasePlan, PhaseBuild or PhaseEvaluate.
+// Like Run it returns an error only for a fatal,
 // before-the-stage failure — a harness intents may not run on (or, for a
 // role stage, one that cannot hold the evaluate posture), a plan whose
 // repositories manifest is broken or whose trees are missing
 // (repositories), a build handed no parseable approved plan, a request
 // beside it, or a multi-repository plan it cannot find its own repository
-// in (buildInput), a role stage's handoff it cannot read (evaluateInput,
-// checkReviewInput), or a phase that is none of these — which it has
+// in (buildInput), the evaluate stage's handoff it cannot read
+// (evaluateInput), or a phase that is none of these — which it has
 // already emitted as a fatal event. Stage outcomes, failed ones included,
 // are events with a nil return.
 func (a *Agent) runIntent(ctx context.Context) error {
@@ -74,16 +74,6 @@ func (a *Agent) runIntent(ctx context.Context) error {
 		}
 		a.emit(envelope.Event{Type: envelope.TypeEvaluation, Evaluation: a.evaluate(ctx, in)})
 		return nil
-	case PhaseCheckReview:
-		if err := a.roleHarness(); err != nil {
-			return fatal(err)
-		}
-		in, err := a.checkReviewInput()
-		if err != nil {
-			return fatal(err)
-		}
-		a.emit(envelope.Event{Type: envelope.TypeCheckReview, CheckReview: a.checkReview(ctx, in)})
-		return nil
 	}
 	return fatal(fmt.Errorf("phase %q is not an intent stage", a.cfg.Phase))
 }
@@ -99,8 +89,6 @@ func (a *Agent) stageLimits() (maxTurns, budget int, err error) {
 		maxTurns, budget = a.buildLimits()
 	case PhaseEvaluate:
 		maxTurns, budget = a.evaluateLimits()
-	case PhaseCheckReview:
-		maxTurns, budget = a.checkReviewLimits()
 	default:
 		return 0, 0, fmt.Errorf("phase %q is not an intent stage and has no stage limits", a.cfg.Phase)
 	}
@@ -157,12 +145,6 @@ func (a *Agent) evaluateLimits() (maxTurns, budget int) {
 	return a.lowered("max_turns", a.cfg.GrantedMaxTurns, a.cfg.InvestigateMaxTurns, a.cfg.InvestigateMaxTurns),
 		a.lowered("token_budget", a.cfg.GrantedTokenBudget, a.cfg.InvestigateTokenBudget, a.cfg.InvestigateTokenBudget)
 }
-
-// checkReviewLimits resolves the checkreview stage's turns and output
-// tokens with the evaluate stage's rule. The turns bound each review
-// session; the output tokens are the whole run's, every session's spend
-// counted against them (checkReview).
-func (a *Agent) checkReviewLimits() (maxTurns, budget int) { return a.evaluateLimits() }
 
 // buildLimits resolves the build stage's turns and output tokens with the
 // plan stage's semantics, not a remediation's grant(): the remediate

@@ -36,24 +36,9 @@ func TestVerifyNoticeGoldens(t *testing.T) {
 			n.Workspace, n.AfterRound = true, true
 			return n
 		}()},
-		{"intent_notice_verify_defect_confirmed.md", func() VerifyCommandNotice {
-			n := base(VerifyDefectConfirmed, "verify")
-			n.Fix = true
-			return n
-		}()},
 		{"intent_notice_verify_requested_fix.md", func() VerifyCommandNotice {
 			n := base(VerifyRequested, "verify")
 			n.Fix, n.Joined = true, true
-			return n
-		}()},
-		{"intent_notice_verify_requested_explore.md", func() VerifyCommandNotice {
-			n := base(VerifyRequested, "verify")
-			n.Explore = true
-			return n
-		}()},
-		{"intent_notice_verify_not_run_explore.md", func() VerifyCommandNotice {
-			n := base(VerifyNotRun, "verify")
-			n.Explore, n.NotRunWhy = true, NotRunCap
 			return n
 		}()},
 		{"intent_notice_verify_requested_reset.md", func() VerifyCommandNotice {

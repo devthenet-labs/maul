@@ -106,6 +106,14 @@ const (
 	// intent: the human's review rounds go on, and the maul/acceptance
 	// status reports the failure.
 	ConditionVerifyFailing = "VerifyFailing"
+	// ConditionVerificationSuperseded marks an Intent whose verification an
+	// earlier release judged (no IntentVerification.Judge marker), True from
+	// when intent-controller withdrew that result, at upgrade, until a round
+	// judged under the current rules records its own (reason
+	// VerificationRulesChanged). While it is True and the marker is unset,
+	// one fresh evaluation is due that spends none of maxVerifications; the
+	// comments say the earlier result was withdrawn. Never part of Blocked.
+	ConditionVerificationSuperseded = "VerificationSuperseded"
 	// ConditionBranchConflict marks a Blocked Intent whose branch
 	// maul-intent/<intent> is not maul's to use: it exists at a commit
 	// none of the Intent's runs pushed (left by an earlier Intent under the

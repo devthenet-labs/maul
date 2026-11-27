@@ -139,7 +139,7 @@ func TestAgentsRequestThatCannotRunKeepsTheJudgement(t *testing.T) {
 				!strings.Contains(replies[0], "Evaluation 1's result at these commits stands") {
 				t.Fatalf("not-run replies = %q", replies)
 			}
-			if body := e.statusBody(); !strings.Contains(body, "Ready") || strings.Contains(body, "couldn't confirm") {
+			if body := e.statusBody(); !strings.Contains(body, "Ready") || strings.Contains(body, templates.NotReadyLead) {
 				t.Fatalf("status comment disagrees with Passed:\n%s", body)
 			}
 			if !tc.restore {

@@ -139,15 +139,16 @@ must make true, such as "a player you add on the players page is listed there by
 Once the pull request's checks are green and the preview serves exactly the pull request's commits, maul starts an
 evaluator round:
 
-1. An **evaluator** agent explores the running preview through a separate _tool pod_ and writes checks for the outcomes.
-   The evaluator has no copy of the code and no network access beyond the broker and its tool pod.
-2. maul runs each check again itself, without a model.
-3. A second model, the **check reviewer**, says whether each check proves its outcome.
+1. An **evaluator** agent uses the running preview through a separate _tool pod_, which records every call in maul's
+   ledger. The evaluator has no copy of the code and no network access beyond the broker and its tool pod.
+2. It reports, for each outcome, whether it saw it hold, saw it not hold, or could not tell, citing the calls that
+   showed it.
+3. maul counts a verdict only when it cites a call of that ledger which used the application.
 
-An outcome is **confirmed** only on a check that passed when maul ran it and that the reviewer said proves the outcome.
-The evaluator's own report never passes an outcome. Such checks are saved and replayed in later rounds.
+An outcome is **seen to hold** only on such a cited `pass`. Whether the cited calls show what the evaluator says is for
+the reviewers, who see each one. Every round is a full evaluation with the model: no check is saved and replayed.
 
-A failure maul reproduced starts a **verify-fix round**, within a limit. Verification never blocks the intent: a
+A `fail` that cites such a call starts a **verify-fix round**, within a limit. Verification never blocks the intent: a
 person's review, command or push always wins. maul reports the result as the `maul/acceptance` commit status on the pull
 request.
 
@@ -160,9 +161,9 @@ A Project with no preview can be evaluated too, if it builds a command-line prog
 The **hand-off** is the moment maul gives people the preview link and says whether the change is ready.
 
 - Without the evaluator, the link is posted as soon as the preview is live.
-- With the evaluator, the default mode is `gated`: maul holds the link until every outcome is confirmed or accepted by
-  an approver, or until it gives up and says why. It waits at most 60 minutes by default. The other mode, `early`, posts
-  the link at once and labels it as still being checked.
+- With the evaluator, the default mode is `gated`: maul holds the link until every outcome is seen to hold or accepted
+  by an approver, or until it gives up and says why. It waits at most 60 minutes by default. The other mode, `early`,
+  posts the link at once and labels it as still being checked.
 
 A person can always get the link sooner: `/maul preview` releases it. See
 [The hand-off](intents/evaluator.md#the-hand-off).

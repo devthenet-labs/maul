@@ -88,8 +88,9 @@ the Project stops being Ready after the save, and the page shows that.
 
 Not on the page, and never changed by it: the intent repository, the labels, a repository's name, URL and preview, the
 number and order of repositories, the harness, previews, surfaces, `suspend`, `requireRepositoryImage`,
-`verification.manualGatesStatus`, `verification.postLogs` and `verification.timeout`. The check reviewer's model and
-limits (`models.checkReview`, `limits.checkReview`) are not on it either. The "Set by the operator" card shows the ones
+`verification.manualGatesStatus`, `verification.postLogs` and `verification.timeout`. Nor are `models.checkReview` and
+`limits.checkReview`, which are retired: nothing reads them, and they are removed in the next release
+([Migrating from saved checks](evaluator.md#migrating-from-saved-checks)). The "Set by the operator" card shows the ones
 a person may need to know.
 
 ## Delegation
@@ -98,7 +99,7 @@ The Delegation card holds the Project's opt-in to delegation in its builds. With
 build and revise run (CI-fix and verify-fix rounds included) may hand parts of its work to the claude CLI's subagents,
 in the foreground, on the run's own model, under the build's own tools. With **Workflows in builds** on as well, it may
 also run the CLI's inline and built-in workflows. Workflows need subagents: turning subagents off turns workflows off
-with it, and the page refuses workflows alone. Plans, the evaluator and the check reviewer never delegate.
+with it, and the page refuses workflows alone. Plans and the evaluator never delegate.
 
 Every subagent and workflow agent spends from the run's own cost budget, which is what bounds the run and everything it
 starts together; a workflow's agents count against neither the turn limit nor the token limit. Size the build and revise

@@ -157,7 +157,6 @@ func TestWorkspaceBoundsMatchCRD(t *testing.T) {
 	check("status.base.runs maxItems", sub(status, "base", "properties", "runs")["maxItems"], maulv1.MaxBaseRuns)
 	check("status.ledger.builds maxItems", sub(status, "ledger", "properties", "builds")["maxItems"],
 		maulv1.MaxLedgerBuilds)
-	check("relay base runs", MaxBaseRuns, maulv1.MaxBaseRuns)
 	if maxBuilds > maulv1.MaxLedgerBuilds {
 		t.Errorf("the relay records %d builds, the CRD keeps %d", maxBuilds, maulv1.MaxLedgerBuilds)
 	}

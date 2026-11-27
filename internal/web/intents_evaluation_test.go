@@ -13,6 +13,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
-	"github.com/devthenet-labs/maul/internal/checks"
+	"github.com/devthenet-labs/maul/internal/templates"
 	"github.com/devthenet-labs/maul/internal/toolledger"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 	"github.com/devthenet-labs/maul/internal/web/auth"
@@ -31,16 +32,22 @@ import (
 
 // The evaluation fixture: alpha-7's evaluate run of round 1, its
 // PreviewVerification, and the verification's ledger and evidence
-// ConfigMaps, with private strings the tier 1 view must never carry.
+// ConfigMaps, with private strings the tier 1 view must never carry. The
+// round was judged under the observed rules: rate-battle passed on calls 1
+// (an http call) and 2 (the evaluator's own page script, its screenshot
+// stored); leaderboard is unsure, its verdict citing only call 3, which
+// maul refused.
 const (
-	evalRun       = "alpha-7-ev-r1-a1"
-	evalPV        = "alpha-7-v1-a1"
-	evalPVUID     = types.UID("uid-pv-alpha-7")
-	evalNote      = "The rating moved by 16 points, said the evaluator"
-	evalOutput    = "HTTP/1.1 200 OK secret-app-output"
-	evalArgs      = `{"argv":["GET","/battles"]}`
-	evalBodyText  = "an evaluate report body"
-	evalTokenSeen = "v1a1t1-abc123"
+	evalRun      = "alpha-7-ev-r1-a1"
+	evalPV       = "alpha-7-v1-a1"
+	evalPVUID    = types.UID("uid-pv-alpha-7")
+	evalNote     = "The rating moved by 16 points, said the evaluator"
+	evalOutput   = "HTTP/1.1 200 OK secret-app-output"
+	evalArgs     = `{"argv":["GET","/battles"]}`
+	evalScript   = `{"verb":"eval","args":["function () { return document.title + 'secret-script' }"]}`
+	evalReturned = "### Result\n\"Battles secret-returned\""
+	evalBodyText = "an evaluate report body"
+	evalForged   = `{"argv":["GET","/forged-line"]}`
 )
 
 var (
@@ -64,59 +71,34 @@ func tinyPNG(t *testing.T) []byte {
 	return b.Bytes()
 }
 
-// savedCheck builds a SavedCheck from a check's JSON as the controllers do:
-// its canonical body and digest.
-func savedCheck(t *testing.T, raw string) v1alpha1.SavedCheck {
-	t.Helper()
-	c, err := checks.Parse([]byte(raw))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return v1alpha1.SavedCheck{ID: c.ID, Outcome: c.Outcome, Form: v1alpha1.CheckForm(c.Form),
-		Body: string(checks.Canonical(c)), Digest: checks.Digest(c)}
-}
-
-const (
-	browserCheckJSON = `{"id":"rate-battle.name","outcome":"rate-battle","form":"browser","browser":{"steps":[
-		{"goto":"/battles"},
-		{"fill":{"locator":{"label":"Name"},"text":"Battle {{run}}"}},
-		{"press":{"locator":{"label":"Name"},"key":"Enter"}},
-		{"waitForURL":"/battles/*"},
-		{"expect":{"assert":"text","locator":{"role":"heading","nth":0},"text":{"equals":"Battle {{run}}"}}}]}}`
-	httpCheckJSON = `{"id":"leaderboard","outcome":"leaderboard","form":"http","http":{"target":"app","steps":[
-		{"request":{"path":"/api/leaderboard?run={{run}}"},"expect":{"status":200,"json":{"$.rows[0].name":"{{run}}"}}}]}}`
-)
+// evalReport is the evaluate run's report: a verdict per outcome, each
+// citing the calls it rests on, and no retired key.
+const evalReport = "---\nverdicts:\n  - id: rate-battle\n    verdict: pass\n    ledger: [1, 2]\n    note: \"" +
+	evalNote + "\"\n  - id: leaderboard\n    verdict: pass\n    ledger: [3]\n---\n" + evalBodyText + "\n"
 
 // evaluationFixture is the intents fixture plus the evaluation objects.
 func evaluationFixture(t *testing.T) []client.Object {
 	t.Helper()
-	objs := intentsFixture(t)
-	browser := savedCheck(t, browserCheckJSON)
-	proposed := savedCheck(t, httpCheckJSON)
 	img := tinyPNG(t)
 	imgSha := sha256Hex(img)
 
-	in := findIntent(objs, "alpha-7")
+	objs := intentsFixture(t)
+	in := findAlpha7(objs)
 	released := metav1.NewTime(testClock.Add(-time.Minute))
 	in.Status.Verification = &v1alpha1.IntentVerification{
 		Round: 1, Attempt: 1, Ref: &v1alpha1.ObjectReference{Name: evalPV, UID: evalPVUID},
+		Judge:         v1alpha1.JudgeObserved,
 		HeadSetDigest: evalHeadSet, OutcomesRound: 1, OutcomesHeadSetDigest: evalHeadSet,
 		Outcomes: []v1alpha1.OutcomeResult{
-			{ID: "rate-battle", Result: v1alpha1.OutcomePassed, Basis: browser.Digest,
-				Line: "opens /battles, names a battle, sees its heading"},
-			{ID: "leaderboard", Result: v1alpha1.OutcomeUnsure, Reason: "the replay failed on shared data"},
+			{ID: "rate-battle", Result: v1alpha1.OutcomePassed, Reason: "seen-to-hold", Cites: []int32{1, 2}},
+			{ID: "leaderboard", Result: v1alpha1.OutcomeUnsure, Reason: "no-valid-evidence"},
 		},
 		Anomalies: []v1alpha1.AnomalyRecord{{Summary: "Console error on /battles\u202e", Route: "/battles",
-			Ledger: []int32{3}}},
-		Disputed: []string{browser.Digest},
+			Ledger: []int32{2}}},
 		Handoff: &v1alpha1.HandoffState{Mode: v1alpha1.HandoffGated, Released: true, ReleasedAt: &released,
 			Reason: v1alpha1.HandoffReasonUnconfirmed},
 	}
 
-	report := "---\nverdicts:\n  - id: rate-battle\n    verdict: pass\n    ledger: [1, 2]\n    note: \"" +
-		evalNote + "\"\n  - id: leaderboard\n    verdict: unsure\ndisputes:\n  - check_digest: \"" +
-		browser.Digest + "\"\n    reason: \"The check counted rows other runs created.\"\n    ledger: [2]\n" +
-		"---\n" + evalBodyText + "\n"
 	run := &v1alpha1.IntentRun{
 		ObjectMeta: metav1.ObjectMeta{Name: evalRun, Namespace: "maul", UID: "uid-eval-run",
 			CreationTimestamp: metav1.NewTime(testClock.Add(-5 * time.Minute))},
@@ -127,9 +109,11 @@ func evaluationFixture(t *testing.T) []client.Object {
 			Evaluation: &v1alpha1.IntentRunEvaluation{Verification: evalPV, UID: evalPVUID, ToolIP: "10.0.0.9",
 				Rung: v1alpha1.VerificationRung("full")},
 		},
-		Status: v1alpha1.IntentRunStatus{Phase: v1alpha1.RunComplete, Outcome: "ok", Report: report},
+		Status: v1alpha1.IntentRunStatus{Phase: v1alpha1.RunComplete, Outcome: "ok", Report: evalReport},
 	}
 
+	cut := toolledger.DroppedOutput
+	snapshot := "- heading \"Battles\""
 	pv := &v1alpha1.PreviewVerification{
 		ObjectMeta: metav1.ObjectMeta{Name: evalPV, Namespace: "maul", UID: evalPVUID},
 		Spec: v1alpha1.PreviewVerificationSpec{
@@ -139,32 +123,30 @@ func evaluationFixture(t *testing.T) []client.Object {
 				{ID: "rate-battle", Outcome: "A rated battle moves the rating"},
 				{ID: "leaderboard", Outcome: "The leaderboard lists the battle", Kind: v1alpha1.OutcomeKindKeep},
 			},
-			Checks: []v1alpha1.SavedCheck{browser},
 		},
 		Status: v1alpha1.PreviewVerificationStatus{
 			Phase: v1alpha1.VerificationObserved,
-			Ledger: &v1alpha1.LedgerSummary{Count: 3, SHA256: evalShaA, ConfigMap: evalPV + "-ledger",
+			Ledger: &v1alpha1.LedgerSummary{Count: 5, SHA256: evalShaA, ConfigMap: evalPV + "-ledger",
 				Evidence: evalPV + "-evidence",
 				Entries: []v1alpha1.LedgerIndexEntry{
-					{Seq: 1, Kind: v1alpha1.LedgerKindRunner, Verb: v1alpha1.LedgerVerbCheckRun,
+					{Seq: 1, Kind: v1alpha1.LedgerKindAgent, Verb: v1alpha1.LedgerVerbHTTP,
 						ResultSHA256: sha256Hex([]byte(evalOutput))},
 					{Seq: 2, Kind: v1alpha1.LedgerKindAgent, Verb: v1alpha1.LedgerVerbBrowser,
-						ResultSHA256: evalShaB, Artifacts: []string{imgSha, evalShaA}},
+						ResultSHA256: sha256Hex([]byte(evalReturned)), Artifacts: []string{imgSha, evalShaA}},
 					{Seq: 3, Kind: v1alpha1.LedgerKindAgent, Verb: v1alpha1.LedgerVerbHTTP, Refused: true,
 						ResultSHA256: sha256Hex(nil)},
+					{Seq: 4, Kind: v1alpha1.LedgerKindAgent, Verb: v1alpha1.LedgerVerbBrowser,
+						ResultSHA256: sha256Hex([]byte(snapshot))},
+					{Seq: 5, Kind: v1alpha1.LedgerKindAgent, Verb: v1alpha1.LedgerVerbHTTP,
+						ResultSHA256: evalShaB},
 				}},
-			Replay: []v1alpha1.CheckRun{{CheckDigest: browser.Digest, Result: v1alpha1.CheckRunFail,
-				Token: evalTokenSeen, Seq: 1}},
-			Confirmations: []v1alpha1.CheckRun{{CheckDigest: proposed.Digest, Result: v1alpha1.CheckRunPass,
-				Token: "v1a1t2-def456", Seq: 3, DryRunSeq: 2}},
-			Confirmed: []v1alpha1.SavedCheck{proposed},
 			Capture: &v1alpha1.CaptureSummary{Events: 4,
 				Components: []v1alpha1.ComponentCapture{{Name: "app", Bytes: 2048, Truncated: true}}},
 		},
 	}
-	line := func(seq int64, args, output string) string {
-		b, err := json.Marshal(toolwire.LedgerEntry{Seq: seq, Kind: toolwire.Kind("agent"), Args: json.RawMessage(args),
-			Output: output, OutputSHA256: sha256Hex([]byte(output))})
+	line := func(seq int64, verb toolwire.Verb, args, output, digest string) string {
+		b, err := json.Marshal(toolwire.LedgerEntry{Seq: seq, Kind: toolwire.KindAgent, Verb: verb,
+			Args: json.RawMessage(args), Output: output, OutputSHA256: digest})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -176,9 +158,15 @@ func evaluationFixture(t *testing.T) []client.Object {
 			OwnerReferences: []metav1.OwnerReference{ctrlRef("PreviewVerification", evalPV, evalPVUID)}}
 	}
 	ledgerCM := &corev1.ConfigMap{ObjectMeta: pvOwned(evalPV + "-ledger"), Data: map[string]string{
-		toolledger.Key: line(1, evalArgs, evalOutput) + "\n" +
-			// Entry 2's output was cut to fit: it no longer hashes to the index.
-			line(2, `{"verb":"snapshot"}`, "[maul: output dropped to fit; its sha256 is kept]") + "\n",
+		toolledger.Key: strings.Join([]string{
+			line(1, toolwire.VerbHTTP, evalArgs, evalOutput, sha256Hex([]byte(evalOutput))),
+			line(2, toolwire.VerbBrowser, evalScript, evalReturned, sha256Hex([]byte(evalReturned))),
+			// Entry 4's output was cut to fit: its digest is kept, the
+			// output no longer hashes to it.
+			line(4, toolwire.VerbBrowser, `{"verb":"snapshot"}`, cut, sha256Hex([]byte(snapshot))),
+			// Entry 5's line is not the call the index records.
+			line(5, toolwire.VerbHTTP, evalForged, "forged", sha256Hex([]byte("forged"))),
+		}, "\n") + "\n",
 	}}
 	evidenceCM := &corev1.ConfigMap{ObjectMeta: pvOwned(evalPV + "-evidence"), BinaryData: map[string][]byte{
 		fmt.Sprintf("2-%s.png", imgSha):   img,
@@ -187,13 +175,15 @@ func evaluationFixture(t *testing.T) []client.Object {
 	return append(objs, run, pv, ledgerCM, evidenceCM)
 }
 
-func findIntent(objs []client.Object, name string) *v1alpha1.Intent {
+// findAlpha7 is the fixture's alpha-7 Intent, the one the evaluation run
+// belongs to.
+func findAlpha7(objs []client.Object) *v1alpha1.Intent {
 	for _, o := range objs {
-		if in, ok := o.(*v1alpha1.Intent); ok && in.Name == name {
+		if in, ok := o.(*v1alpha1.Intent); ok && in.Name == "alpha-7" {
 			return in
 		}
 	}
-	panic("no intent " + name)
+	panic("no intent alpha-7")
 }
 
 func evaluationPath(run string) string { return "/api/intents/alpha-7/runs/" + run + "/evaluation" }
@@ -205,25 +195,35 @@ func TestRunEvaluationTierOne(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("GET evaluation = %d %s", code, body)
 	}
-	for _, leak := range []string{evalNote, evalOutput, "argv", evalBodyText, ".png", "counted rows",
-		"\u202e"} {
+	for _, leak := range []string{evalNote, evalOutput, "argv", evalBodyText, ".png", "secret-script",
+		"secret-returned", "\u202e", `"own"`, `"verdict"`, `"cited"`} {
 		if strings.Contains(body, leak) {
 			t.Errorf("tier 1 evaluation carries %q: %s", leak, body)
+		}
+	}
+	// The saved-check views are retired: the page shows the calls each
+	// verdict cites instead.
+	for _, retired := range []string{`"checks"`, `"disputes"`, `"rung"`, `"noBaseComparison"`, `"basis"`,
+		`"line"`} {
+		if strings.Contains(body, retired) {
+			t.Errorf("tier 1 evaluation carries the retired %s: %s", retired, body)
 		}
 	}
 	ev := decode[RunEvaluation](t, body)
 	if !ev.Current || ev.Verification != evalPV || ev.Round != 1 || ev.Phase != "Observed" || ev.Tier != "intents" {
 		t.Fatalf("header = %+v", ev)
 	}
+	if ev.Lead != templates.ObservedLead || ev.Withdrawn != "" {
+		t.Errorf("lead %q, withdrawn %q; want the comment's lead and no withdrawal", ev.Lead, ev.Withdrawn)
+	}
 	checkTierOneOutcomes(t, ev)
-	checkTierOneChecks(t, ev.Checks)
 	checkTierOneLedger(t, ev)
 }
 
 // TestRunEvaluationUnjudgedRound (S2-B3): the current verification's
 // round that settled without a judgement shows none of an earlier round's
-// results, anomalies or disputes as its own: the outcomes are not decided
-// for it.
+// results, cited calls or anomalies as its own: the outcomes are not
+// decided for it.
 func TestRunEvaluationUnjudgedRound(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -239,86 +239,73 @@ func TestRunEvaluationUnjudgedRound(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			objs := evaluationFixture(t)
-			var pv *v1alpha1.PreviewVerification
-			for _, o := range objs {
-				if p, ok := o.(*v1alpha1.PreviewVerification); ok {
-					pv = p
-				}
-			}
+			pv := findPV(objs)
 			pv.Status.Phase, pv.Status.Reason = v1alpha1.VerificationInfra,
 				v1alpha1.VerificationReasonToolsBuildFailed
-			tc.move(findIntent(objs, "alpha-7").Status.Verification, pv)
+			tc.move(findAlpha7(objs).Status.Verification, pv)
 			s, _ := intentsServer(t, nil, objs...)
 			code, body := get(t, as(t, s, viewerAlpha), evaluationPath(evalRun))
 			if code != http.StatusOK {
 				t.Fatalf("GET evaluation = %d %s", code, body)
 			}
 			ev := decode[RunEvaluation](t, body)
-			if !ev.Current {
+			if !ev.Current || ev.Lead != "" {
 				t.Fatalf("header = %+v", ev)
 			}
 			for _, o := range ev.Outcomes {
-				if o.Result != "" || o.Line != "" || o.Reason != "" {
+				if o.Result != "" || o.Reason != "" || o.Words != "" || len(o.Cites) != 0 {
 					t.Errorf("outcome %+v shows an earlier round's result", o)
 				}
 			}
-			if len(ev.Anomalies) != 0 || len(ev.Disputes) != 0 {
-				t.Errorf("anomalies %+v, disputes %+v: an earlier round's", ev.Anomalies, ev.Disputes)
+			if len(ev.Anomalies) != 0 {
+				t.Errorf("anomalies %+v: an earlier round's", ev.Anomalies)
 			}
 		})
 	}
 }
 
-// checkTierOneOutcomes holds the hand-off and the decided outcomes, with
-// none of the evaluator's claims.
+// checkTierOneOutcomes holds the hand-off and the decided outcomes, each in
+// maul's words with the calls maul counted for it, with none of the
+// evaluator's claims.
 func checkTierOneOutcomes(t *testing.T, ev RunEvaluation) {
 	t.Helper()
 	if ev.Handoff == nil || ev.Handoff.Reason != "unconfirmed" || !ev.Handoff.Released {
 		t.Errorf("handoff = %+v", ev.Handoff)
 	}
-	if len(ev.Outcomes) != 2 || ev.Outcomes[0].Result != "passed" || ev.Outcomes[0].Line == "" ||
-		ev.Outcomes[1].Kind != "keep" || ev.Outcomes[1].Result != "unsure" || ev.Outcomes[0].Verdict != "" {
-		t.Errorf("outcomes = %+v", ev.Outcomes)
+	if len(ev.Outcomes) != 2 {
+		t.Fatalf("outcomes = %+v", ev.Outcomes)
+	}
+	pass, unsure := ev.Outcomes[0], ev.Outcomes[1]
+	if pass.Result != "passed" || pass.Reason != "seen-to-hold" || !slices.Equal(pass.Cites, []int32{1, 2}) ||
+		pass.Words != templates.ObservedOutcomeWords("passed", "seen-to-hold") || pass.Verdict != "" {
+		t.Errorf("passed outcome = %+v", pass)
+	}
+	if unsure.Kind != "keep" || unsure.Result != "unsure" || len(unsure.Cites) != 0 ||
+		!strings.Contains(unsure.Words, "cites no call of its own") || unsure.Cited != nil {
+		t.Errorf("unsure outcome = %+v", unsure)
 	}
 }
 
-// checkTierOneLedger holds the ledger index (no outputs), the anomaly, the
-// dispute without its reason, and the capture.
+// checkTierOneLedger holds the ledger index (no outputs, no own labels),
+// the anomaly and the capture.
 func checkTierOneLedger(t *testing.T, ev RunEvaluation) {
 	t.Helper()
-	if ev.Ledger == nil || ev.Ledger.Outputs || len(ev.Ledger.Entries) != 3 || !ev.Ledger.Entries[2].Refused ||
+	if ev.Ledger == nil || ev.Ledger.Outputs || len(ev.Ledger.Entries) != 5 || !ev.Ledger.Entries[2].Refused ||
 		len(ev.Ledger.Entries[1].Artifacts) != 2 {
 		t.Errorf("ledger = %+v", ev.Ledger)
 	}
-	if len(ev.Anomalies) != 1 || len(ev.Disputes) != 1 || ev.Disputes[0].Reason != "" {
-		t.Errorf("anomalies %+v, disputes %+v", ev.Anomalies, ev.Disputes)
+	if len(ev.Anomalies) != 1 {
+		t.Errorf("anomalies %+v", ev.Anomalies)
 	}
 	if ev.Capture == nil || ev.Capture.Events != 4 || len(ev.Capture.Components) != 1 {
 		t.Errorf("capture = %+v", ev.Capture)
 	}
 }
 
-// checkTierOneChecks holds the fixture's two checks: the saved browser
-// check replayed, disputed and compiled with the replay's token, and the
-// proposed http check confirmed.
-func checkTierOneChecks(t *testing.T, cs []EvaluationCheck) {
-	t.Helper()
-	if len(cs) != 2 {
-		t.Fatalf("checks = %+v", cs)
-	}
-	b, h := cs[0], cs[1]
-	if b.Source != "saved" || !b.Disputed || b.Replay == nil || b.Replay.Result != "fail" ||
-		!strings.Contains(b.Steps, "\n  \"browser\"") {
-		t.Errorf("saved check = %+v", b)
-	}
-	if b.CompiledToken != evalTokenSeen || !strings.Contains(b.Compiled, "Battle "+evalTokenSeen) {
-		t.Errorf("compiled = %q with %q", b.Compiled, b.CompiledToken)
-	}
-	if h.Source != "proposed" || h.Confirmation == nil || h.Confirmation.DryRunSeq != 2 || h.Compiled != "" {
-		t.Errorf("proposed check = %+v", h)
-	}
-}
-
+// TestRunEvaluationTierTwo: a transcripts-tier reader also gets the
+// evaluator's claims and, for each ledger entry the outcomes' cites name,
+// what it sent and returned, its stored screenshot, and whether it ran the
+// evaluator's own page script or program.
 func TestRunEvaluationTierTwo(t *testing.T) {
 	s, _ := intentsServer(t, nil, evaluationFixture(t)...)
 	ts := as(t, s, readerAlpha)
@@ -327,29 +314,136 @@ func TestRunEvaluationTierTwo(t *testing.T) {
 		t.Fatalf("GET evaluation = %d %s", code, body)
 	}
 	ev := decode[RunEvaluation](t, body)
-	if ev.Outcomes[0].Verdict != "pass" || ev.Outcomes[0].Note != evalNote ||
-		len(ev.Outcomes[0].Cited) != 2 {
-		t.Errorf("claims = %+v", ev.Outcomes[0])
+	checkTierTwoClaims(t, ev)
+	checkTierTwoLedger(t, ev, body)
+}
+
+// checkTierTwoClaims holds the evaluator's claims beside maul's decision.
+func checkTierTwoClaims(t *testing.T, ev RunEvaluation) {
+	t.Helper()
+	if o := ev.Outcomes[0]; o.Verdict != "pass" || o.Note != evalNote || !slices.Equal(o.Cited, []int32{1, 2}) {
+		t.Errorf("claims = %+v", o)
 	}
-	if len(ev.Disputes) != 1 || ev.Disputes[0].Reason == "" {
-		t.Errorf("disputes = %+v", ev.Disputes)
+	// The evaluator cited call 3 for leaderboard; maul counted none of it.
+	if o := ev.Outcomes[1]; o.Verdict != "pass" || !slices.Equal(o.Cited, []int32{3}) || len(o.Cites) != 0 {
+		t.Errorf("claims = %+v", o)
 	}
+}
+
+// checkTierTwoLedger holds what each entry shows from its stored line:
+// an http call; the evaluator's own page script; a refused call with no
+// line; a call whose output was cut to fit, what it sent still shown; and
+// one whose line is not the index's call, which shows nothing of it.
+func checkTierTwoLedger(t *testing.T, ev RunEvaluation, body string) {
+	t.Helper()
 	l := ev.Ledger
-	if l == nil || !l.Outputs {
+	if l == nil || !l.Outputs || len(l.Entries) != 5 {
 		t.Fatalf("ledger = %+v", l)
 	}
-	if e := l.Entries[0]; e.Output != evalOutput || e.Args != evalArgs || e.OutputDropped {
-		t.Errorf("entry 1 = %+v", e)
+	want := []EvaluationLedgerEntry{
+		{Args: evalArgs, Output: evalOutput},
+		{Args: evalScript, Output: evalReturned, Own: true},
+		{OutputDropped: true},
+		{Args: `{"verb":"snapshot"}`, OutputDropped: true},
+		{OutputDropped: true},
 	}
-	if e := l.Entries[1]; e.Output != "" || !e.OutputDropped {
-		t.Errorf("entry 2 output should be dropped: %+v", e)
+	for i, w := range want {
+		e := l.Entries[i]
+		if e.Args != w.Args || e.Output != w.Output || e.OutputDropped != w.OutputDropped || e.Own != w.Own {
+			t.Errorf("entry %d = %+v, want args %q output %q dropped %v own %v", i+1, e, w.Args, w.Output,
+				w.OutputDropped, w.Own)
+		}
 	}
-	if e := l.Entries[2]; !e.OutputDropped {
-		t.Errorf("entry 3 has no line, its output should be dropped: %+v", e)
-	}
-	arts := l.Entries[1].Artifacts
-	if arts[0].Image == "" || arts[1].Image != "" {
+	if arts := l.Entries[1].Artifacts; arts[0].Image == "" || arts[1].Image != "" {
 		t.Errorf("only the PNG may be named: %+v", arts)
+	}
+	if strings.Contains(body, "forged") {
+		t.Errorf("a line that is not the index's call is shown: %s", body)
+	}
+}
+
+// TestRunEvaluationIgnoresARetiredReport: a report writing a key the
+// observed evaluator retired claims nothing (report.CarriesRetiredKeys, as
+// the controller judges it), so the page shows none of its claims beside
+// maul's decision; a report without the key shows them.
+func TestRunEvaluationIgnoresARetiredReport(t *testing.T) {
+	for _, tc := range []struct {
+		name, extra string
+		claims      bool
+	}{
+		{"no retired key", "", true},
+		{"disputes", "disputes: []\n", false},
+		{"proposed", "proposed: []\n", false},
+		{"retire", "retire: []\n", false},
+		{"contrary", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objs := evaluationFixture(t)
+			report := strings.Replace(evalReport, "\n---\n", "\n"+tc.extra+"---\n", 1)
+			if tc.name == "contrary" {
+				report = strings.Replace(report, "ledger: [3]", "ledger: [3]\n    contrary: []", 1)
+			}
+			findRun(objs, evalRun).Status.Report = report
+			s, _ := intentsServer(t, nil, objs...)
+			code, body := get(t, as(t, s, readerAlpha), evaluationPath(evalRun))
+			if code != http.StatusOK {
+				t.Fatalf("GET evaluation = %d %s", code, body)
+			}
+			ev := decode[RunEvaluation](t, body)
+			for _, o := range ev.Outcomes {
+				if got := o.Verdict != "" || o.Note != "" || o.Cited != nil; got != tc.claims {
+					t.Errorf("outcome %s shows claims %v, want %v: %+v", o.ID, got, tc.claims, o)
+				}
+			}
+			if ev.Outcomes[0].Result != "passed" || !slices.Equal(ev.Outcomes[0].Cites, []int32{1, 2}) {
+				t.Errorf("maul's decision is shown whatever the report: %+v", ev.Outcomes[0])
+			}
+		})
+	}
+}
+
+// TestRunEvaluationShowsTheWithdrawal: while an earlier result is withdrawn
+// (the upgrade's supersede, W5), the page says so in the comment's words,
+// on the fresh round's run and on the earlier one's.
+func TestRunEvaluationShowsTheWithdrawal(t *testing.T) {
+	for _, current := range []bool{true, false} {
+		objs := evaluationFixture(t)
+		in := findAlpha7(objs)
+		in.Status.Conditions = append(in.Status.Conditions, metav1.Condition{
+			Type: v1alpha1.ConditionVerificationSuperseded, Status: metav1.ConditionTrue,
+			Reason: "VerificationRulesChanged", LastTransitionTime: metav1.NewTime(testClock)})
+		if !current {
+			in.Status.Verification.Ref = nil
+		}
+		s, _ := intentsServer(t, nil, objs...)
+		code, body := get(t, as(t, s, viewerAlpha), evaluationPath(evalRun))
+		if code != http.StatusOK {
+			t.Fatalf("GET evaluation = %d %s", code, body)
+		}
+		if ev := decode[RunEvaluation](t, body); ev.Withdrawn != templates.WithdrawnSentence || ev.Current != current {
+			t.Errorf("current=%v: withdrawn %q, current %v", current, ev.Withdrawn, ev.Current)
+		}
+	}
+}
+
+// TestRunEvaluationOwnLabelWithoutTheLedger (FC 4): with no ledger
+// ConfigMap of the verification's own to read, a browser call is still
+// labelled the evaluator's own page script at the transcripts tier, since
+// nothing shows it was not one; an http call is not.
+func TestRunEvaluationOwnLabelWithoutTheLedger(t *testing.T) {
+	objs := evaluationFixture(t)
+	findConfigMap(objs, evalPV+"-ledger").OwnerReferences = []metav1.OwnerReference{
+		ctrlRef("PreviewVerification", "other", "uid-other")}
+	s, _ := intentsServer(t, nil, objs...)
+	code, body := get(t, as(t, s, readerAlpha), evaluationPath(evalRun))
+	if code != http.StatusOK {
+		t.Fatalf("GET evaluation = %d %s", code, body)
+	}
+	l := decode[RunEvaluation](t, body).Ledger
+	for i, want := range []bool{false, true, false, true, false} {
+		if got := l.Entries[i].Own; got != want {
+			t.Errorf("entry %d (%s): own %v, want %v", i+1, l.Entries[i].Verb, got, want)
+		}
 	}
 }
 
@@ -482,5 +576,27 @@ func TestEvidenceImage(t *testing.T) {
 		if code, body := get(t, as(t, s, tc.caller), tc.path); code != tc.want {
 			t.Errorf("%s: GET = %d %q, want %d", tc.name, code, body, tc.want)
 		}
+	}
+}
+
+// TestRunEvaluationEarlierReleasesRecord: a judgement an earlier release
+// wrote (no judge marker; W5 leaves it until its Project can run again) is
+// not worded as the observed rules word one: its result is shown, never as
+// seen by the evaluator, and the page carries no lead over it.
+func TestRunEvaluationEarlierReleasesRecord(t *testing.T) {
+	objs := evaluationFixture(t)
+	v := findAlpha7(objs).Status.Verification
+	v.Judge = ""
+	for i := range v.Outcomes {
+		v.Outcomes[i].Cites = nil
+	}
+	s, _ := intentsServer(t, nil, objs...)
+	code, body := get(t, as(t, s, viewerAlpha), evaluationPath(evalRun))
+	if code != http.StatusOK {
+		t.Fatalf("GET evaluation = %d %s", code, body)
+	}
+	ev := decode[RunEvaluation](t, body)
+	if ev.Lead != "" || ev.Outcomes[0].Result != "passed" || ev.Outcomes[0].Words != "" {
+		t.Errorf("lead %q, outcome %+v; want the result alone", ev.Lead, ev.Outcomes[0])
 	}
 }

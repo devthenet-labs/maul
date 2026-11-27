@@ -10,10 +10,9 @@ import (
 	"testing"
 )
 
-// liveShapedEvaluation is a report shaped exactly like the ones every live
-// evaluator wrote on 0.13.7 (S1 bug 5): each verdict names its outcome
-// with `outcome:` (the key `proposed` uses), and each proposed check names
-// the file it ran with `file:`, not the digest that run printed.
+// liveShapedEvaluation is a report shaped like the ones every live
+// evaluator wrote on 0.13.7 (S1 bug 5), less the check keys the observed
+// evaluator retired: each verdict names its outcome with `outcome:`.
 const liveShapedEvaluation = `---
 verdicts:
   - outcome: "rate-battle"
@@ -23,20 +22,13 @@ verdicts:
   - outcome: "leaderboard"
     verdict: unsure
     ledger: []
-disputes: []
-proposed:
-  - id: "rate-battle.api"
-    outcome: "rate-battle"
-    file: "/work/scratch/checks/rate-battle-api.json"
-retire: []
 anomalies: []
 ---
 Rated a battle.
 `
 
 // TestParseEvaluationLiveShape (S1 bug 5): the live report is accepted, its
-// verdicts keyed by their outcomes and its proposal by its file, the
-// digest left for agent-runner to resolve.
+// verdicts keyed by their outcomes.
 func TestParseEvaluationLiveShape(t *testing.T) {
 	e, err := ParseEvaluation([]byte(liveShapedEvaluation))
 	if err != nil {
@@ -45,10 +37,6 @@ func TestParseEvaluationLiveShape(t *testing.T) {
 	if len(e.Verdicts) != 2 || e.Verdicts[0].ID != "rate-battle" || e.Verdicts[0].Outcome != "rate-battle" ||
 		e.Verdicts[1].ID != "leaderboard" {
 		t.Errorf("verdicts = %+v, want each keyed by its outcome", e.Verdicts)
-	}
-	if len(e.Proposed) != 1 || e.Proposed[0].File != "/work/scratch/checks/rate-battle-api.json" ||
-		e.Proposed[0].Digest != "" {
-		t.Errorf("proposed = %+v, want the file and no digest", e.Proposed)
 	}
 }
 
@@ -77,43 +65,6 @@ func TestParseEvaluationVerdictKeys(t *testing.T) {
 				}
 				if v := e.Verdicts[0]; v.ID != "rate-battle" || v.Outcome != "rate-battle" {
 					t.Errorf("verdict = %+v, want rate-battle as both", v)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), tt.want) {
-				t.Errorf("ParseEvaluation() error = %v, want %q", err, tt.want)
-			}
-		})
-	}
-}
-
-// TestParseEvaluationProposedForms: a proposal gives its digest, its file
-// or both; one giving neither, or a file that is not one plain line, is
-// refused.
-func TestParseEvaluationProposedForms(t *testing.T) {
-	proposing := func(keys string) string {
-		return "---\nverdicts:\n  - outcome: rate-battle\n    verdict: unsure\nproposed:\n" +
-			"  - id: rate-battle.api\n    outcome: rate-battle\n" + keys + "---\nbody\n"
-	}
-	for _, tt := range []struct {
-		name, keys, want string
-	}{
-		{"digest", "    digest: \"" + digestA + "\"\n", ""},
-		{"file", "    file: \"checks/a.json\"\n", ""},
-		{"both", "    digest: \"" + digestA + "\"\n    file: \"checks/a.json\"\n", ""},
-		{"neither", "", "names neither a digest nor a file"},
-		{"a bad digest", "    digest: \"sha256:12\"\n", "is not a sha256"},
-		{"a file of two lines", "    file: \"a\\nb\"\n", "proposed[0].file"},
-		{"an over-long file", "    file: \"" + strings.Repeat("a", ProposedFileMaxBytes+1) + "\"\n",
-			"proposed[0].file"},
-		{"a file twice", "    file: \"checks/a.json\"\n  - id: rate-battle.page\n    outcome: rate-battle\n" +
-			"    file: \"checks/a.json\"\n", "proposed[1].file"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseEvaluation([]byte(proposing(tt.keys)))
-			if tt.want == "" {
-				if err != nil {
-					t.Fatalf("ParseEvaluation() error = %v", err)
 				}
 				return
 			}

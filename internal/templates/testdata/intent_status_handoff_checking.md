@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Preview:** Shown while maul is still checking the approved outcomes. [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`. Evaluation 1 running: 0 of 2 automatic fixes used.
+**Preview:** Shown while maul's evaluator is still looking at the approved outcomes. [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`. Evaluation 1 running: 0 of 2 automatic fixes used.
 
 **Commands now:** `/maul cancel`
 

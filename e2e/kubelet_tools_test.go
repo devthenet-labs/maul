@@ -30,6 +30,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/previewtools"
+	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
 // The kubelet's part for the agent evaluator (SPEC S1-24): the slot tool
@@ -74,9 +75,27 @@ type toolSide struct {
 	nextIP int
 	runs   []toolRun
 	// readyHold, while set (holdToolsReady), keeps every tool pod's tools
-	// container un-Ready, as a relay still replaying would be.
+	// container un-Ready, as a relay still waiting for its components would be.
 	readyHold chan struct{}
+	// forge, while set (forgeToolLedgers), appends one forged entry to
+	// every exited tool pod's log: a call the relay never recorded, which
+	// the termination summary does not count.
+	forge bool
 }
+
+// forgeToolLedgers makes every tool pod's log, from now on, carry one
+// entry its relay never wrote (an evaluator's http call at the next seq),
+// so the log no longer holds to its termination summary.
+func (k *kubelet) forgeToolLedgers() {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.tools.forge = true
+}
+
+// forgedEntry is the ledger line forgeToolLedgers appends.
+const forgedEntry = toolwire.EntryPrefix + `{"v":2,"entry":{"seq":999,"ts":"2026-11-23T00:00:00Z",` +
+	`"kind":"agent","verb":"http","args":{"method":"GET","path":"/version"},"exit":0,` +
+	`"output":"forged","outputSHA256":"0000000000000000000000000000000000000000000000000000000000000000"}}` + "\n"
 
 // toolRun is one tool Job as the kubelet ran it.
 type toolRun struct {
@@ -412,6 +431,9 @@ func (k *kubelet) endToolPod(ctx context.Context, tp *toolPod) error {
 	rec := toolRun{Job: *tp.job.DeepCopy(), IP: tp.ip, Config: tp.cfg, Stdout: tp.stdout.Bytes(),
 		Message: string(msg), ExitCode: code}
 	k.mu.Lock()
+	if k.tools.forge {
+		rec.Stdout = append(slices.Clone(rec.Stdout), forgedEntry...)
+	}
 	delete(k.tools.byIP, tp.ip)
 	k.logs[tp.pod.Namespace+"/"+tp.pod.Name+"/tools"] = rec.Stdout
 	k.mu.Unlock()

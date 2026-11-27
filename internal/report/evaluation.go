@@ -21,21 +21,12 @@ const (
 	// EvaluationMaxVerdicts is the most verdicts a report may carry: one
 	// per approved outcome, and an Intent holds at most 20.
 	EvaluationMaxVerdicts = 20
-	// EvaluationMaxProposed is the most checks a report may propose: the
-	// most a Preview verification carries.
-	EvaluationMaxProposed = 40
-	// EvaluationMaxDisputes and EvaluationMaxRetire bound the saved checks
-	// a report may dispute or retire: at most every one of them.
-	EvaluationMaxDisputes = 40
-	EvaluationMaxRetire   = 40
 	// EvaluationMaxAnomalies is the most anomalies the look-around may
 	// report.
 	EvaluationMaxAnomalies = 10
 	// EvaluationMaxLedgerRefs bounds the ledger refs a report cites, in all
 	// its lists together.
 	EvaluationMaxLedgerRefs = 300
-	// ProposedFileMaxBytes bounds a proposed check's file path.
-	ProposedFileMaxBytes = 256
 )
 
 // Verdict is the evaluator's verdict on one outcome.
@@ -54,12 +45,6 @@ var (
 	// criterion's id (internal/acceptance's idPattern, which it does not
 	// export), which slice 1's outcomes keep.
 	outcomeID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
-	// checkID is a proposed check's id: the saved-check grammar's
-	// (internal/checks' checkIDPattern, the authority), an outcome-style id
-	// with an optional ".<name>" suffix. A test pins the two together.
-	checkID = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}(\.[a-z0-9][a-z0-9-]{0,31})?$`)
-	// checkDigest is a saved check's, or an outcome's, digest.
-	checkDigest = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
 // Evaluation is the parsed evaluation report: the intent evaluate stage's
@@ -71,25 +56,11 @@ var (
 //	    verdict: pass | fail | unsure
 //	    ledger: [<seq>, ...]        # required for pass and fail
 //	    note: "<one line>"          # optional, at most 600 characters
-//	disputes:                       # at most 40
-//	  - check_digest: "sha256:<hex>"   # the failing saved check
-//	    reason: "<one line>"           # required
-//	    replacement: "<proposed id>"   # optional; names an entry of proposed
-//	    ledger: [<seq>, ...]           # required: the failure disputed
-//	proposed:                       # at most 40; no bodies here
-//	  - id: "<check id>"
-//	    outcome: "<outcome id>"        # names an entry of verdicts
-//	    file: "<path>"                 # the file its green dry run ran,
-//	    digest: "sha256:<hex>"         # or the digest it printed, or both
-//	    expect: pass | fail            # optional, pass; fail: it shows a
-//	                                   # defect of an outcome reported fail
-//	retire:                         # at most 40
-//	  - check_digest: "sha256:<hex>"   # never one disputed here too
-//	    reason: "<one line>"           # required
 //	anomalies:                      # at most 10
 //	  - summary: "<one line>"          # required
 //	    route: "<route or surface>"    # required, at most 300 characters
 //	    ledger: [<seq>, ...]           # required: the evidence
+//	    outcome: "<outcome id>"        # optional: an outcome it shows not holding
 //	---
 //
 // followed by the agent's notes in markdown, of at most BodyMaxBytes, in a
@@ -99,76 +70,30 @@ var (
 // plan's visible-text and layout rules (checkVisible, checkLayout) in a
 // frontmatter of plain YAML (decodeFrontmatter).
 //
-// Every value is the model's claim. That a seq exists, what it shows, that
-// a proposed check was dry-run green and what its body is: the controller
-// reads all of it from the ledger, never from here. A proposal naming its
-// file and no digest leaves Digest empty: agent-runner reads the digest
-// from that file (and the tools container confirms only a digest it saw
-// dry-run green), and the controller finds the check it confirmed in the
-// round's ledger by its id and outcome.
+// The keys an earlier release's evaluator wrote and the observed one
+// retired (disputes, proposed, retire and a verdict's contrary) are unknown
+// keys, so a report writing any of them, even as an empty list, is refused
+// whole and claims nothing ("evaluator observed").
+//
+// Every value is the model's claim. That a seq exists and what it shows:
+// the controller reads it from the round's verified ledger, never from
+// here.
 type Evaluation struct {
 	Verdicts  []OutcomeVerdict `yaml:"verdicts"`
-	Disputes  []Dispute        `yaml:"disputes"`
-	Proposed  []ProposedCheck  `yaml:"proposed"`
-	Retire    []Retire         `yaml:"retire"`
 	Anomalies []Anomaly        `yaml:"anomalies"`
 	// Body is the markdown following the frontmatter.
 	Body string `yaml:"-"`
 }
 
 // OutcomeVerdict is the verdict on one outcome. The report names the
-// outcome as outcome (the key proposed uses) or, as before, id; once
-// parsed, ID and Outcome both hold it.
+// outcome as outcome or, as before, id; once parsed, ID and Outcome both
+// hold it.
 type OutcomeVerdict struct {
 	ID      string  `yaml:"id"`
 	Outcome string  `yaml:"outcome"`
 	Verdict Verdict `yaml:"verdict"`
 	Ledger  []int32 `yaml:"ledger"`
-	// Contrary are the seqs where the evaluator saw the outcome, as worded,
-	// not hold, whatever it believes caused that (S1 demo bug 13). Optional;
-	// maul withholds a pass from an outcome that names any
-	// (acceptance.Decide).
-	Contrary []int32 `yaml:"contrary"`
-	Note     string  `yaml:"note"`
-}
-
-// Dispute claims a failing saved check is not a defect.
-type Dispute struct {
-	CheckDigest string  `yaml:"check_digest"`
-	Reason      string  `yaml:"reason"`
-	Replacement string  `yaml:"replacement"`
-	Ledger      []int32 `yaml:"ledger"`
-}
-
-// ProposedCheck names a check the agent asks maul to save: by the file
-// its green dry run ran (File, a path under the evaluator's scratch
-// directory), by the digest that run printed, or both. Digest is empty
-// when only File is given, until agent-runner resolves it.
-//
-// Expect is fail for a check that shows a defect: it encodes its outcome
-// as approved, its dry run failed an assertion, and the report's verdict on
-// that outcome is fail. Empty or pass is a check that ran green.
-type ProposedCheck struct {
-	ID      string `yaml:"id"`
-	Outcome string `yaml:"outcome"`
-	Digest  string `yaml:"digest"`
-	File    string `yaml:"file"`
-	Expect  string `yaml:"expect"`
-}
-
-// A proposal's expectations.
-const (
-	ExpectPass = "pass"
-	ExpectFail = "fail"
-)
-
-// ExpectsFail reports a proposal of a check that shows a defect.
-func (p ProposedCheck) ExpectsFail() bool { return p.Expect == ExpectFail }
-
-// Retire asks maul to retire a saved check.
-type Retire struct {
-	CheckDigest string `yaml:"check_digest"`
-	Reason      string `yaml:"reason"`
+	Note    string  `yaml:"note"`
 }
 
 // Anomaly is what the look-around found outside the outcomes.
@@ -176,6 +101,10 @@ type Anomaly struct {
 	Summary string  `yaml:"summary"`
 	Route   string  `yaml:"route"`
 	Ledger  []int32 `yaml:"ledger"`
+	// Outcome is the approved outcome the anomaly shows not holding, when
+	// it shows one: maul then never passes that outcome on this report
+	// (acceptance.ReasonContraryNote). Optional.
+	Outcome string `yaml:"outcome,omitempty"`
 	// PreExisting is the evaluator's claim that the anomaly was there
 	// before the change, which an earlier prompt asked for. An anomaly is a
 	// note that holds nothing, so maul no longer reads it; the key is still
@@ -217,10 +146,6 @@ func (e *Evaluation) LedgerRefs() []int32 {
 	var refs []int32
 	for _, v := range e.Verdicts {
 		refs = append(refs, v.Ledger...)
-		refs = append(refs, v.Contrary...)
-	}
-	for _, d := range e.Disputes {
-		refs = append(refs, d.Ledger...)
 	}
 	for _, a := range e.Anomalies {
 		refs = append(refs, a.Ledger...)
@@ -231,12 +156,7 @@ func (e *Evaluation) LedgerRefs() []int32 {
 
 // validate checks the frontmatter and trims its free text in place.
 func (e *Evaluation) validate() error {
-	outcomes, errs := e.validateVerdicts()
-	proposed, perrs := e.validateProposed(outcomes)
-	errs = append(errs, perrs...)
-	disputed, derrs := e.validateDisputes(proposed)
-	errs = append(errs, derrs...)
-	errs = append(errs, e.validateRetire(disputed)...)
+	errs := e.validateVerdicts()
 	errs = append(errs, e.validateAnomalies()...)
 	if n := e.refCount(); n > EvaluationMaxLedgerRefs {
 		errs = append(errs, fmt.Errorf("the report cites %d ledger refs, over %d", n, EvaluationMaxLedgerRefs))
@@ -248,10 +168,7 @@ func (e *Evaluation) validate() error {
 func (e *Evaluation) refCount() int {
 	n := 0
 	for _, v := range e.Verdicts {
-		n += len(v.Ledger) + len(v.Contrary)
-	}
-	for _, d := range e.Disputes {
-		n += len(d.Ledger)
+		n += len(v.Ledger)
 	}
 	for _, a := range e.Anomalies {
 		n += len(a.Ledger)
@@ -259,15 +176,14 @@ func (e *Evaluation) refCount() int {
 	return n
 }
 
-// validateVerdicts checks the verdicts and returns the outcome ids they
-// name.
-func (e *Evaluation) validateVerdicts() (map[string]bool, []error) {
+// validateVerdicts checks the verdicts.
+func (e *Evaluation) validateVerdicts() []error {
 	var errs []error
 	switch {
 	case len(e.Verdicts) == 0:
-		return nil, []error{errors.New("verdicts is required")}
+		return []error{errors.New("verdicts is required")}
 	case len(e.Verdicts) > EvaluationMaxVerdicts:
-		return nil, []error{fmt.Errorf("verdicts has %d items, over %d", len(e.Verdicts), EvaluationMaxVerdicts)}
+		return []error{fmt.Errorf("verdicts has %d items, over %d", len(e.Verdicts), EvaluationMaxVerdicts)}
 	}
 	ids := make(map[string]bool, len(e.Verdicts))
 	for i := range e.Verdicts {
@@ -288,65 +204,14 @@ func (e *Evaluation) validateVerdicts() (map[string]bool, []error) {
 		default:
 			errs = append(errs, fmt.Errorf("%s.verdict %q is not pass, fail or unsure", field, v.Verdict))
 		}
-		errs = append(errs, ledgerRefs(field+".ledger", v.Ledger), ledgerRefs(field+".contrary", v.Contrary))
+		errs = append(errs, ledgerRefs(field+".ledger", v.Ledger))
 		if v.Note != "" {
 			var err error
 			v.Note, err = oneLine(field+".note", v.Note, NoteMaxChars)
 			errs = append(errs, err)
 		}
 	}
-	return ids, errs
-}
-
-// validateProposed checks the proposed checks against the outcomes and
-// returns their ids.
-func (e *Evaluation) validateProposed(outcomes map[string]bool) (map[string]bool, []error) {
-	if len(e.Proposed) > EvaluationMaxProposed {
-		return nil, []error{fmt.Errorf("proposed has %d items, over %d", len(e.Proposed), EvaluationMaxProposed)}
-	}
-	var errs []error
-	ids := make(map[string]bool, len(e.Proposed))
-	digests := make(map[string]bool, len(e.Proposed))
-	files := make(map[string]bool, len(e.Proposed))
-	for i := range e.Proposed {
-		p := &e.Proposed[i]
-		field := fmt.Sprintf("proposed[%d]", i)
-		errs = append(errs, uniqueCheckID(field+".id", p.ID, ids))
-		if outcomes != nil && !outcomes[p.Outcome] {
-			errs = append(errs, fmt.Errorf("%s.outcome %q names no verdict's outcome", field, p.Outcome))
-		}
-		if p.Digest == "" && p.File == "" {
-			errs = append(errs, fmt.Errorf("%s names neither a digest nor a file: give the file you ran with "+
-				"`maul-tool check run`, or the digest that run printed", field))
-		}
-		if p.Digest != "" {
-			errs = append(errs, uniqueDigest(field+".digest", p.Digest, digests))
-		}
-		if p.File != "" {
-			errs = append(errs, uniqueFile(field+".file", &p.File, files))
-		}
-		errs = append(errs, e.proposedExpect(field, p))
-	}
-	return ids, errs
-}
-
-// proposedExpect checks a proposal's expectation: pass (or none), or fail
-// for an outcome the report's verdict says fails.
-func (e *Evaluation) proposedExpect(field string, p *ProposedCheck) error {
-	switch p.Expect {
-	case "", ExpectPass:
-		return nil
-	case ExpectFail:
-	default:
-		return fmt.Errorf("%s.expect %q is not pass or fail", field, p.Expect)
-	}
-	if !slices.ContainsFunc(e.Verdicts, func(v OutcomeVerdict) bool {
-		return v.ID == p.Outcome && v.Verdict == VerdictFail
-	}) {
-		return fmt.Errorf("%s expects to fail, but its outcome %q is not reported fail: propose a check that "+
-			"fails only for an outcome whose verdict is fail", field, p.Outcome)
-	}
-	return nil
+	return errs
 }
 
 // verdictOutcome settles which outcome verdict v names: its outcome, its
@@ -362,73 +227,6 @@ func verdictOutcome(field string, v *OutcomeVerdict) error {
 			v.ID, v.Outcome)
 	}
 	return nil
-}
-
-// uniqueFile checks a proposed check's file path, trimmed in place: one
-// line of visible text of at most ProposedFileMaxBytes that seen does not
-// hold yet, then records it. Where it points is agent-runner's to check.
-func uniqueFile(field string, file *string, seen map[string]bool) error {
-	f, err := oneLine(field, *file, ProposedFileMaxBytes)
-	*file = f
-	switch {
-	case err != nil:
-		return err
-	case len(f) > ProposedFileMaxBytes:
-		return fmt.Errorf("%s is %d bytes, over %d", field, len(f), ProposedFileMaxBytes)
-	case seen[f]:
-		return fmt.Errorf("%s %q is listed twice", field, f)
-	}
-	seen[f] = true
-	return nil
-}
-
-// validateDisputes checks the disputes against the proposed checks and
-// returns the digests they dispute.
-func (e *Evaluation) validateDisputes(proposed map[string]bool) (map[string]bool, []error) {
-	if len(e.Disputes) > EvaluationMaxDisputes {
-		return nil, []error{fmt.Errorf("disputes has %d items, over %d", len(e.Disputes), EvaluationMaxDisputes)}
-	}
-	var errs []error
-	digests := make(map[string]bool, len(e.Disputes))
-	for i := range e.Disputes {
-		d := &e.Disputes[i]
-		field := fmt.Sprintf("disputes[%d]", i)
-		errs = append(errs, uniqueDigest(field+".check_digest", d.CheckDigest, digests))
-		var err error
-		d.Reason, err = oneLine(field+".reason", d.Reason, NoteMaxChars)
-		errs = append(errs, err)
-		if d.Replacement != "" && !proposed[d.Replacement] {
-			errs = append(errs, fmt.Errorf("%s.replacement %q names no proposed check", field, d.Replacement))
-		}
-		if len(d.Ledger) == 0 {
-			errs = append(errs, fmt.Errorf("%s cites no ledger refs: a dispute names the failure it disputes", field))
-		}
-		errs = append(errs, ledgerRefs(field+".ledger", d.Ledger))
-	}
-	return digests, errs
-}
-
-// validateRetire checks the retirements; a check disputed in this report
-// is retired through its dispute, never here too.
-func (e *Evaluation) validateRetire(disputed map[string]bool) []error {
-	if len(e.Retire) > EvaluationMaxRetire {
-		return []error{fmt.Errorf("retire has %d items, over %d", len(e.Retire), EvaluationMaxRetire)}
-	}
-	var errs []error
-	digests := make(map[string]bool, len(e.Retire))
-	for i := range e.Retire {
-		r := &e.Retire[i]
-		field := fmt.Sprintf("retire[%d]", i)
-		errs = append(errs, uniqueDigest(field+".check_digest", r.CheckDigest, digests))
-		if disputed[r.CheckDigest] {
-			errs = append(errs, fmt.Errorf("%s.check_digest is also disputed: a disputed check is retired "+
-				"through its dispute", field))
-		}
-		var err error
-		r.Reason, err = oneLine(field+".reason", r.Reason, NoteMaxChars)
-		errs = append(errs, err)
-	}
-	return errs
 }
 
 // validateAnomalies checks the anomalies: each with its evidence.
@@ -448,23 +246,12 @@ func (e *Evaluation) validateAnomalies() []error {
 		if len(a.Ledger) == 0 {
 			errs = append(errs, fmt.Errorf("%s cites no ledger refs: an anomaly needs its evidence", field))
 		}
+		if a.Outcome != "" && !outcomeID.MatchString(a.Outcome) {
+			errs = append(errs, fmt.Errorf("%s.outcome %q is not an outcome id", field, a.Outcome))
+		}
 		errs = append(errs, ledgerRefs(field+".ledger", a.Ledger))
 	}
 	return errs
-}
-
-// uniqueCheckID checks a proposed check's id against the saved-check
-// grammar and that seen does not hold it yet, then records it.
-func uniqueCheckID(field, id string, seen map[string]bool) error {
-	if !checkID.MatchString(id) {
-		return fmt.Errorf("%s %q is not a check id: a lowercase id of at most 32 characters ([a-z][a-z0-9-]*), "+
-			"optionally followed by \".<name>\"", field, id)
-	}
-	if seen[id] {
-		return fmt.Errorf("%s %q is listed twice", field, id)
-	}
-	seen[id] = true
-	return nil
 }
 
 // uniqueID checks an id's grammar and that seen does not hold it yet, then
@@ -477,19 +264,6 @@ func uniqueID(field, id string, seen map[string]bool) error {
 		return fmt.Errorf("%s %q is listed twice", field, id)
 	}
 	seen[id] = true
-	return nil
-}
-
-// uniqueDigest checks a digest's shape and that seen does not hold it yet,
-// then records it.
-func uniqueDigest(field, digest string, seen map[string]bool) error {
-	if !checkDigest.MatchString(digest) {
-		return fmt.Errorf("%s %q is not a sha256:<64 hex> digest", field, digest)
-	}
-	if seen[digest] {
-		return fmt.Errorf("%s is listed twice", field)
-	}
-	seen[digest] = true
 	return nil
 }
 
@@ -508,7 +282,3 @@ func ledgerRefs(field string, refs []int32) error {
 	}
 	return errors.Join(errs...)
 }
-
-// ValidDigest reports whether s has the shape of a saved check's or an
-// outcome's digest, sha256:<64 lowercase hex>, as the reports name them.
-func ValidDigest(s string) bool { return checkDigest.MatchString(s) }

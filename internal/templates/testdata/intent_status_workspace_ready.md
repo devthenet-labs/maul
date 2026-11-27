@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Evaluation:** Ready: maul checked the approved outcomes. Evaluation 1 passed: 2/2 outcomes confirmed.
+**Evaluation:** Ready: maul's evaluator saw every approved outcome hold, citing calls maul recorded. Evaluation 1 passed: 2/2 outcomes seen to hold.
 
 **Commands now:** `/maul cancel`
 

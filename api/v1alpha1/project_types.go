@@ -402,14 +402,15 @@ type ProjectLimits struct {
 	// +optional
 	Evaluate StageLimits `json:"evaluate,omitempty"`
 	// CheckReview bounds each check reviewer run (read-only, judging the
-	// round's new saved checks).
+	// round's new saved checks). Retired with the check reviewer: the
+	// observed evaluator runs none, so it bounds nothing. Removed in the
+	// next release.
 	// +optional
 	CheckReview StageLimits `json:"checkReview,omitempty"`
 	// MaxEvaluateCostMicroUSD is the per-intent evaluation ceiling in
-	// micro-USD: what the intent's evaluate and checkreview runs may spend
-	// together, apart from the build ceiling (maxCostMicroUSD). Past it the
-	// evaluation ends and the hand-off is released as unconfirmed, never a
-	// block. Nil means DefaultMaxEvaluateCostMicroUSD
+	// micro-USD: what the intent's evaluate runs may spend together, apart
+	// from the build ceiling (maxCostMicroUSD). Past it the evaluation ends
+	// and the hand-off is released as unconfirmed, never a block. Nil means DefaultMaxEvaluateCostMicroUSD
 	// (MaxEvaluateCostLimit).
 	// +optional
 	// +kubebuilder:validation:Minimum=1
@@ -495,7 +496,8 @@ type ProjectVerification struct {
 	Handoff HandoffMode `json:"handoff,omitempty"`
 	// HandoffMax bounds a gated hand-off's wait, counted from CI green at
 	// the first PR heads, between 10m and 4h; DefaultHandoffMax when unset.
-	// Past it the hand-off is released as "couldn't confirm: out of time".
+	// Past it the hand-off is released as "maul can't call this ready: it ran
+	// out of time".
 	// +optional
 	// +kubebuilder:validation:XValidation:rule="duration(self) >= duration('10m') && duration(self) <= duration('4h')",message="verification.handoffMax must be between 10m and 4h"
 	HandoffMax *metav1.Duration `json:"handoffMax,omitempty"`
@@ -876,7 +878,9 @@ type ProjectModels struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`
 	Evaluate string `json:"evaluate,omitempty"`
 	// CheckReview is the check reviewer's model (--intent-checkreview-model
-	// when unset; a codex Project's build model, as for Evaluate).
+	// when unset; a codex Project's build model, as for Evaluate). Retired
+	// with the check reviewer: the observed evaluator runs none. Removed in
+	// the next release.
 	// +optional
 	// +kubebuilder:validation:MaxLength=128
 	// +kubebuilder:validation:Pattern=`^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$`
@@ -1121,12 +1125,12 @@ type ProjectAdmits struct {
 	// +kubebuilder:validation:Minimum=0
 	MaxRunCostMicroUSD int64 `json:"maxRunCostMicroUSD,omitempty"`
 	// RunBudgetFloors are, per model, the least cost budget one evaluate
-	// run and one checkreview run on that model may have while CostBudgets
-	// is true: twice what the egress broker reserves for each of the run's
-	// requests. A stage whose run budget is under its model's floor makes
-	// the Project not Ready (RunBudgetUnderRequestReserve), so the floor
-	// moves with the model a stage is given as much as with its budget. A
-	// model with no entry has no floor. Empty while the broker counts
+	// run on that model may have while CostBudgets is true: twice what the
+	// egress broker reserves for each of the run's requests. An evaluate
+	// run budget under its model's floor makes the Project not Ready
+	// (RunBudgetUnderRequestReserve), so the floor moves with the model the
+	// stage is given as much as with its budget. A model with no entry has
+	// no floor. Empty while the broker counts
 	// tokens, the evaluator is off, or the Project's harness is one whose
 	// runs are not judged (codex).
 	// +optional
@@ -1161,8 +1165,8 @@ type ProjectAdmits struct {
 	ResourceClasses []ProjectResourceClass `json:"resourceClasses,omitempty"`
 }
 
-// ProjectRunBudgetFloor is the least cost budget a run of each evaluator
-// stage may have on one model, in micro-USD.
+// ProjectRunBudgetFloor is the least cost budget an evaluate run may have
+// on one model, in micro-USD.
 type ProjectRunBudgetFloor struct {
 	// Model is the canonical model the floors are for.
 	// +kubebuilder:validation:MinLength=1
@@ -1173,11 +1177,6 @@ type ProjectRunBudgetFloor struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	EvaluateMicroUSD int64 `json:"evaluateMicroUSD,omitempty"`
-	// CheckReviewMicroUSD is the least budget of a checkreview run on
-	// Model. Zero (omitted): no floor.
-	// +optional
-	// +kubebuilder:validation:Minimum=0
-	CheckReviewMicroUSD int64 `json:"checkReviewMicroUSD,omitempty"`
 }
 
 // ProjectStageModels names one canonical model per stage that chooses its
@@ -1197,10 +1196,6 @@ type ProjectStageModels struct {
 	// +optional
 	// +kubebuilder:validation:MaxLength=256
 	Evaluate string `json:"evaluate,omitempty"`
-	// CheckReview is the check reviewer's model; empty as Evaluate is.
-	// +optional
-	// +kubebuilder:validation:MaxLength=256
-	CheckReview string `json:"checkReview,omitempty"`
 }
 
 // ProjectStageCeilings are the controller's ceilings per stage, in
@@ -1218,9 +1213,6 @@ type ProjectStageCeilings struct {
 	// Evaluate is the evaluator's ceiling.
 	// +optional
 	Evaluate ProjectStageCeiling `json:"evaluate,omitempty"`
-	// CheckReview is the check reviewer's ceiling.
-	// +optional
-	CheckReview ProjectStageCeiling `json:"checkReview,omitempty"`
 }
 
 // ProjectStageCeiling is the controller's ceiling for one stage, in

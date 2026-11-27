@@ -26,7 +26,6 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolledger"
@@ -216,33 +215,20 @@ func toolLedger(t *testing.T, shot []byte, unreached ...string) ([]byte, string)
 		}
 		return out.Bytes(), sum.TerminationMessage()
 	}
-	saved, err := checks.Parse([]byte(testCheckBody))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pass := []toolwire.Attempt{{Run: "0123456789abcdef", Result: toolwire.ResultPass}}
-	add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun,
-		Args: json.RawMessage(`{}`), CheckRun: &toolwire.CheckRunRecord{
-			Digest: strings.TrimPrefix(checks.Digest(saved), "sha256:"), CheckID: saved.ID, Mode: toolwire.ModeReplay,
-			Result: toolwire.RunPass, Attempts: pass}})
-	proposed, err := checks.Parse([]byte(strings.Replace(testCheckBody, `"items.body"`, `"items.echo"`, 1)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := strings.TrimPrefix(checks.Digest(proposed), "sha256:")
-	args, _ := json.Marshal(toolwire.CheckRunRequest{Spec: checks.Canonical(proposed)})
-	dry := add(toolwire.LedgerEntry{Kind: toolwire.KindAgent, Verb: toolwire.VerbCheckRun, Args: args,
-		CheckRun: &toolwire.CheckRunRecord{Digest: digest, CheckID: proposed.ID, Mode: toolwire.ModeDryRun,
-			Result: toolwire.RunPass, Attempts: pass}})
+	// An earlier relay's replay, the agent's dry run, the runner's confirm
+	// and the relay's confirmation: the retired verbs' entries, their check
+	// run records gone from the wire, which no reader takes for a run.
+	digest := strings.Repeat("a", 64)
+	add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun, Args: json.RawMessage(`{}`)})
+	dry := add(toolwire.LedgerEntry{Kind: toolwire.KindAgent, Verb: toolwire.VerbCheckRun,
+		Args: json.RawMessage(`{"check":` + testCheckBody + `}`)})
 	browse := add(toolwire.LedgerEntry{Kind: toolwire.KindAgent, Verb: toolwire.VerbBrowser,
 		Args: json.RawMessage(`{"verb":"screenshot"}`), Output: "shot",
 		Artifacts: []toolwire.Artifact{{Name: "page.png", SHA256: sha256Hex(shot), Bytes: int64(len(shot))}}})
 	add(toolwire.LedgerEntry{Kind: toolwire.KindRunner, Verb: toolwire.VerbConfirm,
 		Args: json.RawMessage(`{"digests":["` + digest + `"]}`)})
 	add(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbConfirm,
-		Args: json.RawMessage(`{"digest":"` + digest + `"}`), CheckRun: &toolwire.CheckRunRecord{Digest: digest,
-			CheckID: proposed.ID, Mode: toolwire.ModeConfirm, Result: toolwire.RunPass,
-			Attempts: []toolwire.Attempt{{Run: "fedcba9876543210", Result: toolwire.ResultPass}}}})
+		Args: json.RawMessage(`{"digest":"` + digest + `"}`)})
 	add(toolwire.LedgerEntry{Kind: toolwire.KindRunner, Verb: toolwire.VerbFinish, Args: json.RawMessage(`{}`)})
 	if dry.Seq != 3 {
 		t.Fatalf("dry run at %d", dry.Seq)
@@ -310,7 +296,7 @@ func TestToolsRenderedForAnOutcomeVerification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the relay refuses its config: %v", err)
 	}
-	if cfg.Components[1].Addr != "10.96.0.11:80" || len(cfg.Checks) != 1 || cfg.TimeoutSeconds != 20*60 {
+	if cfg.Components[1].Addr != "10.96.0.11:80" || cfg.TimeoutSeconds != 20*60 {
 		t.Errorf("config %+v", cfg)
 	}
 	var sec corev1.Secret
@@ -472,19 +458,11 @@ func checkToolsStatus(t *testing.T, pv *v1alpha1.PreviewVerification, sum toolwi
 	if browse.Verb != v1alpha1.LedgerVerbBrowser || !slices.Equal(browse.Artifacts, []string{sha256Hex(shot)}) {
 		t.Errorf("index entry 4 %+v", browse)
 	}
-	wantReplay := []v1alpha1.CheckRun{{CheckDigest: pv.Spec.Checks[0].Digest, Result: v1alpha1.CheckRunPass,
-		Token: "0123456789abcdef", Seq: 2}}
-	if !slices.Equal(pv.Status.Replay, wantReplay) {
-		t.Errorf("replay %+v", pv.Status.Replay)
-	}
-	confirms, confirmed := pv.Status.Confirmations, pv.Status.Confirmed
-	if len(confirms) != 1 || confirms[0] != (v1alpha1.CheckRun{CheckDigest: confirms[0].CheckDigest,
-		Result: v1alpha1.CheckRunPass, Token: "fedcba9876543210", Seq: 6, DryRunSeq: 3}) {
-		t.Errorf("confirmations %+v", confirms)
-	}
-	if len(confirmed) != 1 || confirmed[0].ID != "items.echo" || confirmed[0].Outcome != "items" ||
-		confirmed[0].Digest != confirms[0].CheckDigest {
-		t.Errorf("confirmed %+v", confirmed)
+	// The ledger holds a replay, a confirmation and a confirmed check;
+	// only its index reaches status.
+	if pv.Status.Replay != nil || pv.Status.Confirmations != nil || pv.Status.Confirmed != nil {
+		t.Errorf("replay %+v, confirmations %+v, confirmed %+v; want none", pv.Status.Replay,
+			pv.Status.Confirmations, pv.Status.Confirmed)
 	}
 	if !strings.Contains(pv.Status.ToolsImageID, "maul-preview-tools@sha256:") {
 		t.Errorf("image %q", pv.Status.ToolsImageID)
@@ -523,7 +501,10 @@ func TestToolsTamperedLogIsInfra(t *testing.T) {
 	job := e.testerJob()
 	pod := e.startToolPod(job, true)
 	log, msg := toolLedger(t, testPNG(t, 4, 4))
-	tampered := bytes.Replace(log, []byte(`"result":"pass"`), []byte(`"result":"fail"`), 1)
+	tampered := bytes.Replace(log, []byte(`"verb":"screenshot"`), []byte(`"verb":"snapshot"`), 1)
+	if bytes.Equal(tampered, log) {
+		t.Fatal("fixture: nothing was tampered with")
+	}
 	e.finishToolPod(job, pod, tampered, msg)
 	pv, _ := e.verify()
 	if pv.Status.Phase != v1alpha1.VerificationInfra || pv.Status.Reason != v1alpha1.VerificationReasonLedgerMismatch {
@@ -756,13 +737,12 @@ func TestToolsStatusNeedsItsSidecars(t *testing.T) {
 	}
 }
 
-// A full round whose tool Job ran to its deadline with no evaluator call
-// in its ledger (no agent entry, no runner finish) is maul's trouble, never
+// A round whose tool Job ran to its deadline with no evaluator call in its
+// ledger (no agent entry, no runner finish) is maul's trouble, never
 // Observed ok: tools-not-ready when the pod was never published,
-// evaluator-not-run when it was. A replay round has no evaluator to miss,
-// but one its relay finished other than at the replay's end (its wall
-// clock, or its container told to stop) may have left saved checks
-// unreplayed: replay-incomplete, never judged (review VC-3).
+// evaluator-not-run when it was. A verification written for a replay round
+// is guarded the same: its relay's own finish, however it ended, shows no
+// evaluator.
 func TestToolsNoEvaluatorIsInfra(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -775,13 +755,15 @@ func TestToolsNoEvaluatorIsInfra(t *testing.T) {
 		{name: "never published", phase: v1alpha1.VerificationInfra, reason: v1alpha1.VerificationReasonToolsNotReady},
 		{name: "published, never called", published: true, phase: v1alpha1.VerificationInfra,
 			reason: v1alpha1.VerificationReasonEvaluatorNotRun},
-		{name: "replay round", replay: true, published: true, finish: previewtools.FinishReplayOnly,
-			phase: v1alpha1.VerificationObserved, reason: v1alpha1.VerificationReasonOK},
-		{name: "replay round cut short at its deadline", replay: true, published: true,
+		{name: "replay round finished by its relay", replay: true, published: true, finish: "replay-only",
+			phase: v1alpha1.VerificationInfra, reason: v1alpha1.VerificationReasonEvaluatorNotRun},
+		{name: "replay round, never published", replay: true, finish: "replay-only",
+			phase: v1alpha1.VerificationInfra, reason: v1alpha1.VerificationReasonToolsNotReady},
+		{name: "replay round at its deadline", replay: true, published: true,
 			finish: previewtools.FinishDeadline, phase: v1alpha1.VerificationInfra,
-			reason: v1alpha1.VerificationReasonReplayIncomplete},
+			reason: v1alpha1.VerificationReasonEvaluatorNotRun},
 		{name: "replay round stopped", replay: true, published: true, finish: previewtools.FinishStopped,
-			phase: v1alpha1.VerificationInfra, reason: v1alpha1.VerificationReasonReplayIncomplete},
+			phase: v1alpha1.VerificationInfra, reason: v1alpha1.VerificationReasonEvaluatorNotRun},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newToolEnv(t)
@@ -823,16 +805,6 @@ func TestToolsPreChecks(t *testing.T) {
 	}{
 		{"another outcome", func(pv *v1alpha1.PreviewVerification) { pv.Spec.Outcomes[0].Outcome = "anything" },
 			false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleApproval},
-		{"another check store", func(pv *v1alpha1.PreviewVerification) {
-			pv.Spec.ChecksDigest = "sha256:" + strings.Repeat("d", 64)
-		}, false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleApproval},
-		{"a forged check", func(pv *v1alpha1.PreviewVerification) {
-			pv.Spec.Checks[0].Body = strings.Replace(pv.Spec.Checks[0].Body, "/api/echo", "/api/admin", 1)
-		}, false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleApproval},
-		{"a check of no approved outcome", func(pv *v1alpha1.PreviewVerification) {
-			c := savedCheck(t, strings.ReplaceAll(testCheckBody, `items`, `other`))
-			pv.Spec.Checks = []v1alpha1.SavedCheck{c}
-		}, false, v1alpha1.VerificationStale, v1alpha1.VerificationReasonStaleApproval},
 		{"evaluator off", nil, true, v1alpha1.VerificationInfra, v1alpha1.VerificationReasonToolsNotReady},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -850,6 +822,62 @@ func TestToolsPreChecks(t *testing.T) {
 			}
 			if len(e.jobs()) != 0 {
 				t.Error("a Job was rendered")
+			}
+		})
+	}
+}
+
+// TestToolsIgnoreSavedChecks: saved checks are no part of what an outcome
+// verification is held to. A verification with none, on an Intent whose
+// check store an earlier release wrote, is rendered (it is what the
+// observed evaluator writes for every such Intent), and so is one still
+// carrying checks of another store, forged or of no approved outcome:
+// the relay replays none of them.
+func TestToolsIgnoreSavedChecks(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mut  func(*v1alpha1.PreviewVerification)
+	}{
+		{"no checks beside the Intent's store", func(pv *v1alpha1.PreviewVerification) {
+			pv.Spec.Checks, pv.Spec.ChecksDigest = nil, ""
+		}},
+		{"another check store", func(pv *v1alpha1.PreviewVerification) {
+			pv.Spec.ChecksDigest = "sha256:" + strings.Repeat("d", 64)
+		}},
+		{"a forged check", func(pv *v1alpha1.PreviewVerification) {
+			pv.Spec.Checks[0].Body = strings.Replace(pv.Spec.Checks[0].Body, "/api/echo", "/api/admin", 1)
+		}},
+		{"a check of no approved outcome", func(pv *v1alpha1.PreviewVerification) {
+			pv.Spec.Checks = []v1alpha1.SavedCheck{savedCheck(t, strings.ReplaceAll(testCheckBody, `items`, `other`))}
+		}},
+		{"a replay round", func(pv *v1alpha1.PreviewVerification) { pv.Spec.Rung = v1alpha1.RungReplay }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newToolEnv(t)
+			if e.in.Status.Acceptance.Checks == nil {
+				t.Fatal("the fixture's Intent has no check store")
+			}
+			if err := e.c.Delete(context.Background(), e.pv); err != nil {
+				t.Fatal(err)
+			}
+			e.pv = e.toolPV(tc.mut)
+			pv, _ := e.verify()
+			if pv.Status.Phase != v1alpha1.VerificationRunning {
+				t.Fatalf("phase %s %s, want Running", pv.Status.Phase, pv.Status.Reason)
+			}
+			var cm corev1.ConfigMap
+			if err := e.slotObject(toolName(e.p, pv, toolConfigInfix), &cm); err != nil {
+				t.Fatal(err)
+			}
+			var raw map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(cm.Data[previewtools.ConfigFile]), &raw); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := raw["checks"]; ok {
+				t.Errorf("the relay config carries checks: %s", cm.Data[previewtools.ConfigFile])
+			}
+			if _, ok := raw["replayOnly"]; ok {
+				t.Errorf("the relay config is a replay: %s", cm.Data[previewtools.ConfigFile])
 			}
 		})
 	}

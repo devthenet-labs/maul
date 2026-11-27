@@ -1219,8 +1219,8 @@ intentController:
         # the controller refuses to start otherwise).
         jobDeadlineMax: 4h30m
         # The models a Project may choose for its stages (spec.models: plan,
-        # build, evaluate, checkReview) beside the stage models below, the
-        # codex pair and the evaluator's, which are always allowed. Each must
+        # build, evaluate) beside the stage models below, the codex pair and
+        # the evaluator's, which are always allowed. Each must
         # resolve to claude, or to codex with codex.enabled, or the controller
         # refuses to start. A Project naming any other is not Ready
         # (ModelNotAllowed) and its open intents are held Blocked. Empty, a
@@ -1348,9 +1348,11 @@ intentController:
         # Evaluate a codex Project's previews on brokered codex. Off, such a
         # Project gets the early hand-off (EvaluatorUnverified).
         codexEvaluator: false
-        # The evaluator's and check reviewer's models (claude Projects).
+        # The evaluator's model (claude Projects). The check reviewer is
+        # retired with saved checks: checkReviewModel and checkReviewMaxTurns
+        # are removed, and either one set fails the render
+        # (docs/intents/evaluator.md#migrating-from-saved-checks).
         evaluateModel: anthropic/claude-sonnet-5-5
-        checkReviewModel: anthropic/claude-sonnet-5-5
         # One evaluation round's wall clock. Its slot tool Job must fit under
         # preview.verification.deadlineMaxSeconds, so this must be shorter.
         evaluateTimeout: 20m
@@ -1363,8 +1365,6 @@ intentController:
         # measured live under the default $6 run budget and well inside the
         # 20 minutes. Raise the cost budget and the timeout before raising it.
         evaluateMaxTurns: 100
-        # The most agent turns each check-review session may take, 1 to 1000.
-        checkReviewMaxTurns: 6
         # The most an intent's evaluation runs may spend, in USD (rendered
         # in micro-USD).
         maxEvaluateCostUSD: 6

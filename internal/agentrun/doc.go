@@ -26,33 +26,26 @@
 // of such a plan and learns which from MAUL_REPO alone, matched against
 // the approved plan's own list: no new configuration key exists for either.
 //
-// The agent evaluator and the check reviewer are two more intent phases,
-// evaluate and checkreview (evaluate.go, checkreview.go). Their Jobs hold
-// no tree: the handoff sits in the workspace's input/, out of the agent's
-// reach, and the agent runs in its scratch/ under the evaluate posture
-// (harness.SandboxEvaluate), which a harness that cannot hold it refuses.
-// Both handoffs are strict JSON (EvaluateHandoff, CheckReviewHandoff) and
-// both prompts are the controller's templates (templates.RenderEvaluatePrompt,
-// templates.RenderCheckReviewPrompt). Evaluate drives the round's tool pod
-// through maul-tool (MAUL_TOOLS_URL), writes one report whose proposed
-// checks must each match a check file it wrote, and once the agent exits
-// asks the tool pod to confirm those checks and to finish, naming the
-// screenshots the report cites as evidence (evaluate_tools.go), then emits
-// an evaluation event; checkreview runs one fresh session per check of its
-// handoff and emits a checkreview event whose answers are keyed by the
-// handoff's digests. Both run on the
-// investigate stage's configuration, and every phase switch names every
-// phase: an unknown one is an error, never another stage.
+// The agent evaluator is one more intent phase, evaluate (evaluate.go). Its
+// Jobs hold no tree: the handoff sits in the workspace's input/, out of the
+// agent's reach, and the agent runs in its scratch/ under the evaluate
+// posture (harness.SandboxEvaluate), which a harness that cannot hold it
+// refuses. The handoff is strict JSON (EvaluateHandoff) and the prompt is
+// the controller's template (templates.RenderEvaluatePrompt). Evaluate
+// explores the round's tool pod through maul-tool (MAUL_TOOLS_URL), writes
+// one report whose verdicts cite the calls they rest on, and once the agent
+// exits asks the tool pod to finish, naming the screenshots the report
+// cites as evidence (evaluate_tools.go), then emits an evaluation event. It
+// runs on the investigate stage's configuration, and every phase switch
+// names every phase: an unknown one is an error, never another stage. An
+// earlier release's checkreview phase is gone: such a Job is refused.
 //
 // On a Project with no preview (SPEC-S2) the round's tool pod runs in the
 // agents namespace and builds the pull request's head and base: the
 // evaluate handoff then names the surface (EvaluateTools.Workspace) and
 // carries the tool pod's per-evaluation key, which agent-runner stages at
-// input/tools-key (maultool.KeyFile, 0400), sends with its own confirm and
-// finish, and scrubs from the transcript, the event and its logs; the
-// check review handoff carries each check's runs at both sides beside the
-// untrusted program (CheckReviewHandoff.Workspace, CheckReviewItem.Head,
-// .Base).
+// input/tools-key (maultool.KeyFile, 0400), sends with its own finish, and
+// scrubs from the transcript, the event and its logs.
 //
 // The runner trusts the repository over the agent: a remediation or build
 // report claiming success is downgraded unless commit.sh ran cleanly and

@@ -32,21 +32,20 @@ func publishedProjectStatus() ProjectStatus {
 			Models: []string{"anthropic/claude-opus-5", "anthropic/claude-sonnet-5"},
 			DefaultModels: ProjectStageModels{
 				Plan: "anthropic/claude-opus-5", Build: "anthropic/claude-sonnet-5",
-				Evaluate: "anthropic/claude-sonnet-5", CheckReview: "anthropic/claude-haiku-5",
+				Evaluate: "anthropic/claude-sonnet-5",
 			},
 			Stages: ProjectStageCeilings{
-				Plan:        stage(40, 200000, 20*time.Minute),
-				Build:       stage(150, 800000, time.Hour),
-				Revise:      stage(80, 400000, 45*time.Minute),
-				Evaluate:    stage(100, 400000, 20*time.Minute),
-				CheckReview: stage(6, 100000, 15*time.Minute),
+				Plan:     stage(40, 200000, 20*time.Minute),
+				Build:    stage(150, 800000, time.Hour),
+				Revise:   stage(80, 400000, 45*time.Minute),
+				Evaluate: stage(100, 400000, 20*time.Minute),
 			},
 			MaxEvaluateCostMicroUSD: 6000000,
 			MaxToolCalls:            300,
 			CostBudgets:             true,
 			MaxRunCostMicroUSD:      25000000,
 			RunBudgetFloors: []ProjectRunBudgetFloor{
-				{Model: "anthropic/claude-opus-5", EvaluateMicroUSD: 1600000, CheckReviewMicroUSD: 409600},
+				{Model: "anthropic/claude-opus-5", EvaluateMicroUSD: 1600000},
 				{Model: "anthropic/claude-sonnet-5", EvaluateMicroUSD: 960000},
 			},
 			Evaluator: true,
@@ -79,15 +78,14 @@ func TestProjectStatusWirePaths(t *testing.T) {
 		`"resolvedAt":"2026-11-22T09:30:00Z"},` +
 		`"admits":{"models":["anthropic/claude-opus-5","anthropic/claude-sonnet-5"],` +
 		`"defaultModels":{"plan":"anthropic/claude-opus-5","build":"anthropic/claude-sonnet-5",` +
-		`"evaluate":"anthropic/claude-sonnet-5","checkReview":"anthropic/claude-haiku-5"},` +
+		`"evaluate":"anthropic/claude-sonnet-5"},` +
 		`"stages":{"plan":{"maxTurns":40,"tokenBudget":200000,"timeout":"20m0s"},` +
 		`"build":{"maxTurns":150,"tokenBudget":800000,"timeout":"1h0m0s"},` +
 		`"revise":{"maxTurns":80,"tokenBudget":400000,"timeout":"45m0s"},` +
-		`"evaluate":{"maxTurns":100,"tokenBudget":400000,"timeout":"20m0s"},` +
-		`"checkReview":{"maxTurns":6,"tokenBudget":100000,"timeout":"15m0s"}},` +
+		`"evaluate":{"maxTurns":100,"tokenBudget":400000,"timeout":"20m0s"}},` +
 		`"maxEvaluateCostMicroUSD":6000000,"maxToolCalls":300,"costBudgets":true,"maxRunCostMicroUSD":25000000,` +
 		`"runBudgetFloors":[` +
-		`{"model":"anthropic/claude-opus-5","evaluateMicroUSD":1600000,"checkReviewMicroUSD":409600},` +
+		`{"model":"anthropic/claude-opus-5","evaluateMicroUSD":1600000},` +
 		`{"model":"anthropic/claude-sonnet-5","evaluateMicroUSD":960000}],` +
 		`"evaluator":true,"subagents":true,"workflows":true,` +
 		`"resourceClasses":[{"name":"large","requests":{"cpu":"4","memory":"8Gi"},"limits":{"memory":"10Gi"}}]}}`

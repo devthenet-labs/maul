@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/harness"
 	"github.com/devthenet-labs/maul/internal/provider"
@@ -82,17 +81,25 @@ var evalProbeOutcomes = []acceptance.PlanOutcome{
 // TestEvaluatorReportProbe asks the REAL model, through the real claude CLI
 // under the evaluate posture, to write an evaluation report for a tiny
 // synthetic round, and holds what it writes to the same acceptance the
-// evaluate stage applies (report.ParseEvaluation, then checkProposed). The
-// e2e suite's scripted claude always writes the format exactly, so only a
-// real model shows whether the prompt actually teaches it.
+// evaluate stage applies (parseEvaluation), then to maul's judge
+// (acceptance.Judge) over the ledger the stand-in tool kept. The e2e suite's
+// scripted claude always writes the format exactly, so only a real model
+// shows whether the prompt actually teaches it: to observe, and to cite the
+// calls it saw an outcome hold or not hold on.
 //
 // Both prompts that ask for the report are probed, each in a session of its
 // own: the evaluate prompt (RenderEvaluatePrompt) on a run with room to
 // finish, and the out-of-turns repair (RenderRepairPrompt, OutOfTurns) on a
 // run cut off after two turns, as settleReport resumes one. The preview is a
 // stand-in maul-tool (this test binary, TestEvaluatorReportProbeTool) that
-// numbers its calls as the ledger does and answers from a fixed fake
-// application, so the model has real ledger seqs and digests to cite.
+// numbers and records its calls as the ledger does and answers from a fixed
+// fake application, so the model has real ledger seqs to cite.
+//
+// On the evaluate prompt maul must judge the working outcome seen to hold and
+// the broken one seen not to hold, each on a cited call that exercised the
+// application. The repair run is told to run no more tools, so it may report
+// either unsure; it must still never contradict the fake application, and
+// cite a call that counts for every pass or fail it reports (probeJudge).
 //
 // It costs real money: two short sessions on the evaluate model, in the
 // order of $0.20 in all, each CLI run capped by turns and by
@@ -131,7 +138,7 @@ func TestEvaluatorReportProbe(t *testing.T) {
 			total += res.cost
 			outcome, detail = p.settle()
 		}
-		p.judge(t, outcome, detail)
+		p.judge(t, outcome, detail, true)
 	})
 
 	t.Run("out-of-turns repair prompt", func(t *testing.T) {
@@ -153,19 +160,19 @@ func TestEvaluatorReportProbe(t *testing.T) {
 		res = p.run(t, p.repairSpec(t, res, detail, repairMaxTurns))
 		total += res.cost
 		outcome, detail = p.settle()
-		p.judge(t, outcome, detail)
+		p.judge(t, outcome, detail, false)
 	})
 
 	t.Logf("evaluator report probe: %s, total cost $%.4f", model, total)
 }
 
 // evalReportProbe is one session's layout, as the evaluator pod lays it
-// out: HOME at work, the run in work/scratch with its checks and shots
-// directories, and the stand-in maul-tool first on PATH.
+// out: HOME at work, the run in work/scratch with its shots directory, and
+// the stand-in maul-tool first on PATH, keeping its ledger in state.
 type evalReportProbe struct {
-	cli, cred, model      string
-	work, scratch, binDir string
-	session               string
+	cli, cred, model             string
+	work, scratch, binDir, state string
+	session                      string
 	// accepted is the last report settle accepted.
 	accepted *report.Evaluation
 }
@@ -180,11 +187,11 @@ func newEvalReportProbe(t *testing.T, cli, cred, model string) *evalReportProbe 
 		cli: cli, cred: cred, model: model,
 		work:    filepath.Join(root, "work"),
 		binDir:  filepath.Join(root, "bin"),
+		state:   filepath.Join(root, "tool-state"),
 		session: newProbeSessionID(t),
 	}
 	p.scratch = filepath.Join(p.work, "scratch")
-	state := filepath.Join(root, "tool-state")
-	for _, dir := range []string{p.checksDir(), filepath.Join(p.scratch, "shots"), p.binDir, state} {
+	for _, dir := range []string{p.shotsDir(), p.binDir, p.state} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -197,7 +204,7 @@ func newEvalReportProbe(t *testing.T, cli, cred, model string) *evalReportProbe 
 	// set here, inside the script, so the model's command stays a bare
 	// `maul-tool ...` as the posture requires.
 	script := fmt.Sprintf("#!/bin/sh\n%s=%s exec %s -test.run='^TestEvaluatorReportProbeTool$' -- \"$@\"\n",
-		evalProbeToolEnv, shellQuote(state), shellQuote(self))
+		evalProbeToolEnv, shellQuote(p.state), shellQuote(self))
 	tool := filepath.Join(p.binDir, "maul-tool")
 	if err := os.WriteFile(tool, []byte(script), 0o755); err != nil { //nolint:gosec // an executable stand-in
 		t.Fatal(err)
@@ -206,7 +213,7 @@ func newEvalReportProbe(t *testing.T, cli, cred, model string) *evalReportProbe 
 }
 
 func (p *evalReportProbe) reportPath() string { return filepath.Join(p.scratch, "report.md") }
-func (p *evalReportProbe) checksDir() string  { return filepath.Join(p.scratch, "checks") }
+func (p *evalReportProbe) shotsDir() string   { return filepath.Join(p.scratch, "shots") }
 
 // handoff is the synthetic round as the controller would hand it over.
 func (p *evalReportProbe) handoff() EvaluateHandoff {
@@ -239,10 +246,9 @@ func (p *evalReportProbe) firstSpec(t *testing.T, stated, turns int) runner.Comm
 	if err := validEvaluateHandoff(h); err != nil {
 		t.Fatalf("the probe's handoff: %v", err)
 	}
-	prompt, err := templates.RenderEvaluatePrompt(h.prompt(p.reportPath(), p.checksDir(),
-		filepath.Join(p.scratch, "shots"), templates.StageLimits{
-			MaxTurns: stated, TokenBudget: 200000, Timeout: 20 * time.Minute,
-		}))
+	prompt, err := templates.RenderEvaluatePrompt(h.prompt(p.reportPath(), p.shotsDir(), templates.StageLimits{
+		MaxTurns: stated, TokenBudget: 200000, Timeout: 20 * time.Minute,
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +304,8 @@ func (p *evalReportProbe) run(t *testing.T, spec runner.CommandSpec) probeRun {
 		"DISABLE_AUTOUPDATER=1",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
 	}, spec.Env...)
-	cmd.Stdin = strings.NewReader("")
+	// The prompt is the CLI's standard input (harness.Claude.PromptSpec), never an argument.
+	cmd.Stdin = strings.NewReader(spec.Stdin)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	runErr := cmd.Run()
@@ -321,46 +328,85 @@ func (p *evalReportProbe) run(t *testing.T, spec runner.CommandSpec) probeRun {
 }
 
 // settle reads the report and holds it to the evaluate stage's acceptance,
-// as settleReport does: readReportAs over readReport and parseEvaluation's
-// two steps (report.ParseEvaluation, then the proposals against the check
-// files).
+// as settleReport does: readReportAs over readReport and parseEvaluation.
 func (p *evalReportProbe) settle() (envelope.Outcome, string) {
-	e, _, outcome, detail := readReportAs(p.reportPath(), readReport, func(raw []byte) (*report.Evaluation, error) {
-		e, err := report.ParseEvaluation(raw)
-		if err != nil {
-			return nil, err
-		}
-		if err := checkProposed(p.checksDir(), e.Proposed); err != nil {
-			return nil, fmt.Errorf("report: evaluation: %w", err)
-		}
-		return e, nil
-	})
+	e, _, outcome, detail := readReportAs(p.reportPath(), readReport, parseEvaluation)
 	p.accepted = e
 	return outcome, detail
 }
 
-// judge fails the probe unless the report was accepted, with the
-// decoder's errors and the report as the model wrote it.
-func (p *evalReportProbe) judge(t *testing.T, outcome envelope.Outcome, detail string) {
+// judge fails the probe unless the report was accepted and maul's judge,
+// over the stand-in's ledger, finds in it what probeJudge asks (strict: the
+// evaluate prompt's run), with the decoder's errors or the judgement and the
+// report as the model wrote it.
+func (p *evalReportProbe) judge(t *testing.T, outcome envelope.Outcome, detail string, strict bool) {
 	t.Helper()
+	raw, _ := os.ReadFile(p.reportPath())
 	switch outcome {
 	case envelope.OutcomeOK:
 	case envelope.OutcomeReportMissing:
 		t.Fatalf("the model wrote no report: %s", detail)
 	default:
-		raw, _ := os.ReadFile(p.reportPath())
 		t.Fatalf("maul refused the report the model wrote (%s):\n%s\n\nthe report:\n%s", outcome, detail, raw)
 	}
-	ids := make([]string, 0, len(p.accepted.Verdicts))
-	for _, v := range p.accepted.Verdicts {
-		ids = append(ids, v.ID+"="+string(v.Verdict))
+	ledger, err := probeLedger(p.state)
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Logf("the report was accepted: verdicts %v, %d proposed", ids, len(p.accepted.Proposed))
+	j, problems := probeJudge(p.accepted, ledger, strict)
+	for _, d := range j.PerOutcome {
+		t.Logf("maul judged %s %s (%s), citing %v", d.ID, d.Result, d.Reason, d.Cites)
+	}
+	if len(problems) > 0 {
+		t.Errorf("the report does not show what the model saw:\n- %s\n\nthe ledger: %+v\n\nthe report:\n%s",
+			strings.Join(problems, "\n- "), ledger, raw)
+	}
+}
+
+// probeJudge judges e as maul does (acceptance.Judge over the verified
+// ledger), and says what in it the probe refuses: an outcome, manual or not,
+// the report gives no verdict; a pass or fail citing no call that counts
+// (no-valid-evidence); the working outcome failed or the broken one passed;
+// and, when strict, the working outcome not seen to hold or the broken one
+// not seen not to hold.
+func probeJudge(e *report.Evaluation, ledger []acceptance.LedgerFact, strict bool) (acceptance.Judgement,
+	[]string) {
+	in := acceptance.JudgeInput{Verified: true, Count: int32(len(ledger)), Ledger: ledger} //nolint:gosec // a probe ledger
 	for _, o := range evalProbeOutcomes {
-		if !slices.ContainsFunc(p.accepted.Verdicts, func(v report.OutcomeVerdict) bool { return v.ID == o.ID }) {
-			t.Errorf("the report gives outcome %q no verdict", o.ID)
+		in.Outcomes = append(in.Outcomes, acceptance.OutcomeRef{ID: o.ID, Manual: o.Manual})
+	}
+	for _, v := range e.Verdicts {
+		in.Verdicts = append(in.Verdicts, acceptance.Verdict{Outcome: v.ID, Claim: acceptance.Claim(v.Verdict),
+			Cites: v.Ledger, Note: v.Note})
+	}
+	var problems []string
+	for _, o := range evalProbeOutcomes {
+		if !slices.ContainsFunc(e.Verdicts, func(v report.OutcomeVerdict) bool { return v.ID == o.ID }) {
+			problems = append(problems, fmt.Sprintf("the report gives %s no verdict", o.ID))
 		}
 	}
+	j := acceptance.Judge(in)
+	for _, d := range j.PerOutcome {
+		if d.Reason == acceptance.ReasonNoValidEvidence {
+			problems = append(problems, fmt.Sprintf("%s's verdict cites no call that exercised the application", d.ID))
+		}
+		switch want := probeWant[d.ID]; {
+		case want == "":
+		case d.Result != want && d.Result != acceptance.ResultUnsure:
+			problems = append(problems, fmt.Sprintf("%s is judged %s; the fake application makes it %s", d.ID,
+				d.Result, want))
+		case strict && d.Result != want:
+			problems = append(problems, fmt.Sprintf("%s is judged %s (%s); want %s on a cited call", d.ID, d.Result,
+				d.Reason, want))
+		}
+	}
+	return j, problems
+}
+
+// probeWant is what the fake application makes each judged outcome.
+var probeWant = map[string]acceptance.Result{
+	"greets-by-name": acceptance.ResultPassed,
+	"counts-visits":  acceptance.ResultFailed,
 }
 
 // evalProbeCredential is the first credential set in the environment, as
@@ -407,9 +453,11 @@ func TestEvaluatorReportProbeTool(t *testing.T) {
 
 // probeTool answers one maul-tool command from the fake application: a
 // greeting that works and a visit counter that never counts. It numbers
-// every call it accepts as the ledger does, and runs a check by parsing and
-// validating it with the real grammar, then passing it if it is bound to the
-// working outcome and failing it otherwise.
+// every call it accepts as the ledger does and records it (nextSeq), so the
+// probe judges the report against the calls the model really made. It offers
+// what a preview round with no browser or sandbox offers (http, logs,
+// events); anything else, the retired check verbs included, it refuses
+// unrecorded.
 func probeTool(state string, args []string) (string, int) {
 	refuse := func(why string) (string, int) { return "maul-tool: " + why + "\n", 3 }
 	if len(args) == 0 {
@@ -417,15 +465,7 @@ func probeTool(state string, args []string) (string, int) {
 	}
 	var body string
 	switch {
-	case len(args) == 2 && args[0] == "check" && args[1] == "results":
-		body = "[observed] no saved checks: this is the change's first round\n"
-	case len(args) == 3 && args[0] == "check" && args[1] == "run":
-		b, err := probeCheckRun(args[2])
-		if err != nil {
-			return refuse(err.Error())
-		}
-		body = b
-	case len(args) >= 3 && args[0] == "http":
+	case len(args) >= 3 && args[0] == acceptance.LedgerVerbHTTP:
 		body = probeHTTP(args[1], args[2])
 	case len(args) == 2 && args[0] == "logs":
 		body = "[untrusted output]\nlistening on :8080\n"
@@ -434,7 +474,7 @@ func probeTool(state string, args []string) (string, int) {
 	default:
 		return refuse("unknown command " + strconv.Quote(strings.Join(args, " ")))
 	}
-	seq, err := nextSeq(state)
+	seq, err := nextSeq(state, args[0])
 	if err != nil {
 		return "maul-tool: " + err.Error() + "\n", 4
 	}
@@ -459,45 +499,41 @@ func probeHTTP(method, target string) string {
 	return fmt.Sprintf("[observed] http status %d in 3 ms\n[untrusted output]\n%s\n", status, resp)
 }
 
-// probeCheckRun dry-runs a check file: refused as maul-tool refuses one the
-// grammar does not admit, else pass for the working outcome and fail for
-// any other, printed as maul-tool prints a check run.
-func probeCheckRun(path string) (string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // a path the model names, under the probe's scratch
-	if err != nil {
-		return "", err
+// probeLedgerFile is the stand-in's ledger in its state directory: one
+// line per accepted call, its verb, in seq order.
+const probeLedgerFile = "ledger"
+
+// nextSeq records one call of verb in the state directory's ledger and
+// returns its seq.
+func nextSeq(state, verb string) (int, error) {
+	path := filepath.Join(state, probeLedgerFile)
+	prior, err := os.ReadFile(path) //nolint:gosec // the probe's own state file
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return 0, err
 	}
-	c, err := checks.Parse(data)
-	if err != nil {
-		return "", err
-	}
-	if err := checks.Validate(c, checks.Context{Preview: &checks.Preview{Components: []string{"api"}}}); err != nil {
-		return "", err
-	}
-	digest := strings.TrimPrefix(checks.Digest(c), "sha256:")
-	if c.Outcome == "greets-by-name" {
-		return fmt.Sprintf("[observed] check %s digest sha256:%s dry-run: pass (attempts: pass, pass)\n", c.ID, digest), nil
-	}
-	return fmt.Sprintf("[observed] check %s digest sha256:%s dry-run: fail (attempts: fail, fail)\n"+
-		"[observed]   attempt 1 step 2 fail: %q\n", c.ID, digest, `expect json /count: got 0, want 1`), nil
+	seq := strings.Count(string(prior), "\n") + 1
+	return seq, os.WriteFile(path, append(prior, verb+"\n"...), 0o600)
 }
 
-// nextSeq takes the next ledger seq from the state directory.
-func nextSeq(state string) (int, error) {
-	path := filepath.Join(state, "seq")
-	n := 0
-	if b, err := os.ReadFile(path); err == nil { //nolint:gosec // the probe's own state file
-		n, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+// probeLedger is the stand-in's ledger as the verified index records it:
+// every call the agent's own, unrefused, at the head.
+func probeLedger(state string) ([]acceptance.LedgerFact, error) {
+	raw, err := os.ReadFile(filepath.Join(state, probeLedgerFile)) //nolint:gosec // the probe's own state file
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
 	}
-	n++
-	return n, os.WriteFile(path, []byte(strconv.Itoa(n)), 0o600)
+	var out []acceptance.LedgerFact
+	for i, verb := range strings.Fields(string(raw)) {
+		seq := int32(i + 1) //nolint:gosec // bounded by the probe's tool calls
+		out = append(out, acceptance.LedgerFact{Seq: seq, Kind: acceptance.LedgerKindAgent, Verb: verb})
+	}
+	return out, nil
 }
 
 // TestEvaluatorReportProbeStandIn runs the probe's stand-in maul-tool the
 // way the model does, through its script on PATH, so the free part of the
-// probe is checked on every `go test`: the ledger numbering, the fake
-// application, a check run's digest (the one checkProposed then matches)
-// and the refusals.
+// probe is checked on every `go test`: the ledger numbering and record, the
+// fake application and the refusals, the retired check verbs among them.
 func TestEvaluatorReportProbeStandIn(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh is not on PATH")
@@ -514,40 +550,87 @@ func TestEvaluatorReportProbeStandIn(t *testing.T) {
 		}
 		return string(out), cmd.ProcessState.ExitCode()
 	}
-	check := `{"id": "greets-by-name", "outcome": "greets-by-name", "form": "http", "http": {"target": "api",
-  "steps": [{"request": {"method": "GET", "path": "/api/greet?name={{run}}-al"},
-             "expect": {"status": 200, "json": {"/greeting": "Hello, {{run}}-al!"}}}]}}`
-	if err := os.WriteFile(filepath.Join(p.checksDir(), "greets.json"), []byte(check), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	c, err := checks.Parse([]byte(check))
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range []struct {
 		args []string
 		code int
 		want string
 	}{
-		{[]string{"check", "results"}, 0, "[maul-tool ledger seq 1]\n[observed] no saved checks"},
+		{[]string{"logs", "api"}, 0, "[maul-tool ledger seq 1]\n[untrusted output]\nlistening"},
 		{[]string{"http", "GET", "/api/greet?name=probe7-al"}, 0,
 			"[maul-tool ledger seq 2]\n[observed] http status 200 in 3 ms\n[untrusted output]\n" +
 				`{"greeting": "Hello, probe7-al!"}`},
-		{[]string{"http", "GET", "/api/visits"}, 0, `{"count": 0}`},
-		{[]string{"check", "run", "checks/greets.json"}, 0, "[maul-tool ledger seq 4]\n[observed] check " +
-			"greets-by-name digest " + checks.Digest(c) + " dry-run: pass"},
-		{[]string{"check", "run", "checks/absent.json"}, 3, "maul-tool: open checks/absent.json"},
+		{[]string{"http", "GET", "/api/visits"}, 0, "[maul-tool ledger seq 3]\n[observed] http status 200 in 3 ms\n" +
+			"[untrusted output]\n" + `{"count": 0}`},
+		{[]string{"check", "results"}, 3, "maul-tool: unknown command"},
+		{[]string{"check", "run", "checks/greets.json"}, 3, "maul-tool: unknown command"},
 		{[]string{"browser", "snapshot"}, 3, "maul-tool: unknown command"},
-		{[]string{"events"}, 0, "[maul-tool ledger seq 5]\n"},
+		{[]string{"events"}, 0, "[maul-tool ledger seq 4]\n"},
 	} {
 		got, code := tool(tc.args...)
 		if code != tc.code || !strings.Contains(got, tc.want) {
 			t.Errorf("maul-tool %q = %d %q, want %d and %q", tc.args, code, got, tc.code, tc.want)
 		}
 	}
-	if err := checkProposed(p.checksDir(), []report.ProposedCheck{
-		{ID: "greets-by-name", Outcome: "greets-by-name", Digest: checks.Digest(c)},
-	}); err != nil {
-		t.Errorf("a proposal of the stand-in's digest is refused: %v", err)
+	ledger, err := probeLedger(p.state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []acceptance.LedgerFact{
+		{Seq: 1, Kind: "agent", Verb: "logs"}, {Seq: 2, Kind: "agent", Verb: "http"},
+		{Seq: 3, Kind: "agent", Verb: "http"}, {Seq: 4, Kind: "agent", Verb: "events"},
+	}
+	if !slices.Equal(ledger, want) {
+		t.Errorf("ledger = %+v, want %+v", ledger, want)
+	}
+}
+
+// TestEvaluatorReportProbeJudge holds the probe's own judging to what it
+// claims, on every `go test`: over a ledger of a logs call (2) and http calls
+// (1, 3), it accepts the working outcome passed and the broken one failed on
+// http calls, and refuses a verdict on a logs call alone, a contradicted
+// outcome, a missing verdict and, when strict, an unsure.
+func TestEvaluatorReportProbeJudge(t *testing.T) {
+	ledger := []acceptance.LedgerFact{
+		{Seq: 1, Kind: acceptance.LedgerKindAgent, Verb: acceptance.LedgerVerbHTTP},
+		{Seq: 2, Kind: acceptance.LedgerKindAgent, Verb: "logs"},
+		{Seq: 3, Kind: acceptance.LedgerKindAgent, Verb: acceptance.LedgerVerbHTTP},
+	}
+	verdicts := func(greets, visits string, gl, vl []int32) *report.Evaluation {
+		e := &report.Evaluation{Verdicts: []report.OutcomeVerdict{
+			{ID: "reads-warmly", Verdict: report.VerdictUnsure},
+		}}
+		if greets != "" {
+			e.Verdicts = append(e.Verdicts, report.OutcomeVerdict{ID: "greets-by-name", Verdict: report.Verdict(greets),
+				Ledger: gl})
+		}
+		e.Verdicts = append(e.Verdicts, report.OutcomeVerdict{ID: "counts-visits", Verdict: report.Verdict(visits),
+			Ledger: vl})
+		return e
+	}
+	for _, tt := range []struct {
+		name   string
+		e      *report.Evaluation
+		strict bool
+		want   string
+	}{
+		{"seen", verdicts("pass", "fail", []int32{1}, []int32{3}), true, ""},
+		{"a logs call alone", verdicts("pass", "fail", []int32{2}, []int32{3}), false,
+			"greets-by-name's verdict cites no call"},
+		{"an out-of-range seq", verdicts("pass", "fail", []int32{1}, []int32{9}), false,
+			"counts-visits's verdict cites no call"},
+		{"contradicted", verdicts("pass", "pass", []int32{1}, []int32{3}), false, "counts-visits is judged passed"},
+		{"no verdict", verdicts("", "fail", nil, []int32{3}), false, "gives greets-by-name no verdict"},
+		{"no verdict of the manual outcome", &report.Evaluation{Verdicts: verdicts("pass", "fail", []int32{1},
+			[]int32{3}).Verdicts[1:]}, false, "gives reads-warmly no verdict"},
+		{"unsure, not strict", verdicts("unsure", "unsure", nil, nil), false, ""},
+		{"unsure, strict", verdicts("pass", "unsure", []int32{1}, nil), true, "counts-visits is judged unsure"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, problems := probeJudge(tt.e, ledger, tt.strict)
+			got := strings.Join(problems, "; ")
+			if (tt.want == "") != (got == "") || !strings.Contains(got, tt.want) {
+				t.Errorf("problems = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/envelope"
 	"github.com/devthenet-labs/maul/internal/harness"
 	"github.com/devthenet-labs/maul/internal/runner"
@@ -74,13 +73,8 @@ func evalHandoff(edit func(*EvaluateHandoff)) string {
 // evaluateHandoff is the default evaluator handoff.
 var evaluateHandoff = evalHandoff(nil)
 
-// roleHandoff is a valid handoff for a role phase.
-func roleHandoff(phase Phase) string {
-	if phase == PhaseEvaluate {
-		return evaluateHandoff
-	}
-	return reviewHandoff(1)
-}
+// roleHandoff is a valid handoff for a role phase (evaluate, the only one).
+func roleHandoff(Phase) string { return evaluateHandoff }
 
 // roleWorkspace builds a role Job's /work as its prepare init leaves it: the
 // handoff in input/issue.md and an empty scratch directory, no clone.
@@ -177,41 +171,22 @@ func (f *fakeTools) keys() []string {
 	return out
 }
 
-// request decodes the last call of verb into req.
-func (f *fakeTools) request(t *testing.T, verb toolwire.Verb, req toolwire.Request) {
+// finish decodes the last finish call.
+func (f *fakeTools) finish(t *testing.T) toolwire.FinishRequest {
 	t.Helper()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for i := len(f.calls) - 1; i >= 0; i-- {
-		if f.calls[i].verb == verb {
-			if err := toolwire.DecodeRequest(bytes.NewReader(f.calls[i].body), req); err != nil {
-				t.Fatalf("%s request %s: %v", verb, f.calls[i].body, err)
+		if f.calls[i].verb == toolwire.VerbFinish {
+			var req toolwire.FinishRequest
+			if err := toolwire.DecodeRequest(bytes.NewReader(f.calls[i].body), &req); err != nil {
+				t.Fatalf("finish request %s: %v", f.calls[i].body, err)
 			}
-			return
+			return req
 		}
 	}
-	t.Fatalf("no %s call", verb)
-}
-
-// rateBattleCheck is a check the evaluator saved for rate-battle, and its
-// file's JSON.
-var rateBattleCheck = mustCheck(`{"id":"rate-battle.api","outcome":"rate-battle","form":"http","http":{` +
-	`"target":"api","steps":[{"request":{"method":"POST","path":"/api/battles","json":{"winner":"{{run}}-a"}},` +
-	`"expect":{"status":201,"bodyContains":"{{run}}-a"}}]}}`)
-
-func mustCheck(raw string) checks.Check {
-	c, err := checks.Parse([]byte(raw))
-	if err != nil {
-		panic(err)
-	}
-	return c
-}
-
-// proposingEvaluation is goodEvaluation proposing rateBattleCheck under id,
-// outcome and digest.
-func proposingEvaluation(id, outcome, digest string) string {
-	return strings.Replace(goodEvaluation, "anomalies:", "proposed:\n  - id: \""+id+"\"\n    outcome: "+outcome+
-		"\n    digest: \""+digest+"\"\nanomalies:", 1)
+	t.Fatal("no finish call")
+	return toolwire.FinishRequest{}
 }
 
 // pngBytes is a screenshot's bytes.
@@ -222,15 +197,12 @@ func TestEvaluateEvent(t *testing.T) {
 	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
 	brokeredClaude(t, &cfg)
 	tools := useTools(t, &cfg)
-	digest := checks.Digest(rateBattleCheck)
-	report := proposingEvaluation("rate-battle.api", "rate-battle", digest)
+	report := goodEvaluation
 	fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{
-		"scratch/report.md":                   report,
-		"scratch/checks/rate-battle-api.json": string(checks.Canonical(rateBattleCheck)),
-		"scratch/checks/notes.txt":            "not a check",
-		"scratch/shots/14.png":                pngBytes,
-		"scratch/shots/20.png":                pngBytes + "2",
-		"scratch/shots/99.png":                pngBytes + "uncited",
+		"scratch/report.md":    report,
+		"scratch/shots/14.png": pngBytes,
+		"scratch/shots/20.png": pngBytes + "2",
+		"scratch/shots/99.png": pngBytes + "uncited",
 	}}}}
 	ev := onlyEvent(t, cfg, fx, &out)
 
@@ -250,13 +222,13 @@ func TestEvaluateEvent(t *testing.T) {
 	if e.Usage.OutputTokens != 30 || e.NumTurns != 7 {
 		t.Errorf("stage accounting = %+v, want the run's usage", e.Stage)
 	}
-	checkEvaluationClaims(t, e, digest)
-	checkEvaluateTools(t, tools, digest, e.Cited)
+	checkEvaluationClaims(t, e)
+	checkEvaluateTools(t, tools, e.Cited)
 	checkEvaluateCommand(t, fx.specs[0], ws)
 }
 
 // checkEvaluationClaims: the event carries the report's claims.
-func checkEvaluationClaims(t *testing.T, e *envelope.Evaluation, digest string) {
+func checkEvaluationClaims(t *testing.T, e *envelope.Evaluation) {
 	t.Helper()
 	if len(e.Verdicts) != 2 || e.Verdicts[0].ID != "rate-battle" || e.Verdicts[0].Verdict != "pass" ||
 		!slices.Equal(e.Verdicts[0].Ledger, []int32{12, 14}) || e.Verdicts[0].Note != "The rating moved by 16 points." {
@@ -265,26 +237,17 @@ func checkEvaluationClaims(t *testing.T, e *envelope.Evaluation, digest string) 
 	if len(e.Anomalies) != 1 || e.Anomalies[0].Route != "/battles" || !slices.Equal(e.Anomalies[0].Ledger, []int32{20}) {
 		t.Errorf("anomalies = %+v, want the report's", e.Anomalies)
 	}
-	if len(e.Proposed) != 1 || e.Proposed[0].Digest != digest {
-		t.Errorf("proposed = %+v, want the report's", e.Proposed)
-	}
 }
 
-// checkEvaluateTools: after the agent exits, the proposal is confirmed by
-// its bare digest, then the tool pod finished with the cited screenshots as
-// evidence, and the event cites what finish named.
-func checkEvaluateTools(t *testing.T, tools *fakeTools, digest string, cited []int32) {
+// checkEvaluateTools: after the agent exits, the tool pod is finished with
+// the cited screenshots as evidence, and nothing else is asked of it; the
+// event cites what finish named.
+func checkEvaluateTools(t *testing.T, tools *fakeTools, cited []int32) {
 	t.Helper()
-	if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbConfirm, toolwire.VerbFinish}) {
-		t.Fatalf("tool calls = %v, want confirm then finish", got)
+	if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbFinish}) {
+		t.Fatalf("tool calls = %v, want finish alone", got)
 	}
-	var confirm toolwire.ConfirmRequest
-	tools.request(t, toolwire.VerbConfirm, &confirm)
-	if want := []string{strings.TrimPrefix(digest, "sha256:")}; !slices.Equal(confirm.Digests, want) {
-		t.Errorf("confirm digests = %v, want %v (bare hex, as the tools container keys a check)", confirm.Digests, want)
-	}
-	var finish toolwire.FinishRequest
-	tools.request(t, toolwire.VerbFinish, &finish)
+	finish := tools.finish(t)
 	want := []toolwire.EvidenceRef{{Seq: 14, SHA256: sha256Hex(pngBytes)}, {Seq: 20, SHA256: sha256Hex(pngBytes + "2")}}
 	if !slices.Equal(finish.Evidence, want) {
 		t.Errorf("finish evidence = %+v, want the cited seqs that have screenshots, %+v", finish.Evidence, want)
@@ -312,7 +275,6 @@ func checkEvaluateCommand(t *testing.T, spec runner.CommandSpec, ws string) {
 		"You are maul's evaluator.",
 		"This is round 1 of this change's evaluation.",
 		filepath.Join(ws, "scratch", "report.md"),
-		filepath.Join(ws, "scratch", "checks"),
 		filepath.Join(ws, "scratch", "shots"),
 		"r1a1x7-alice",
 		"Rating a battle moves the winner's rating up.",
@@ -338,74 +300,22 @@ func TestEvaluateRepairsAMissingVerdict(t *testing.T) {
 	fx := &fakeExec{steps: []step{
 		{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": missing}},
 		{ws: ws, stdout: streamSuccess, writes: map[string]string{"scratch/report.md": goodEvaluation}},
-		// The repaired report passes rate-battle with no check: maul then
-		// asks for one (evaluate_cover.go), which this run does not give.
-		{ws: ws, stdout: streamResumed},
 	}}
 	e := onlyEvent(t, cfg, fx, &out).Evaluation
 	if e == nil || e.Outcome != envelope.OutcomeOK || e.ReportMarkdown != goodEvaluation || len(e.Verdicts) != 2 {
 		t.Fatalf("evaluation = %+v, want the repaired report", e)
 	}
-	if len(fx.specs) != 3 || !slices.Contains(fx.specs[1].Argv, "--resume") {
-		t.Fatalf("commands = %d, want the stage, one resumed repair and the ask for a check", len(fx.specs))
+	if len(fx.specs) != 2 || !slices.Contains(fx.specs[1].Argv, "--resume") {
+		t.Fatalf("commands = %d, want the stage and one resumed repair", len(fx.specs))
 	}
 	if repair := fx.specs[1].Stdin; !strings.Contains(repair, "verdicts is required") {
 		t.Errorf("repair prompt does not name the missing verdicts:\n%s", repair)
 	}
-	if ask := fx.specs[2].Stdin; !strings.Contains(ask, "Outcomes you passed with no check") {
-		t.Errorf("the run after the repair is not the ask for a check:\n%s", ask)
-	}
 }
 
-// TestEvaluateProposedCheckMustMatchItsFile: a proposal whose digest is no
-// check file's, or whose id or outcome is not that file's, refuses the
-// report; repair can fix it, and nothing is confirmed until it does.
-func TestEvaluateProposedCheckMustMatchItsFile(t *testing.T) {
-	digest := checks.Digest(rateBattleCheck)
-	other := checks.Digest(mustCheck(strings.Replace(string(checks.Canonical(rateBattleCheck)), "{{run}}-a",
-		"{{run}}-b", 2)))
-	tests := []struct {
-		name, report, want string
-	}{
-		{"digest of no file", proposingEvaluation("rate-battle.api", "rate-battle", other), "digest of no check file"},
-		{"another id", proposingEvaluation("rate-battle.page", "rate-battle", digest), `"rate-battle.page" is not the id`},
-		{"another outcome", proposingEvaluation("rate-battle.api", "leaderboard", digest),
-			`"leaderboard" is not the outcome`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var out bytes.Buffer
-			cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
-			brokeredClaude(t, &cfg)
-			tools := useTools(t, &cfg)
-			s := step{ws: ws, stdout: streamSuccess, writes: map[string]string{
-				"scratch/report.md":                   tt.report,
-				"scratch/checks/rate-battle-api.json": string(checks.Canonical(rateBattleCheck)),
-			}}
-			fx := &fakeExec{steps: []step{s, s, s}}
-			e := onlyEvent(t, cfg, fx, &out).Evaluation
-			if e == nil || e.Outcome != envelope.OutcomeReportInvalid || len(e.Proposed) != 0 {
-				t.Fatalf("evaluation = %+v, want report_invalid with no claims", e)
-			}
-			if !strings.Contains(e.Detail, tt.want) {
-				t.Errorf("detail = %q, want %q", e.Detail, tt.want)
-			}
-			if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbFinish}) {
-				t.Errorf("tool calls = %v, want finish alone: nothing is confirmed from a refused report", got)
-			}
-			var finish toolwire.FinishRequest
-			tools.request(t, toolwire.VerbFinish, &finish)
-			if len(finish.Evidence) != 0 || len(e.Cited) != 0 {
-				t.Errorf("finish evidence = %+v, cited %v; want none", finish.Evidence, e.Cited)
-			}
-		})
-	}
-}
-
-// TestEvaluateNoChecksNoConfirm: a report proposing nothing is not
-// confirmed, only finished, and a report citing no screenshot names no
-// evidence.
-func TestEvaluateNoChecksNoConfirm(t *testing.T) {
+// TestEvaluateNoScreenshotNoEvidence: a report citing no call maul-tool
+// kept a screenshot of is finished naming no evidence.
+func TestEvaluateNoScreenshotNoEvidence(t *testing.T) {
 	var out bytes.Buffer
 	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
 	tools := useTools(t, &cfg)
@@ -421,108 +331,32 @@ func TestEvaluateNoChecksNoConfirm(t *testing.T) {
 	}
 }
 
-// TestEvaluateToolsRefusalKeepsTheClaims: a confirm or finish the tools
-// container refuses changes nothing the stage claims, except that no
-// evidence is cited without a finish taken.
+// TestEvaluateToolsRefusalKeepsTheClaims: a finish the tools container
+// refuses changes nothing the stage claims, except that no evidence is cited
+// without a finish taken.
 func TestEvaluateToolsRefusalKeepsTheClaims(t *testing.T) {
 	var out bytes.Buffer
 	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
 	tools := useTools(t, &cfg)
-	tools.refuse[toolwire.VerbConfirm] = toolwire.RefusedNoDryRun
 	tools.refuse[toolwire.VerbFinish] = toolwire.RefusedFinished
-	report := proposingEvaluation("rate-battle.api", "rate-battle", checks.Digest(rateBattleCheck))
 	fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{
-		"scratch/report.md":                   report,
-		"scratch/checks/rate-battle-api.json": string(checks.Canonical(rateBattleCheck)),
-		"scratch/shots/12.png":                pngBytes,
+		"scratch/report.md":    goodEvaluation,
+		"scratch/shots/12.png": pngBytes,
 	}}}}
 	e := onlyEvent(t, cfg, fx, &out).Evaluation
-	if e.Outcome != envelope.OutcomeOK || len(e.Proposed) != 1 || len(e.Verdicts) != 2 {
+	if e.Outcome != envelope.OutcomeOK || len(e.Verdicts) != 2 || len(e.Anomalies) != 1 {
 		t.Fatalf("evaluation = %+v, want the report's claims", e)
 	}
 	if len(e.Cited) != 0 {
 		t.Errorf("cited = %v, want none: the finish was refused", e.Cited)
 	}
-	if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbConfirm, toolwire.VerbFinish}) {
-		t.Errorf("tool calls = %v, want confirm then finish", got)
+	if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbFinish}) {
+		t.Errorf("tool calls = %v, want finish alone", got)
 	}
 }
-
-// TestEvaluateConfirmsEachCheckAlone: two proposals are confirmed in two
-// calls, one digest each, in report order, so the tools container's refusal
-// of one (it refuses a whole confirm when any digest it names has no green
-// dry run) never costs the other its confirmation; a refused confirm still
-// leads to the finish.
-func TestEvaluateConfirmsEachCheckAlone(t *testing.T) {
-	var out bytes.Buffer
-	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
-	tools := useTools(t, &cfg)
-	tools.refuse[toolwire.VerbConfirm] = toolwire.RefusedNoDryRun
-	second := mustCheck(strings.Replace(string(checks.Canonical(rateBattleCheck)), `"rate-battle.api"`,
-		`"rate-battle.again"`, 1))
-	first, again := checks.Digest(rateBattleCheck), checks.Digest(second)
-	report := strings.Replace(goodEvaluation, "anomalies:", "proposed:\n"+
-		"  - id: \"rate-battle.api\"\n    outcome: rate-battle\n    digest: \""+first+"\"\n"+
-		"  - id: \"rate-battle.again\"\n    outcome: rate-battle\n    digest: \""+again+"\"\nanomalies:", 1)
-	fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{
-		"scratch/report.md":                     report,
-		"scratch/checks/rate-battle-api.json":   string(checks.Canonical(rateBattleCheck)),
-		"scratch/checks/rate-battle-again.json": string(checks.Canonical(second)),
-	}}}}
-	e := onlyEvent(t, cfg, fx, &out).Evaluation
-	if e.Outcome != envelope.OutcomeOK || len(e.Proposed) != 2 {
-		t.Fatalf("evaluation = %+v, want both proposals claimed", e)
-	}
-	want := []toolwire.Verb{toolwire.VerbConfirm, toolwire.VerbConfirm, toolwire.VerbFinish}
-	if got := tools.verbs(); !slices.Equal(got, want) {
-		t.Fatalf("tool calls = %v, want %v", got, want)
-	}
-	tools.mu.Lock()
-	calls := slices.Clone(tools.calls[:2])
-	tools.mu.Unlock()
-	for i, d := range []string{first, again} {
-		var confirm toolwire.ConfirmRequest
-		if err := toolwire.DecodeRequest(bytes.NewReader(calls[i].body), &confirm); err != nil {
-			t.Fatal(err)
-		}
-		if want := []string{strings.TrimPrefix(d, "sha256:")}; !slices.Equal(confirm.Digests, want) {
-			t.Errorf("confirm %d digests = %v, want %v alone", i, confirm.Digests, want)
-		}
-	}
-}
-
-// TestEvaluateConfirmsARedProposal: a check proposed to show a defect is
-// confirmed expecting it to fail (the tools container holds it to a dry run
-// red by assertion); the envelope keeps the proposal's expectation.
-func TestEvaluateConfirmsARedProposal(t *testing.T) {
-	var out bytes.Buffer
-	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
-	tools := useTools(t, &cfg)
-	digest := checks.Digest(rateBattleCheck)
-	report := strings.Replace(goodEvaluation, "verdict: pass", "verdict: fail", 1)
-	report = strings.Replace(report, "anomalies:", "proposed:\n  - id: \"rate-battle.api\"\n    outcome: rate-battle\n"+
-		"    file: \"checks/rate-battle-api.json\"\n    expect: fail\nanomalies:", 1)
-	fx := &fakeExec{steps: []step{{ws: ws, stdout: streamSuccess, writes: map[string]string{
-		"scratch/report.md":                   report,
-		"scratch/checks/rate-battle-api.json": string(checks.Canonical(rateBattleCheck)),
-	}}}}
-	e := onlyEvent(t, cfg, fx, &out).Evaluation
-	if e.Outcome != envelope.OutcomeOK || len(e.Proposed) != 1 || e.Proposed[0].Expect != report2Expect {
-		t.Fatalf("evaluation = %+v, want the red proposal claimed", e)
-	}
-	var confirm toolwire.ConfirmRequest
-	tools.request(t, toolwire.VerbConfirm, &confirm)
-	bare := strings.TrimPrefix(digest, "sha256:")
-	if !slices.Equal(confirm.Digests, []string{bare}) || !slices.Equal(confirm.ExpectFail, []string{bare}) {
-		t.Errorf("confirm %+v, want %s expected to fail", confirm, bare)
-	}
-}
-
-// report2Expect is the envelope's expectation of a red proposal.
-const report2Expect = "fail"
 
 // TestEvaluateFinishesAFailedStage: a stage that does not end OK still
-// finishes its tool pod, naming no evidence and confirming nothing.
+// finishes its tool pod, naming no evidence.
 func TestEvaluateFinishesAFailedStage(t *testing.T) {
 	var out bytes.Buffer
 	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
@@ -553,8 +387,7 @@ func TestEvaluateEvidenceBounds(t *testing.T) {
 	if want := []int32{1, 3, 4, 5, 6, 7}; !slices.Equal(e.Cited, want) {
 		t.Errorf("cited = %v, want %v", e.Cited, want)
 	}
-	var finish toolwire.FinishRequest
-	tools.request(t, toolwire.VerbFinish, &finish)
+	finish := tools.finish(t)
 	if len(finish.Evidence) != toolwire.MaxEvidence {
 		t.Errorf("finish evidence = %+v, want %d", finish.Evidence, toolwire.MaxEvidence)
 	}
@@ -632,7 +465,7 @@ func TestEvaluateHandoffRefused(t *testing.T) {
 // TestRoleStagesNeedNoClone: a role Job's workspace has no repository
 // clone, and that is no fatal; a missing handoff is.
 func TestRoleStagesNeedNoClone(t *testing.T) {
-	for _, phase := range []Phase{PhaseEvaluate, PhaseCheckReview} {
+	for _, phase := range []Phase{PhaseEvaluate} {
 		t.Run(string(phase), func(t *testing.T) {
 			var out bytes.Buffer
 			cfg, ws := roleConfig(t, phase, "", &out)
@@ -655,7 +488,7 @@ func TestRoleStagesNeedNoClone(t *testing.T) {
 	}
 }
 
-// TestRoleStagesRefuseUnfitHarnesses: an evaluate or checkreview stage runs
+// TestRoleStagesRefuseUnfitHarnesses: an evaluate stage runs
 // on brokered claude, brokered codex or the fake harness only, and never on
 // one that cannot hold it to the evaluate posture.
 func TestRoleStagesRefuseUnfitHarnesses(t *testing.T) {
@@ -665,7 +498,7 @@ func TestRoleStagesRefuseUnfitHarnesses(t *testing.T) {
 		{"copilot", "copilot", "refused"},
 		{"unbrokered claude", "claude", "must be brokered"},
 	}
-	for _, phase := range []Phase{PhaseEvaluate, PhaseCheckReview} {
+	for _, phase := range []Phase{PhaseEvaluate} {
 		for _, tt := range tests {
 			t.Run(string(phase)+"/"+tt.name, func(t *testing.T) {
 				var out bytes.Buffer
@@ -702,8 +535,8 @@ func TestEvaluatePostureChecked(t *testing.T) {
 // TestDryEvaluateOnFakeHarness runs an evaluate stage end to end through the
 // real runner on the fake harness against an httptest tool pod: the fixture
 // is replayed through cat, the report the fixture's agent "wrote" is
-// settled, its proposal matched to its file and confirmed, the tool pod
-// finished, and the evaluation event carries the fixture's usage.
+// settled, the tool pod finished naming its one cited screenshot, and the
+// evaluation event carries the fixture's usage.
 func TestDryEvaluateOnFakeHarness(t *testing.T) {
 	var out bytes.Buffer
 	cfg, ws := roleConfig(t, PhaseEvaluate, evaluateHandoff, &out)
@@ -714,9 +547,8 @@ func TestDryEvaluateOnFakeHarness(t *testing.T) {
 	}
 	t.Setenv(harness.FakeFixtureEnv, fixture)
 	for name, content := range map[string]string{
-		"report.md":                   proposingEvaluation("rate-battle.api", "rate-battle", checks.Digest(rateBattleCheck)),
-		"checks/rate-battle-api.json": string(checks.Canonical(rateBattleCheck)),
-		"shots/12.png":                pngBytes,
+		"report.md":    goodEvaluation,
+		"shots/12.png": pngBytes,
 	} {
 		path := filepath.Join(ws, "scratch", name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -741,44 +573,41 @@ func TestDryEvaluateOnFakeHarness(t *testing.T) {
 	if e.Usage.InputTokens != 100 || e.Usage.OutputTokens != 30 || e.Usage.CostUSD == 0 || e.SessionID != testSessionID {
 		t.Errorf("stage = %+v, want the fixture's usage and session", e.Stage)
 	}
-	if len(e.Verdicts) != 2 || len(e.Proposed) != 1 || !slices.Equal(e.Cited, []int32{12}) {
+	if len(e.Verdicts) != 2 || len(e.Anomalies) != 1 || !slices.Equal(e.Cited, []int32{12}) {
 		t.Errorf("evaluation = %+v, want the report's claims and the one cited screenshot", e)
 	}
-	if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbConfirm, toolwire.VerbFinish}) {
-		t.Errorf("tool calls = %v, want confirm then finish", got)
+	if got := tools.verbs(); !slices.Equal(got, []toolwire.Verb{toolwire.VerbFinish}) {
+		t.Errorf("tool calls = %v, want finish alone", got)
 	}
 }
 
 // TestEvaluateHandoffCarriesThePreviousRound (S1-29, SPEC Q15): a round
 // after a judged one decodes the previous round's results and the fix diff
-// strictly, and hands every one of them to the prompt.
+// strictly, and hands them to the prompt.
 func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 	raw := evalHandoff(func(h *EvaluateHandoff) {
 		h.Round, h.PriorRound, h.FixDiff = 2, 1, "+k := 32\n"
 		h.FixDiffCut = &FixDiffCut{ShownBytes: 9, ReadBytes: 40000, Files: []string{"vendor/big.go"},
 			Unavailable: []string{"acme/web"}}
 		h.PriorVerdicts = []PriorVerdict{{Outcome: "rate-battle", Result: "failed", Reason: "stays put"}}
-		h.PriorReplay = []PriorReplay{{Check: "leaderboard", Outcome: "leaderboard", Result: "pass"}}
 	})
-	for _, key := range []string{`"prior_round":1`, `"prior_verdicts":[`, `"prior_replay":[`, `"fix_diff":`,
+	for _, key := range []string{`"prior_round":1`, `"prior_verdicts":[`, `"fix_diff":`,
 		`"fix_diff_cut":{`} {
 		if !strings.Contains(raw, key) {
 			t.Errorf("handoff %s lacks %s", raw, key)
 		}
 	}
 	var h EvaluateHandoff
-	if err := decodeHandoff([]byte(raw), "evaluate", &h); err != nil {
+	if err := decodeHandoff([]byte(raw), &h); err != nil {
 		t.Fatal(err)
 	}
 	if err := validEvaluateHandoff(h); err != nil {
 		t.Fatal(err)
 	}
-	p := h.prompt("", "", "", templates.StageLimits{})
+	p := h.prompt("", "", templates.StageLimits{})
 	if p.PriorRound != 1 || p.FixDiff != "+k := 32\n" ||
 		len(p.PriorVerdicts) != 1 || p.PriorVerdicts[0] != (templates.PriorVerdict{Outcome: "rate-battle",
-		Result: "failed", Reason: "stays put"}) ||
-		len(p.PriorReplay) != 1 || p.PriorReplay[0] != (templates.PriorReplay{Check: "leaderboard",
-		Outcome: "leaderboard", Result: "pass"}) {
+		Result: "failed", Reason: "stays put"}) {
 		t.Errorf("prompt = %+v, want the previous round's results", p)
 	}
 	if c := p.FixDiffCut; c.ShownBytes != 9 || c.ReadBytes != 40000 || len(c.Files) != 1 || len(c.Unavailable) != 1 {
@@ -786,44 +615,22 @@ func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 	}
 }
 
-// TestEvaluateHandoffCarriesRefusedChecks (coverage design C3,
-// G5R-B-CLI-1): the checks the reviewer refused in earlier rounds decode
-// strictly and reach the prompt by outcome, check id, the reviewer's reason
-// and the refused check itself, shown as data.
-func TestEvaluateHandoffCarriesRefusedChecks(t *testing.T) {
-	c, err := checks.Parse([]byte(templates.ExampleHTTPCheck))
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := string(checks.Canonical(c))
-	raw := evalHandoff(func(h *EvaluateHandoff) {
-		h.Round = 2
-		h.PriorRefused = []PriorRefusal{{Outcome: "rate-battle", Check: "rate-battle.api",
-			Reason: "It never reads the loser's rating.", Body: body}}
-	})
-	if !strings.Contains(raw, `"prior_refused":[{"outcome":"rate-battle","check":"rate-battle.api",`) {
-		t.Errorf("handoff %s lacks the refused check", raw)
-	}
-	var h EvaluateHandoff
-	if err := decodeHandoff([]byte(raw), "evaluate", &h); err != nil {
-		t.Fatal(err)
-	}
-	if err := validEvaluateHandoff(h); err != nil {
-		t.Fatal(err)
-	}
-	p := h.prompt("", "", "", templates.StageLimits{})
-	if len(p.PriorRefused) != 1 || p.PriorRefused[0] != (templates.PriorRefusal{Outcome: "rate-battle",
-		Check: "rate-battle.api", Reason: "It never reads the loser's rating.", Body: body}) {
-		t.Errorf("prompt refused = %+v, want the refused check", p.PriorRefused)
-	}
-	prompt, err := templates.RenderEvaluatePrompt(h.prompt("/r", "/c", "/s", templates.StageLimits{MaxTurns: 10}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(prompt, "It never reads the loser's rating.") {
-		t.Error("the reviewer's reason does not reach the prompt")
-	}
-	if !strings.Contains(prompt, "        \"id\": \""+c.ID+"\",") {
-		t.Error("the refused check does not reach the prompt")
+// TestEvaluateHandoffRefusesRetiredCheckFields: the handoff is strict JSON,
+// and the check-era fields an earlier release's controller sent (the saved
+// checks' replay, the checks the reviewer refused, the saved checks not yet
+// proof) are gone from it, so a handoff carrying any of them is refused.
+// The chart pins agent-runner's image to the controller's release, so only
+// a hand-built Job could send one.
+func TestEvaluateHandoffRefusesRetiredCheckFields(t *testing.T) {
+	for _, field := range []string{
+		`"prior_replay":[{"check":"leaderboard","outcome":"leaderboard","result":"pass"}]`,
+		`"prior_refused":[{"outcome":"rate-battle","check":"rate-battle.api"}]`,
+		`"not_yet_proof":[{"outcome":"leaderboard","check":"leaderboard.red","refused":true}]`,
+	} {
+		raw := strings.Replace(evaluateHandoff, "{", "{"+field+",", 1)
+		var h EvaluateHandoff
+		if err := decodeHandoff([]byte(raw), &h); err == nil {
+			t.Errorf("decodeHandoff(%s) accepted it, want it refused", field)
+		}
 	}
 }

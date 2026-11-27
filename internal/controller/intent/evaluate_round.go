@@ -5,7 +5,6 @@ package intent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -36,24 +35,23 @@ import (
 //     ceiling no round starts: the verification is Unconfirmed, never a
 //     block, and the fix rounds keep their budget.
 //  2. It creates the outcome PreviewVerification (createEvaluation): the
-//     approved outcomes, the saved checks copied inline from the check
-//     store, the rung (rungFor, rung.go: replay, with no model, at the heads
-//     of a model round that raised nothing when every outcome has a proven
-//     saved check; full otherwise) and the tool pod's tools. State
-//     Evaluating. Each attempt is a new PreviewVerification: the tool pod
-//     takes one finish, so a retry needs a new one (SPEC W3).
+//     approved outcomes and the tool pod's tools. Every round is a model
+//     round: its rung is always "full" (the field is retired with the cost
+//     ladder, and the schema still requires it beside the outcomes), and it
+//     carries no saved check. State Evaluating. Each attempt is a new
+//     PreviewVerification: the tool pod takes one finish, so a retry needs
+//     a new one (SPEC W3).
 //  3. preview-controller renders the slot tool pod and writes
 //     status.tools. Only then, the tool pod's address in hand, is the
 //     evaluate IntentRun created (launchEvaluator), through the normal path:
 //     the evaluation ceiling, the credential hold, attribution and the
 //     budget annotation (lease, createRoleRun). Its Job is pinned to that
 //     tool pod by a hostAlias, which is fixed when the pod is created: the
-//     order is the point (TestEvaluatorCreatedAfterToolsStatus). A replay
-//     round creates no run at all.
+//     order is the point (TestEvaluatorCreatedAfterToolsStatus).
 //  4. Collection (settleEvaluation): the run settles (collectEvaluate keeps
-//     the evaluator's report, its claims) and preview-controller settles the
-//     PreviewVerification (the ledger, the confirmations: the facts). Both
-//     in hand, the round is judged (judgeEvaluation). A stale verification
+//     the evaluator's report, its claims) and the tool host settles the
+//     PreviewVerification (the verified ledger: the facts). Both in hand,
+//     the round is judged (judgeEvaluation, acceptance.Judge). A stale verification
 //     (the heads moved, the outcomes changed) is dropped and never launches
 //     an evaluator; maul's own failure is the round's next attempt.
 //
@@ -61,15 +59,10 @@ import (
 // (SPEC Q16): its hand-off is early, and the Project says why
 // (ConditionEvaluatorUnverified).
 
-// keyCheckStore is the check store's data key (status.acceptance.checks):
-// its saved checks as the JSON list of v1alpha1.SavedCheck, whose digest
-// (checkStoreDigest) the store's ref records and every outcome
-// PreviewVerification's checksDigest carries.
-const keyCheckStore = "checks.json"
-
-// evaluationCeiling is the most one intent's evaluate and checkreview runs
-// may spend, in micro-USD: the Project's limits.maxEvaluateCostMicroUSD (or
-// its default), never more than --intent-evaluation-cost-max.
+// evaluationCeiling is the most one intent's evaluate runs (and an earlier
+// release's checkreview runs) may spend, in micro-USD: the Project's
+// limits.maxEvaluateCostMicroUSD (or its default), never more than
+// --intent-evaluation-cost-max.
 func (s Settings) evaluationCeiling(p *v1alpha1.Project) int64 {
 	c := p.Spec.Limits.MaxEvaluateCostLimit()
 	if s.EvaluationCostMax > 0 && s.EvaluationCostMax < c {
@@ -102,13 +95,18 @@ func evaluable(os []v1alpha1.AcceptanceOutcome) bool {
 	return slices.ContainsFunc(os, func(o v1alpha1.AcceptanceOutcome) bool { return !o.Manual })
 }
 
-// syncEvaluation is syncVerification's evaluator shape: NotDeclared for a
-// plan with nothing to evaluate (the head set still tracked, for an
+// syncEvaluation is syncVerification's evaluator shape: first the
+// supersede of an earlier release's record (verify_migrate.go), then
+// NotDeclared for a plan with nothing to evaluate (the head set still tracked, for an
 // approver's acceptance), Off for a Project with no verified evaluator,
 // the human-round halt and the head set as slice 1 keeps them, then the
 // round in flight (settleEvaluation).
 func (p *pass) syncEvaluation(ctx context.Context) (bool, error) {
 	acc := p.in.Status.Acceptance
+	canRun := evaluable(acc.Outcomes) && !p.set.evaluatorUnverified(p.proj)
+	if changed, err := p.supersede(ctx, canRun); changed || err != nil {
+		return changed, err
+	}
 	hs, ok := p.headsNow()
 	if !evaluable(acc.Outcomes) {
 		if ok {
@@ -182,9 +180,6 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 		return false, nil
 	}
 	kind, err := p.verifyDue(ctx, v)
-	if err == nil && kind == verifyNotDue && (p.replayDue(v) || p.escalationDue(v)) {
-		kind = verifyAutomatic
-	}
 	if err != nil || kind == verifyNotDue {
 		return false, err
 	}
@@ -203,23 +198,10 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 	if place == nil {
 		return changed, err
 	}
-	checks, digest, err := p.storedChecks(ctx)
-	if err != nil {
-		// The store cannot be read as recorded: no round runs against
-		// another set of checks than the one on record.
-		p.r.log().LogAttrs(ctx, slog.LevelWarn, "read the intent's check store; no evaluation this pass",
-			slog.String("intent", p.in.Name), slog.Any("error", err))
-		return false, nil
-	}
-	rung, why := p.rungFor(kind, hs, checks)
-	if rung == v1alpha1.RungFull && p.atEvaluationCeiling() {
-		// A replay round spends nothing, so only a full one is held to
-		// the evaluation ceiling.
+	if p.atEvaluationCeiling() {
 		return p.evaluationExhausted(ctx)
 	}
-	p.r.log().LogAttrs(ctx, slog.LevelInfo, "evaluation round: rung chosen", slog.String("intent", p.in.Name),
-		slog.String("rung", string(rung)), slog.String("why", string(why)))
-	return true, p.createEvaluation(ctx, kind, place, hs, checks, digest, rung)
+	return true, p.createEvaluation(ctx, kind, place, hs)
 }
 
 // evaluationExhausted records that the intent's evaluations spent their
@@ -227,7 +209,8 @@ func (p *pass) startEvaluation(ctx context.Context, prs []v1alpha1.IntentPullReq
 // consumed), and the intent is never blocked for it (DESIGN 5).
 func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 	v := p.in.Status.Verification
-	if v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil && len(v.Disputed) == 0 {
+	superseding := supersedePending(p.in)
+	if v.State == v1alpha1.VerificationUnconfirmed && v.Requested == nil && !superseding {
 		return false, nil
 	}
 	p.r.log().LogAttrs(ctx, slog.LevelInfo, "the intent's evaluations spent their ceiling; nothing more is evaluated",
@@ -241,46 +224,37 @@ func (p *pass) evaluationExhausted(ctx context.Context) (bool, error) {
 	if err := p.answerNotRun(ctx, templates.NotRunBudget, 0); err != nil {
 		return false, err
 	}
-	return true, p.update(ctx, func(cur *v1alpha1.Intent) error {
+	err := p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		// A dispute's round that would need the model cannot run either:
-		// none is due any more, and the hand-off says why.
-		nv.State, nv.Requested, nv.Disputed = v1alpha1.VerificationUnconfirmed, nil, nil
+		nv.State, nv.Requested = v1alpha1.VerificationUnconfirmed, nil
+		// A supersede that can start no round ends here, the earlier
+		// result still withdrawn: an approver's /maul verify, once the
+		// limit is raised, evaluates afresh.
+		nv.Judge = v1alpha1.JudgeObserved
 		return nil
 	})
-}
-
-// replayDue reports the one model-free replay round a judgement asked for
-// (a disputed check retired for a confirmed, proven replacement:
-// status.verification.disputed) as due at the same heads, within the
-// automatic bounds: it counts against maxVerifications like any round.
-// Only the judgement of the current round at the current heads asks for
-// one: a round that settled unjudged after it (the replay round itself,
-// its tool pod unable to build the head) is not still awaiting a replay
-// (S2-B3).
-func (p *pass) replayDue(v *v1alpha1.IntentVerification) bool {
-	return v.State == v1alpha1.VerificationUnconfirmed && len(v.Disputed) > 0 && v.Ref != nil && v.Cause == "" &&
-		v.OutcomesJudgedAt(v.Round, v.HeadSetDigest) && v.Requested == nil && p.verifyBounded(v)
+	if err == nil && superseding {
+		verificationsSuperseded.add(p.in)
+	}
+	return true, err
 }
 
 // createEvaluation creates the round's outcome PreviewVerification: the
-// approved outcomes and their digest, the saved checks and theirs, the rung
-// (rungFor's), the tool pod's tools and its wall clock (the evaluate run's
-// timeout plus EvaluationToolsMargin, within a verification's hour), then
-// where it runs (place, its tool host's: toolHost.gate), which may narrow
-// the tools and set its own wall clock.
+// approved outcomes and their digest, the rung "full" (every round is a
+// model round; the schema requires the retired field beside the outcomes,
+// and no saved check is ever copied in), the tool pod's tools and its wall
+// clock (the evaluate run's timeout plus EvaluationToolsMargin, within a
+// verification's hour), then where it runs (place, its tool host's:
+// toolHost.gate), which may narrow the tools and set its own wall clock.
 func (p *pass) createEvaluation(ctx context.Context, kind verifyKind, place func(*v1alpha1.PreviewVerificationSpec),
-	hs headSet, checks []v1alpha1.SavedCheck, checksDigest string, rung v1alpha1.VerificationRung) error {
+	hs headSet) error {
 	acc := p.in.Status.Acceptance
 	evaluate := p.set.grant(p.proj, v1alpha1.IntentStageEvaluate)
 	timeout := min(msDuration(evaluate.TimeoutMilliseconds)+EvaluationToolsMargin, maxVerificationTimeout)
 	return p.createVerification(ctx, kind, hs, v1alpha1.VerificationEvaluating,
 		func(spec *v1alpha1.PreviewVerificationSpec) error {
 			spec.Outcomes, spec.OutcomesDigest = slices.Clone(acc.Outcomes), acc.OutcomesDigest
-			if len(checks) > 0 {
-				spec.Checks, spec.ChecksDigest = checks, checksDigest
-			}
-			spec.Rung = rung
+			spec.Rung = v1alpha1.RungFull
 			spec.Tools = &v1alpha1.ToolsSpec{
 				Browser:          p.proj.Spec.Surfaces != nil && p.proj.Spec.Surfaces.Browser != nil,
 				Sandbox:          true,
@@ -301,49 +275,6 @@ const (
 
 // msDuration is a grant's milliseconds as a duration.
 func msDuration(ms int64) time.Duration { return time.Duration(ms) * time.Millisecond }
-
-// storedChecks are the intent's saved checks as its check store holds
-// them, with the store's digest: none (nil, "") while nothing is saved. A
-// store that is gone, not the Intent's, or not what its ref records, is an
-// error: no round runs against other checks than the ones on record.
-func (p *pass) storedChecks(ctx context.Context) ([]v1alpha1.SavedCheck, string, error) {
-	ref := p.in.Status.Acceptance.Checks
-	if ref == nil || ref.Count == 0 {
-		return nil, "", nil
-	}
-	var cm corev1.ConfigMap
-	if err := p.r.APIReader.Get(ctx, types.NamespacedName{Namespace: p.in.Namespace, Name: ref.ConfigMap},
-		&cm); err != nil {
-		return nil, "", fmt.Errorf("read check store %s: %w", ref.ConfigMap, err)
-	}
-	if !controlledBy(cm.OwnerReferences, p.in.UID) {
-		return nil, "", fmt.Errorf("check store %s: %w", ref.ConfigMap, errNotOwned)
-	}
-	raw := cm.Data[keyCheckStore]
-	if got := digest([]byte(raw)); got != ref.Digest {
-		return nil, "", fmt.Errorf("check store %s holds %s, not the recorded %s", ref.ConfigMap, got, ref.Digest)
-	}
-	var checks []v1alpha1.SavedCheck
-	if err := json.Unmarshal([]byte(raw), &checks); err != nil {
-		return nil, "", fmt.Errorf("check store %s: %w", ref.ConfigMap, err)
-	}
-	if len(checks) != int(ref.Count) || len(checks) > v1alpha1.MaxSavedChecks {
-		return nil, "", fmt.Errorf("check store %s holds %d checks, not the recorded %d", ref.ConfigMap,
-			len(checks), ref.Count)
-	}
-	return checks, ref.Digest, nil
-}
-
-// encodeCheckStore is a check store's data (keyCheckStore) and its digest:
-// the JSON list of checks, in order. The store's writer and storedChecks
-// share it.
-func encodeCheckStore(checks []v1alpha1.SavedCheck) (string, string, error) {
-	b, err := json.Marshal(checks)
-	if err != nil {
-		return "", "", fmt.Errorf("encode the check store: %w", err)
-	}
-	return string(b), digest(b), nil
-}
 
 // settleEvaluation drives the round in flight, one step a pass: launch
 // the evaluator once its tool pod is in status; once both the run and the
@@ -388,17 +319,14 @@ func (p *pass) settleEvaluation(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// evaluationRunning is settleEvaluation while pv's tool pod runs: a full
+// evaluationRunning is settleEvaluation while pv's tool pod runs: the
 // round's evaluator is launched once its address is in status; one that
 // never ran or failed drops the round (its tool pod would hold the slot
 // until its deadline for nothing) and the next attempt is due; otherwise
-// the tools container finishes and is collected. A replay round runs with
-// no model.
+// the tools container finishes and is collected.
 func (p *pass) evaluationRunning(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	run *v1alpha1.IntentRun) (bool, error) {
 	switch {
-	case pv.Spec.Rung == v1alpha1.RungReplay:
-		return false, nil
 	case run == nil:
 		return p.launchEvaluator(ctx, pv)
 	case !runSettled(run) || run.Status.Phase == v1alpha1.RunComplete:
@@ -408,32 +336,20 @@ func (p *pass) evaluationRunning(ctx context.Context, pv *v1alpha1.PreviewVerifi
 	return true, p.unjudged(ctx)
 }
 
-// evaluationObserved is settleEvaluation once preview-controller collected
-// pv: once its evaluator's run settled complete, its new checks are
-// reviewed and stored (reviewChecks), then the round is judged (a replay
-// round has no run, and nothing new to store); with no run, or a failed
-// one, the round's next attempt is due.
+// evaluationObserved is settleEvaluation once its tool host collected pv:
+// once its evaluator's run settled complete, the round is judged; with no
+// run, or a failed one, the round's next attempt is due. Nothing is
+// reviewed or stored first: no check is saved (the check reviewer and the
+// check store are retired).
 func (p *pass) evaluationObserved(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	run *v1alpha1.IntentRun) (bool, error) {
 	switch {
-	case pv.Spec.Rung == v1alpha1.RungReplay:
-		return true, p.judgeEvaluation(ctx, pv, nil)
 	case run == nil || runSettled(run) && run.Status.Phase != v1alpha1.RunComplete:
 		return true, p.unjudged(ctx)
 	case !runSettled(run):
 		return false, nil
 	}
-	// Its new checks reviewed and the proven ones stored (S1-19) first,
-	// then the disputed checks a proven replacement retires (S1-20), each
-	// in a pass of its own; then the round is judged.
-	if changed, wait, err := p.reviewChecks(ctx, pv); changed || wait || err != nil {
-		return changed, err
-	}
-	j := p.decideRound(ctx, pv, run)
-	if wrote, err := p.retireDisputed(ctx, j); wrote || err != nil {
-		return wrote, err
-	}
-	return true, p.writeJudgement(ctx, pv, run, j)
+	return true, p.judgeEvaluation(ctx, pv, run)
 }
 
 // runSettled reports a run that ended.
@@ -478,7 +394,7 @@ func (p *pass) launchEvaluator(ctx context.Context, pv *v1alpha1.PreviewVerifica
 		return false, err
 	}
 	_, err = p.createRoleRun(ctx, v1alpha1.IntentStageEvaluate, pv.Spec.Round, pv.Spec.Attempt,
-		&v1alpha1.IntentRunEvaluation{Verification: pv.Name, UID: pv.UID, ToolIP: t.PodIP, Rung: pv.Spec.Rung},
+		&v1alpha1.IntentRunEvaluation{Verification: pv.Name, UID: pv.UID, ToolIP: t.PodIP, Rung: v1alpha1.RungFull},
 		map[string]string{keyIssue: handoff})
 	if errors.Is(err, errEvaluationCeiling) {
 		p.dropInFlight(ctx, *p.in.Status.Verification.Ref)
@@ -493,15 +409,14 @@ func (p *pass) launchEvaluator(ctx context.Context, pv *v1alpha1.PreviewVerifica
 	return true, nil
 }
 
-// createRoleRun creates an evaluate or checkreview run of round and
-// attempt (lease: its ceiling is the evaluation ceiling,
+// createRoleRun creates an evaluate run of round and attempt (lease: its ceiling is the evaluation ceiling,
 // errEvaluationCeiling past it), or adopts the one a failed pass created,
 // and its input ConfigMap holding data (the JSON handoff under keyIssue),
 // immutable and owned by the run. A role run reads no repository: its
 // spec.repository names the Project's first, for display, and no
 // Repository is ever created under it. It pins the approved plan, as every
 // run after approval does, and an evaluate run its PreviewVerification
-// (evaluation). The reviewer round creates its checkreview runs here too.
+// (evaluation).
 func (p *pass) createRoleRun(ctx context.Context, stage v1alpha1.IntentStage, round, attempt int32,
 	evaluation *v1alpha1.IntentRunEvaluation, data map[string]string) (*v1alpha1.IntentRun, error) {
 	if err := p.set.stageEnabled(stage); err != nil {

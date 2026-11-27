@@ -1,15 +1,17 @@
 # The agent evaluator
 
-With the agent evaluator on, maul checks an intent's change the way a careful tester would, before it tells anyone the
-change is ready. The approved plan states **outcomes** in plain words ("rating a battle moves the winner above the
-loser"). Once CI is green and the preview runs the pull request heads, maul starts an **evaluator**: a brokered agent
-run that reads the issue, the outcomes and the list of changed files, then explores the live preview and writes its own
-checks. maul re-runs each check without the model, has a second, cheaper model confirm that the check proves its
-outcome, and only then counts the outcome as confirmed.
+With the agent evaluator on, an independent agent uses an intent's change the way a careful reviewer would, before maul
+tells anyone the change is ready. The approved plan states **outcomes** in plain words ("rating a battle moves the
+winner above the loser"). Once CI is green and the preview runs the pull request heads, maul starts an **evaluator**: a
+brokered agent run that reads the issue, the outcomes and the list of changed files, then uses the live preview through
+maul's tools, every call recorded by maul in the round's **ledger**. It reports, for each outcome, whether it saw it
+hold, saw it not hold, or could not tell, citing the calls that showed it. maul counts a verdict only when it cites a
+call of that ledger which used the application; whether the call shows what the verdict says is for the reviewers, who
+see every cited call.
 
-This page explains how a round works, how to read what it found, what a dispute is, and when the preview link reaches
-people. [Acceptance verification](acceptance.md) covers how to turn it on, what a plan declares, the commit status and
-the commands.
+This page explains how a round works, how maul judges a verdict, how to read what the evaluator found, and when the
+preview link reaches people. [Acceptance verification](acceptance.md) covers how to turn it on, what a plan declares,
+the commit status and the commands.
 
 It is off by default (`intentController.verification.evaluator: false` in the chart), and it is verification's one
 switch: off, verification is off. No intent is verified, a Project that asks for verification carries `VerificationOff`
@@ -21,20 +23,21 @@ over at once, until the evaluator is back on.
 
 !!! note "What the evaluator's word is worth"
 
-    The evaluator's report alone never passes an outcome. A pass needs a check maul stored, re-ran itself at the
-    current heads with a fresh run token and saw pass, and that the check reviewer said proves the outcome. Its words
-    go to people; its checks are what maul trusts.
+    An outcome "seen to hold" means the evaluator said it held and cited at least one call it made through maul's
+    tools in this round that used the application, recorded by maul itself. maul checks the citation, never whether
+    the call shows what the evaluator says: that is the evaluator's reading, and the reviewers' to judge, so every
+    cited call is shown to them. Read it as "the evaluator saw this", not as proof, and review the code as you always
+    did.
 
 ## What runs where
 
-| Piece                   | Where                                                                   | What it holds and reaches                                                                                                                                                                                                                                                                                                                                                                    |
-| ----------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The evaluator           | an `evaluate` IntentRun in the agents namespace, on maul's runner image | A pod-bound broker token; the issue, outcomes and changed paths, all framed as data. It reaches the broker and its own tool pod on port 8090, nothing else: no DNS, no internet, no application component, no copy of the pull request's code. Its prepare step proves that with the strict sandbox probe, DNS included                                                                      |
-| The tool pod, `tools`   | the Preview's slot, one per round                                       | maul's relay (`preview-tools`). It runs every tool call, writes the **ledger** (every call and its result, on its own stdout) and runs the checks. No service-account token, no DNS                                                                                                                                                                                                          |
-| The tool pod, `browser` | the same pod, when the Project declares `surfaces.browser`              | Headless Chromium behind maul's CDP shim, which speaks CDP only to a caller holding the round's key (`tools`). Holds nothing secret                                                                                                                                                                                                                                                          |
-| The tool pod, `sandbox` | the same pod                                                            | maul's toolbox image (curl, grpcurl, websocat, node, python, go) and the exec shim. Programs the evaluator writes run here, as their own user, with no secret                                                                                                                                                                                                                                |
-| The check reviewer      | a `checkreview` IntentRun, one per round                                | The round's new checks as maul renders them; the outcome texts, the issue line each answers and its kind; the request, as the evaluator gets it; on the green question maul's line for each box assertion's tolerance; the previewed components; and, for a red check, what maul recorded of its failure. Never a step's name or the evaluator's notes and verdicts. Reaches only the broker |
-| Log and event capture   | preview-controller                                                      | Bounded, redacted log tails of each component and the slot's pod events since the round began, handed to `tools`. Neither the evaluator nor the tool pod has any Kubernetes access                                                                                                                                                                                                           |
+| Piece                   | Where                                                                   | What it holds and reaches                                                                                                                                                                                                                                                                                               |
+| ----------------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The evaluator           | an `evaluate` IntentRun in the agents namespace, on maul's runner image | A pod-bound broker token; the issue, outcomes and changed paths, all framed as data. It reaches the broker and its own tool pod on port 8090, nothing else: no DNS, no internet, no application component, no copy of the pull request's code. Its prepare step checks that with the strict sandbox probe, DNS included |
+| The tool pod, `tools`   | the Preview's slot, one per round                                       | maul's relay (`preview-tools`). It runs every tool call and writes the **ledger** (every call and its result, on its own stdout). No service-account token, no DNS                                                                                                                                                      |
+| The tool pod, `browser` | the same pod, when the Project declares `surfaces.browser`              | Headless Chromium behind maul's CDP shim, which speaks CDP only to a caller holding the round's key (`tools`). Holds nothing secret                                                                                                                                                                                     |
+| The tool pod, `sandbox` | the same pod                                                            | maul's toolbox image (curl, grpcurl, websocat, node, python, go) and the exec shim. Programs the evaluator writes run here, as their own user, with no secret                                                                                                                                                           |
+| Log and event capture   | preview-controller                                                      | Bounded, redacted log tails of each component and the slot's pod events since the round began, handed to `tools`. Neither the evaluator nor the tool pod has any Kubernetes access                                                                                                                                      |
 
 A Project with no preview but a command-line program or a Go library has its tool pod in the agents namespace instead:
 see [Without a preview: a CLI or a library](#without-a-preview-a-cli-or-a-library).
@@ -45,514 +48,151 @@ The evaluator acts only through one shell command, `maul-tool`:
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `maul-tool http <METHOD> <path> [json]`          | One request to the component that serves the path on the preview host, with the headers the preview gateway sends                                                                                                                                                                                                                                                                                                                                                   |
 | `maul-tool browser <verb> [args]`                | One Playwright CLI action in a session `tools` opened (1280x800): `goto`, `snapshot`, `click`, `fill`, `type`, `press`, `hover`, `select`, `screenshot`, `console`, `requests`, `eval` (a function run in the page, inside the browser sandbox, never on the tools host) and the like. Navigation stays on the preview; `run-code` (Node-side code), request rewriting (`route`), file access (`upload`, `state-load`) and attaching to another browser are refused |
-| `maul-tool exec [--file f]... -- argv`           | Runs a program in `sandbox` (a gRPC or websocket client, say); `tools` asserts on its output                                                                                                                                                                                                                                                                                                                                                                        |
+| `maul-tool exec [--file f]... -- argv`           | Runs a program in `sandbox` (a gRPC or websocket client, say) and records what it printed and its exit status                                                                                                                                                                                                                                                                                                                                                       |
 | `maul-tool logs <component>`, `maul-tool events` | The captured log tail of a component, and the slot's pod events and container states (restarts, `OOMKilled`, probe failures)                                                                                                                                                                                                                                                                                                                                        |
-| `maul-tool check run <file>`                     | Validates a check the evaluator wrote, compiles it, and runs it against the preview now: a dry run, recorded with the check's digest                                                                                                                                                                                                                                                                                                                                |
-| `maul-tool check results`                        | The replay's results and each dry-run check's latest run                                                                                                                                                                                                                                                                                                                                                                                                            |
 
-Every call, refused ones included, is a ledger entry. Output separates what maul measured (`[observed]`) from the bytes
-the application chose (`[untrusted output]`, always last). A check step that failed a text assertion also shows the text
-its element showed, quoted on its own `[observed]` line and marked as the page's, and every call shows the time left of
-the evaluator's run (`[maul-tool time left]`).
+Every call, refused ones included, is a ledger entry, and prints its seq (`[maul-tool ledger seq N]`), which is what a
+verdict cites. Output separates what maul measured (`[observed]`) from the bytes the application chose
+(`[untrusted output]`, always last), and every call shows the time left of the evaluator's run
+(`[maul-tool time left]`). Past the round's `maxToolCalls` every call is refused.
 
 ## One round
 
-1. **The gate.** As in slice 1: every open pull request's checks green at its head, no check-fix round due, no human
-   round pending, the preview live at exactly those heads, and rounds and evaluation budget left.
-2. **The request.** intent-controller creates a `PreviewVerification` for the outcomes and the saved checks, and picks
-   its rung: **full** (the steps below) or **replay** (steps 3, 4, 9 and 10 only, no model; see
-   [The cost ladder](#the-cost-ladder-replay-rounds)). Each attempt gets a new one, since a tool pod takes one finish.
+1. **The gate.** Every open pull request's checks green at its head, no check-fix round due, no human round pending, the
+   preview live at exactly those heads, and rounds and evaluation budget left.
+2. **The request.** intent-controller creates a `PreviewVerification` for the approved outcomes. Each attempt gets a new
+   one, since a tool pod takes one finish.
 3. **The tool pod.** preview-controller re-checks the request against the Preview, renders the tool pod and one ingress
    policy that admits exactly this round's evaluator, and writes the pod's address to `status.tools` once `tools` is
    ready. Only then is the evaluator created: its pod reaches the tool pod by a host entry fixed when the pod starts.
-4. **Replay (no model).** `tools` runs every saved check of the intent at the current heads, each alone, in a fresh
-   browser context, with its own fresh run token. A failing check is run once more; fail then pass is **quarantined**.
-5. **Explore (the model).** The evaluator sees the replay's results, uses its tools, looks at screenshots, and writes a
-   report: a verdict per outcome citing the ledger entries that show it, a dispute for any replay failure it judges is
-   not a defect, the checks it proposes, and look-around anomalies. A proposed check must have a green
-   `maul-tool check run` first: `tools` refuses to confirm a check whose digest has no green dry run. A check proposed
-   to show a defect (`expect: fail`) needs a dry run red by assertion instead, and none green (see
-   [A defect found in round 1](#a-defect-found-in-round-1)). The report's frontmatter is decoded strictly (an unknown
-   key refuses it): a verdict names its outcome as `outcome` (the older `id` is still read; both, differing, are
-   refused), and a proposal names the check `file` it ran (or the `digest` that run printed). agent-runner reads the
-   digest from that file, under the evaluator's scratch directory, and asks `tools` to confirm it; a proposal whose file
-   does not resolve to a check of its id and outcome is dropped, with its reason in the run's transcript, never the
-   whole report. A refused report's detail lists its frontmatter's key paths (never their values), and each repair
-   message restates the exact frontmatter example and the decoder's lines. The evaluator is shown the reviewer's rule
-   word for word and works in two passes: first a covering check for every outcome a person does not judge, then
-   strengthening each against a list (every clause asserted, inputs other than the defaults and away from what a new,
-   empty item shows, both sides and both sides of a bound, before and after, nothing changed for a claim that something
-   stays, nothing the outcome does not state, the left-out item created and asserted absent beside a kept one, a whole
-   compared whole, a carried-over field compared in its own type: on a workspace by the copy's encoding against the
-   original's (both errors included) beside each value, on a preview by its JSON value or `$absent`, never through text
-   that reads nil, absent and empty alike), and last naming the wrong builds a careless change could ship and finding
-   the assertion that would go red on each, within a turn budget per outcome. The reviewer's rule names the checks a
-   plausible wrong build would still pass (S1 demo: every outcome left unconfirmed on a correct build had one). An
-   outcome it leaves unsure with no check names the clause it could not exercise. It does not run again a saved check
-   that replayed green, and writes no new check for its outcome, except for a check saved red (to show a defect) that no
-   review has yet accepted as proof the outcome holds, and a saved check the substance rules have since come to refuse
-   (it asserts nothing that is there): maul names those, and the evaluator writes such an outcome a new check that
-   proves it, confirmed and reviewed like any other, so a fixed defect can pass in the round after its fix. Past an
-   outcome's turn budget it stops on a check that cannot run as the outcome needs (a wait no check step can make, more
-   steps than a check may have) and reports the outcome unsure, naming what no check could express. A check counts only
-   for the outcome it is bound to, however many outcomes its run showed. When the accepted report still passes an
-   outcome a person does not judge with no green proposal bound to it and no saved check of it (maul passed it in no
-   earlier round, and no saved check of it replayed), agent-runner resumes the evaluator's session and asks for one
-   check of each such outcome, by id, or an unsure verdict (defect gate 4, G4-B-LIB-1: at a correct fix the evaluator
-   rested eight passes on one exploring run, so the round was Unconfirmed 2/10 until a person asked again). It asks at
-   most twice, on what is left of the stage's turns, wall clock and output tokens, and stops once an ask covers no
-   further outcome. The rewritten report replaces the accepted one only when it changes nothing maul judges by but those
-   outcomes' verdicts (each keeping its `contrary` seqs; a reworded note elsewhere is no change) and adds proposals of
-   them alone; anything else, or a report that does not parse, keeps the report before, which maul puts back for the
-   second ask, saying why the rewrite was refused. Its new checks are confirmed and reviewed like any other, so the ask
-   passes nothing by itself. A run that ran out of its turns or its clock, and a harness that cannot continue a session
-   (codex), is not asked. An outcome that states a rule (what holds for any input of a kind, a bound, a "never" or an
-   "always") is judged by the rule, its example one instance of it (defect gate 2, G-B-LIB-2: a build right on the
-   plan's example and wrong elsewhere passed its outcomes). The evaluator tries the rule on inputs of its own choosing
-   beyond the example, where a build right only on the example would answer differently, and a failure there is a fail
-   it shows with a red check of its own data; a check that tries the rule only on its example is one a plausible wrong
-   build would still pass. It stays within what the outcome promises: an input the rule does not cover, a value its
-   words do not decide (where the outcome states no range, a value far from its example) and behaviour the issue leaves
-   unsaid are never a failure. Where an outcome names only an example and its issue line states the rule, the evaluator
-   tries that rule beyond the example in calls of its own, never in a check it proposes (its checks assert only what the
-   outcome states), and a break there withholds the pass (`contrary`, so unsure) but never fails the outcome: a fail and
-   its fix are only for what the approved outcome itself states. It reports such an outcome `pass` only once it has
-   tried that rule beyond the example (a prompt rule: an evaluator that never probes is still passed on its example
-   check), and a break it saw while judging another outcome that states the same rule goes in this one's `contrary` too,
-   which withholds its pass (defect gate 3, G1: a README-example outcome quoting the counting rule passed while the rule
-   was broken). A promise that something is carried over (a copy, fields kept, the rest unchanged, a round-trip through
-   save and load) is a rule as well: the evaluator tries it on the values a careless copy loses (a field left unset,
-   zero, empty or absent, and every field the promise covers) and compares the result by what using it gives against the
-   original, what calls give for it and how it is written out or read back (defect gate 3, G6: a copy that turned absent
-   fields into empty ones could no longer be encoded). A zero or absent value of what is carried over is one the outcome
-   decides; a field it says changes or does not cover, and a difference of representation alone (nil against empty) that
-   nothing using it shows, are never a failure, nor is a new item's own identity (its id, when it was made) where the
-   copy is saved beside the original. On a workspace an "unchanged" rule's expected value is the same call at the base,
-   leaving aside what differs between any two runs (a scratch path, a time).
-6. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
+4. **Explore (the model).** The evaluator reads the issue, the outcomes, the changed paths, the previous round's results
+   and, after a fix, the fix's diff, then uses its tools, looks at screenshots, and writes a report. Its prompt sets the
+   rules it judges by:
+   - `pass` is "I saw it hold, as worded", `fail` "I saw it not hold, as worded", `unsure` "I could not tell". If any
+     call it made showed the outcome not hold, the verdict is `fail`, citing that call, or `unsure`: never `pass`,
+     whatever its other calls showed. A failure that was there before the change is still a failure of the outcome.
+   - It reproduces a failure before reporting it, and cites both calls.
+   - It creates the data an outcome speaks of itself, named with a token maul makes unique per evaluation, and judges by
+     that data: the preview's data persists between rounds and is shared.
+   - It judges the rule an outcome states, not only its example, on inputs of its own beyond the example, and stays
+     within what the outcome promises: an input the rule does not cover, or a value its words do not decide, is never a
+     failure. A break of the rule an outcome's line of the request states beyond its example makes that outcome
+     `unsure`, never `fail`: a fail and its fix are only for what the approved outcome states. A promise that something
+     is carried over is tried on the values a careless copy loses (unset, zero, empty, absent).
+   - It observes each outcome through the surface it names (the page by using the page, the API by calling it). A page
+     script it runs with `browser eval` or a program it runs with `exec` counts, and is shown to the reviewers as its
+     own; it uses one to read what a person could see or the API answers, never to set up the state it then judges.
+   - It spends its turns on the outcomes first, within a turn budget per outcome, and writes its report as soon as every
+     outcome has a verdict.
+
+   The report's frontmatter is decoded strictly: `verdicts` (per outcome its `outcome` id, the older `id` still read,
+   both differing refused; `verdict`; `ledger`, the seqs it cites, at most 8 that count kept; an optional one-line
+   `note`) and `anomalies`. Any other key refuses the whole report, among them the keys an earlier release's evaluator
+   wrote ([Migrating from saved checks](#migrating-from-saved-checks)), even as empty lists. A refused or missing report
+   is repaired in the agent's own session, at most twice; a refused report's detail lists its frontmatter's key paths
+   (never their values), and each repair message restates the exact frontmatter example. The evaluate prompt is bounded
+   at 256 KiB, on claude and codex alike: both read it on their standard input, never as an argument of their command
+   line (which Linux bounds at 128 KiB). A prompt over the bound leaves out half the changed paths at a time, each time
+   saying so; the request, the fix diff, the outcomes and the previous round's results always stay, and a prompt still
+   over the bound fails the run (maul's own failure, never a verdict).
+
+5. **Look-around.** After the outcomes, the evaluator visits the routes the change touches (at most 8): a snapshot and a
    screenshot each, the console, then each component's logs and the slot's events for errors, panics, restarts or OOMs
    since the round began.
-7. **Confirm (no model).** After the evaluator exits, `tools` runs each proposed check again with a run token of its
-   own, alone, in a fresh context, and records the run. That ledger entry, never the evaluator's report, is what maul
-   believes.
-8. **Review.** One `checkreview` run per round reads each new confirmed check, opening a fresh session per check, and
-   answers `proves`, `does_not_prove` or `unclear` for its outcome. Answers are cached by the check's and the outcome's
-   digests (and whether the red question was asked), so a check is reviewed once. A check reviewed `proves` is stored;
-   any other is dropped. On both questions the reviewer is given the issue line the outcome answers, its kind, the
-   request and the previewed components, and learns the application's own words from the request (a "beat" on the page
-   may be a "pattern" in the API). It takes as given what the outcome, its line and the request state as fact (how the
-   program is run and its input given, how steps are numbered) and maul's own records of each run, what a program
-   printed among them, never the other agent's claims, the check's own comments or what a printed line claims about the
-   check, and judges the check against the outcome only: nothing in the request relaxes the rule. It refuses a check
-   that tries a rule the outcome states only on its example. On the green question maul also lists each box assertion's
-   `tolerance` and what it lets through ("the two may overlap by up to 14 px"), and the reviewer refuses one that lets
-   through what the outcome's words exclude (an overlap where it says above or beside); a few px for sub-pixel rounding,
-   or an offset the wording leaves room for, is fine. On the red question a failure of what only the request asks proves
-   nothing (the facts it takes as given still set up any check), so a fix never starts outside the approved outcome, and
-   it gets what maul recorded of the failure (see the red question below); it admits an input beyond the outcome's
-   example only where the rule, as the outcome words it, covers that input and decides the value the check expects (a
-   value far from the example, where the outcome states no range, it does not decide). Each answer is kept with the
-   check's id and the reviewer's reason, and every later round's evaluator is told the newest 40 checks refused on the
-   green question by outcome, id and reason: a form once refused is never reviewed again, so it strengthens the check
-   rather than proposes it again. Beside each refusal it is shown the refused check itself, as the previous evaluator
-   proposed it and maul confirmed it (its canonical JSON from that round's `status.confirmed`, which `tools` read from
-   the verified ledger, kept only when it is the very check reviewed under that digest and bound to the outcome the
-   refusal is named under), quoted as the previous evaluator's untrusted text: up to 32 KiB of them in all as shown, the
-   newest refusals' first, never cut, the rest named without their bodies, as is a saved check the round replays. It
-   amends that check to answer the reason, keeping what it already tests and every example value the outcome names,
-   rather than writing an unrelated one or rewriting it from scratch: it starts from the body, changes only what the
-   reason faults, keeps every other input on the control it went to, compares the two case by case before confirming,
-   and names in its verdict note any case it drops or changes that the reason does not fault (an expected value it
-   inherits is judged against the outcome like its own); the refused check is never replayed or counted, and the amended
-   one is a new check, confirmed and reviewed like any other. The evaluate prompt is bounded at 256 KiB, on claude and
-   codex alike: both read it on their standard input, never as an argument of their command line (which Linux bounds at
-   128 KiB), and every part the prompt always keeps fits maul's own bound with room to spare: a prompt over it leaves
-   out, in this order, the refused checks' bodies (oldest first), half the changed paths at a time, then the older half
-   of the refusals at a time, each said to be not shown, never cut; the request, the fix diff, the outcomes and the
-   previous round's results always stay, and a prompt still over the bound fails the run (maul's own failure, never a
-   verdict). Each session may take 6 turns, the last 3 kept for one repair of its report; a review whose report is
-   refused and not repaired makes that check alone `unclear` (not stored, its answer not cached), and the run goes on to
-   the next check.
-9. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
+6. **Finish.** After the evaluator exits, agent-runner sends `tools` one finish naming at most 6 screenshots the report
+   cites, its verdicts' first, and `tools` ends the ledger.
+7. **Collect.** preview-controller reads the `tools` container's log (that container only), holds it to the count and
    sha256 in its termination message, writes an index of every entry to the request's `status.ledger`, and keeps the
-   full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns.
-10. **Judge.** maul decides each outcome by the rules below, then routes the round: all confirmed and a clean preview:
-    **ready**, whatever look-around anomalies the evaluator noted. A failure the evaluator agrees with: a verify-fix
-    round. A dispute: one more round at the same heads, a replay when it can pass every outcome. An unsure replay round:
-    one full round at the same heads. Anything else: **maul couldn't confirm this**. A failing environment keeps the
-    round from ready even when every outcome passed, and no later acceptance by an approver changes that at the same
-    heads. A replay round whose `tools` finished before its replay's end (its wall clock, or its container told to stop)
-    is maul's trouble (`Infra`, `replay-incomplete`), never judged.
-11. **Tear down.** The tool pod, its key, its ConfigMap and its ingress policy go when the request settles.
+   full ledger and the cited screenshots (re-encoded by maul) in ConfigMaps the request owns. A log that does not hold
+   is maul's trouble (`Infra`, `ledger-mismatch`), never judged, and so is a round whose ledger holds no call from the
+   evaluator.
+8. **Judge.** maul decides each outcome by the rules below, then routes the round: every outcome seen to hold and a
+   clean preview: **ready**, whatever look-around anomalies the evaluator noted. An outcome seen not to hold: a
+   verify-fix round. Anything else: **maul can't call this ready**. A failing environment keeps the round from ready
+   even when every outcome was seen to hold, and no later acceptance by an approver changes that at the same heads.
+9. **Tear down.** The tool pod, its key, its ConfigMap and its ingress policy go when the request settles.
 
 ## What makes a pass
 
-An outcome is **confirmed** only on a check bound to it that:
+maul never reads the evaluator's words to decide a result. It reads, for each outcome, the evaluator's first verdict on
+it and the seqs that verdict cites, and holds each cited seq to the round's own ledger index (`status.ledger`). A
+citation **counts** only when all of these hold:
 
-1. maul stored, is not retired, and is one of maul's forms: an HTTP step list, a browser check in maul's JSON grammar
-   (compiled by maul to a Playwright test), or a sandbox program whose output `tools` asserts on;
-2. is **substantive**: at least one step acts on the application and at least one assertion is about content that is
-   there (a status or exit code alone is not, nor an absence (`$absent`) or a header's bare presence or absence, which
-   hold of an empty, HTML or error answer too: they stand only beside an assertion of something that is there on the
-   same answer, a JSON absence beside a JSON value in the same step's `json` or the same `stdoutJSON`; a browser `count`
-   of 0, which holds before a page has rendered its data, stands only after such an assertion with no step acting on the
-   page between them), and every list assertion is filtered to data the check created itself, named with `{{run}}`. A
-   check over shared data (a global ranking, a global count) is refused when it is saved. A check stored before these
-   rules came to refuse it still replays as it was saved, but confirms and fails nothing, and the next round is a full
-   one, in which maul names it to the evaluator as no proof, so the evaluator saves a check that asserts something. An
-   outcome that a shared list leaves an item out is shown by the request it names, sent unchanged and asserting only
-   what holds of any data (its status, the first item meeting the outcome's rule), beside a further step adding only a
-   narrowing to the run's own data, every named parameter kept, where a kept item of the run is listed and the list
-   ends, and a step where the narrowing alone lists the left-out item; the reviewer refuses a check that drops or
-   changes a named parameter, or whose unchanged request has no assertion a build ignoring the outcome's parameters
-   there would fail (the evaluator creates the left-out item last on a newest-first list). A browser check that writes
-   nothing and asserts only the layout of the page's fixed markup, at least once by a measure (a size, an alignment, a
-   box relation, legibility), on elements it finds by role, label, test id or CSS rather than by their text or position,
-   needs no data of its own, and the reviewer's green question says so; its failure is always held for a person;
-3. passed in this round's confirmation or replay, run by `tools` at the current heads with a token `tools` made;
-4. was reviewed `proves` for this outcome's text (a check saved red: on the red question);
-5. and no other live check of the outcome failed this round;
-6. and the evaluator did not say it saw the outcome fail this round: a `fail` verdict, or a verdict listing `contrary`
-   ledger seqs, where it saw the outcome as worded not hold, whatever it believes caused it. A failure that was there
-   before the change still counts: a check that passes only by leaving out what failed tests less than the outcome. maul
-   remembers every check that passed in such a round (`status.acceptance.narrowed`): from then on none of them confirms
-   that outcome, neither in the replay round at the same heads, which has no evaluator, nor in a later round whose
-   evaluator says nothing contrary. The outcome is confirmed only on another check, or by an approver.
+1. the round's ledger is verified: its log held to the count and sha256 of `tools`' termination message;
+2. the seq is an entry of that index;
+3. the entry is the evaluator's own call through `maul-tool`, never one of maul's (the relay's readiness, a build, the
+   browser session, the finish);
+4. maul did not refuse it (a malformed call, a missing key, a call past `maxToolCalls`);
+5. it used the application: `maul-tool http`, `browser`, `exec` or `run`. A `logs`, `events` or `files` call may be
+   cited, but never counts on its own;
+6. it ran at the head: on a Project with no preview, a call with `--base` never counts;
+7. a `browser` command exited 0 (a failed command showed nothing). An `exec` or `run` whose program ran counts whatever
+   its exit status: a program may exit non-zero by design;
+8. it got its answer: an `http` request that got no response (DNS, refused, a timeout, TLS, a reset) never counts, nor
+   does a `run` whose program did not compile and so never ran, nor an `exec` or `run` whose program the sandbox could
+   not start (exit 127 or 126, its output only maul's `[maul: could not start ...]`). The round's ledger index marks
+   each `noAnswer`.
 
-And every saved check of the outcome that the round was to replay has a replay run at these heads. One that has none
-(the round was cut short before it) may be the very check that fails, so the outcome is unsure with the reason
-`not-replayed`, whatever its other checks show.
+Whether a screenshot of the call was kept, and whether its output still fits the full ledger, does not matter: a cited
+call whose output was dropped to fit still counts, and is shown as "Its output was not kept by maul." A page script run
+with `browser eval`, a program the evaluator wrote and ran with `exec`, and every `run` count like any other call, and
+the comments label them "the evaluator's own page script" or "the evaluator's own program". The label fails closed: a
+`browser` call whose ledger line maul did not keep, or kept with its arguments dropped to fit, is labelled a page
+script, since nothing shows it was not one.
 
-A browser check never names a snapshot ref or a colour literal. Its `visible` assertion means a person can see it, not
-merely that it is in the page: in the viewport, a non-zero box, opacity above 0.1, not clipped away by a container, a
-`clip` or a `clip-path` inset (a collapsed panel or a 1px screen-reader label fails), not covered at its centre by
-something opaque that is not part of it, and its text with at least 1.5:1 contrast against what is painted under it
-(with no text of its own, the text of what it holds: a button whose label span is the colour of the button fails).
-`legible` is WCAG's 4.5:1 (3:1 for large text); `clickable` means the element itself receives the click, inside a web
-component's open shadow root too. What maul cannot judge makes such an assertion indeterminate: the check errs, which is
-unsure, never a pass and never a fail. That is an element covered at its centre or not found there (a `clip-path` shape
-cut it away, a modal dialog is open over it), one clipped away under a scaled or rotated container, and text over a
-background image, an `<img>`, a `<canvas>`, a video or SVG (SVG text too), a `::before` or `::after` layer that may lie
-under it (one beside the text, a bullet or an underline, does not count), a paint effect, or a web component's shadow
-content maul cannot see into (a closed shadow root, or text put straight into a component's slot). A checkbox or radio
-hidden as a 1px screen-reader input behind a styled box is indeterminate too: assert on the label or the box a person
-sees. An element whose own box is zero fails `visible` saying what hides its content; when its content overflows it and
-shows all the same (a wrapper whose height collapsed), the assertion is indeterminate. Its `text` assertion holds only
-on text that is shown: the text must match, and what matches must be shown (a cover or poor contrast is `visible`'s and
-`legible`'s to judge, not its). Text that is not rendered (`display: none`, a closed `<details>`), hidden by
-`visibility` or opacity, or clipped to nothing (a collapsed line, a 1px screen-reader span) does not count, so a text
-met only with it fails, naming what hides it; text in a list a person can scroll counts, and text maul cannot settle
-(another slide of a carousel, a clip under a scaled container) makes the assertion indeterminate. Its `size` assertion
-takes an exact `width` or `height`, within the assertion's `tolerance`, or bounds: `minWidth`, `maxWidth`, `minHeight`
-and `maxHeight`, the same tolerance as slack. An axis takes an exact value or its bounds, never both, and a minimum is
-never over its maximum. So an outcome that says "at least 48 px" is checked by `minHeight: 48`, never by an exact 48,
-which would fail a correct 56 px pad and which the reviewer refuses. The box relations (`left-of`, `above`,
-`no-overlap`, `equal-size`, `aligned`) and `size` measure what is drawn, where the page left it (the check's own scrolls
-are kept): each box is cut by every ancestor whose overflow clips it, by a `clip` or `clip-path` inset, and by the
-page's extent (the viewport, for a fixed element). `left-of`, `above` and `no-overlap` judge the drawn parts;
-`equal-size`, `aligned` and `size` (exact or bounded) judge the whole box, and a fail on a box partly clipped is
-indeterminate. An element clipped away entirely, scrolled out of its container say, is not drawn, so a relation on it is
-indeterminate, never a fail. A saved check is at most 8 KiB as maul stores it, and an intent keeps at most 40.
+Then, per outcome, the first rule that matches decides:
 
-A browser check's `label` (a `select`'s too) and a `role`'s `name` match an element's whole name, case-sensitively, with
-leading and trailing whitespace ignored and each run of it read as one space (Playwright's `exact`):
-`{"label": "Beat name"}` finds the beat name field and not a button labelled `Remix <run> cover long beat name` that a
-run's own data added to the page, and `{"role": "button", "name": "Play"}` does not find a button named `▶ Play`. maul
-writes `"exact": true` into every such locator of a check the evaluator proposes that does not say `"exact": false` (a
-part of the name, in any case), except in a `count`, whose locators keep the part match unless they say `"exact": true`:
-an exact name would let a count of 0 pass beside an element named a little differently. The `exact` maul wrote is part
-of the check as saved, its digest included, and a check saved before maul did this has none, so it replays as it was
-proven, matching a part of the name. `text` and `hasText` always match a part.
+| Situation                                                                     | Result                                              | Reason               |
+| ----------------------------------------------------------------------------- | --------------------------------------------------- | -------------------- |
+| The round's ledger is not verified                                            | maul's trouble: the attempt is retried, then unsure | `infra`              |
+| No preview: maul's own build of the head did not finish                       | unsure, and no evaluator runs                       | `tools-build-failed` |
+| A manual outcome                                                              | unsure: only a person closes it, `/maul accept`     | `manual`             |
+| The environment failed: a component crashed, was evicted or ran out of memory | unsure, never a fix                                 | `env-failed`         |
+| maul's own tools or the cluster failed during the round                       | unsure, never a fix                                 | `infra`              |
+| The report gives the outcome no verdict maul can read                         | unsure                                              | `not-reported`       |
+| The evaluator reports it `unsure`                                             | unsure                                              | `evaluator-unsure`   |
+| A `pass` or `fail` that cites no call that counts                             | unsure                                              | `no-valid-evidence`  |
+| A `fail` that cites a call that counts                                        | **failed**: a verify-fix round                      | `seen-not-to-hold`   |
+| A `pass` that cites a call that counts, on an outcome a finding holds         | unsure                                              | `held-finding`       |
+| A `pass` that cites a call that counts, on an outcome an anomaly names        | unsure                                              | `contrary-note`      |
+| A `pass` that cites a call that counts                                        | **passed**                                          | `seen-to-hold`       |
 
-Everything else:
+The calls kept for an outcome are the ones that count, in seq order, each once, at most 8 (the lowest seqs), recorded on
+the Intent as `status.verification.outcomes[].cites` whatever the result. A round is ready only when every outcome
+passed (or an approver accepted it at these heads) in a clean environment. maul never reads a verdict's note, the
+report's body, or one outcome's verdict for another. Of the anomalies it reads only which outcome each names, if any
+(`anomalies[].outcome`), and only to keep that outcome from passing ([Look-around](#look-around)).
 
-| Situation                                                                                     | The outcome                                                                                                                                     |
-| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| A check failed, and the evaluator reports `fail` for that outcome citing the ledger           | **failed**: a verify-fix round with a reproduction (a check that writes data of its own run; else unsure, a suspected defect a person confirms) |
-| A check proposed to show a defect, red by assertion in maul's own run, reviewed yes           | **unsure**, a suspected defect a person confirms (see [A defect found in round 1](#a-defect-found-in-round-1))                                  |
-| A check proposed to show a defect that maul's own run did not see red by assertion            | **unsure**: never failed, and never passed by that run                                                                                          |
-| A check failed, and the evaluator **disputes** it                                             | **unsure** this round (see [Disputes](#disputes))                                                                                               |
-| A check failed, and the evaluator neither agrees nor disputes                                 | **unsure**: "a check failed, but the evaluator did not agree that it is a defect"                                                               |
-| The evaluator says it holds (or fails), but no check maul re-ran shows it                     | **unsure**: no pass and no fix without a check                                                                                                  |
-| A check passed, but the evaluator saw the outcome as worded fail (`fail`, or `contrary` seqs) | **unsure**: "a check passed, but the evaluator saw the outcome as worded fail"; never failed by that alone                                      |
-| The only support is a check that passed only on its retry                                     | **quarantined**                                                                                                                                 |
-| A check failed while preview-controller saw a component crash, get evicted or OOM             | **unsure**, the preview's failure; never a fix                                                                                                  |
-| maul's own machinery failed (a tool pod never ready, a ledger that does not hold)             | the attempt is retried; past its bound, unsure                                                                                                  |
-| A manual outcome                                                                              | only a person closes it, with `/maul accept <id>`                                                                                               |
-| An earlier round at the same commits found it failing, suspected a defect, or saw it fail     | **unsure** (`held-finding`), whatever this round found: see [A finding holds its commits](#a-finding-holds-its-commits)                         |
-
-## A defect found in round 1
-
-A check saved green can show only a regression: a defect present from the first round would fail its check, and a check
-with no green dry run could never be proposed. So the evaluator may also propose a check that **shows a defect**: the
-check of the outcome as approved, which would pass where the outcome holds and fails on this build. It proposes it with
-`expect: fail`, under an outcome it reports `fail`.
-
-**maul never fixes a defect found this way on its own.** A wrong fail starts a fix of code that works, and four
-independent reviews kept finding ways a correct build could still look red, so such an outcome is judged **unsure**, a
-_suspected defect_, and the commit status and the hand-off treat it as unsure. maul holds the gated hand-off (the note
-says so only while it is held: once released, by a person or `handoffMax`, it no longer claims a hold) and shows the
-evidence on the issue: the check it saved, maul's reproduction and that the evaluator reported the outcome fails, saying
-maul believes this is a defect and a person should confirm it. The evidence stays on the issue whatever else the round
-found: beside another outcome that is failing, too. An approver's `/maul verify fix` then starts the fix round exactly
-as an automatic one would, handed that reproduction and any failure of a check saved green the round found beside it;
-the commit status and the status comment then say a person confirmed the defect and a fix is running. Only a
-`/maul verify fix` created after maul recorded the suspected defect confirms it: one written earlier (say, while the
-round was still being evaluated) keeps its earlier meaning, a request that re-arms automatic fixes, so no fix starts
-before a person can have seen the evidence. `/maul verify` and `/maul verify fix --reset` never confirm it; nor does
-anything once the pull requests' heads have moved; and while it waits, the hand-off's own time limit still releases the
-link. A regression of a check saved **green** keeps starting the automatic fix as before, but only for a check that
-writes data of its own run (`{{run}}` in a POST, PUT or PATCH, a browser fill or its program). A saved check that writes
-none reads whatever the application shows (a page's layout, shared rows), so rows other runs made can move it: its
-failure, green or red, cleared or not, is a suspected defect held for a person exactly as below, never an automatic fix.
-What may be saved green is unchanged. Every one of these must hold before a defect is even suspected:
-
-1. **Red by assertion.** The check's dry run failed one assertion the outcome is the judge of, about data the check's
-   own run made, in a check that otherwise ran: every step before passed, and both attempts failed the same assertion of
-   the same step. When in doubt maul counts nothing: unsure beats catching a defect. What counts, by form:
-   - `http`: only content: a JSON pointer (never the whole document) that resolves to a different value, not by a list
-     matcher (`$order`, `$includes`); a header that is present with a different value; or body text missing from a body
-     that is not an HTML page. And only when the step reads the run's own data: its path (not its query) names `{{run}}`
-     or a value captured from one of the check's own writes (a POST, PUT or PATCH whose path, less its query, or whose
-     body names `{{run}}` or a value captured from an earlier such write, so a battle of the check's own patterns is its
-     own too; a JSON body by a value, never by an object key, which `{{run}}` is never substituted into), or the
-     expected value names one. No status counts, a 500 included, nor a pointer or header that resolves to nothing, a
-     total or a count over shared rows, HTML where JSON was expected, no answer, or a capture with nothing to keep. The
-     check may list only success statuses.
-   - `exec`: only a program that says so itself, printing `{{marker}} <id>: <what it saw>` at the start of a line of its
-     stdout or its stderr (each read as the program wrote it; when both hold text and one ends on an open line, the
-     order the two were written in is unknown and the run errs, as for a marker that starts no line), `<id>` naming the
-     assertion (lowercase letters, digits and hyphens, starting with a letter, at most 128 characters). maul replaces
-     `{{marker}}` in the program's files, and nowhere else, with a line start drawn afresh for every attempt
-     (`MAUL-ASSERTION-FAILED-` and 32 random hex characters), so text the application answers with that the program
-     echoes (a body, a traceback) can never pass for one; only lines carrying that attempt's own marker count, the first
-     with a valid id naming the assertion. A line that starts with the marker fails the check whatever its exit code and
-     its expectation, so a program that prints it and goes on to exit 0 is never a pass. A marker that is in the output
-     but starts no line (printed after output with no trailing newline, after a space or a carriage return, or in a
-     source line a traceback echoes) makes the run an error, never a pass nor a fail: maul cannot tell the program's
-     judgement from an echo, and its detail tells the evaluator to print a newline before the marker. A run whose output
-     is cut at its 64 KiB bound is never a pass either (a marker past the cut would be lost): it errs, unless a marker
-     was kept. An exit code alone, a crash, `127` or a traceback never makes a check red by assertion. Neither does a
-     marker line with no valid id after it: the run fails, and its detail says the marker named no valid assertion id,
-     so the evaluator can rename it. On a valid id, what the program printed after its marker (`<id>: <what it saw>`,
-     each such line, the marker itself left out, at most 1 KiB) is kept in the failing step's message, so the issue, the
-     pull request and the reproduction show the value the program observed, as the application's data. In a program's
-     files maul replaces only the exact placeholder tokens (`{{marker}}`, `{{bin}}`, `{{tree}}`, `{{run}}`); any other
-     `{{` there, such as a Go nested composite literal, is the program's own text and runs as written. `stdoutContains`
-     and `stdoutJSON` are judged on the program's stdout alone, never on what it printed on stderr (a traceback or a
-     usage error that echoes the expected text). A run whose stdout assertions would be judged otherwise on stdout and
-     stderr together (the text only on stderr, JSON on stdout beside stderr text), a run that would pass after exiting
-     non-zero when `expect` names no exit, and a run on a sandbox that does not keep stdout apart (an older toolbox
-     image) err: never a pass nor a fail.
-   - `browser`: an `expect` step's maul assertion or Playwright matcher on an element that was there, its locator, text
-     or URL keyed by `{{run}}`, or an assertion that measures the page's layout (`size`, `left-of`, `above`,
-     `no-overlap`, `equal-size`, `aligned`, `legible`, `clickable`, `visible`), keyed or not; never a count, a timeout,
-     an action, a locator that resolved nothing or more than one element, an element with no box, a trial click or an
-     indeterminate judgement. The failing step is read from the compiled spec's own stack frame. maul's own runs of such
-     a check (its confirmation, and its replays once saved) wait 15 seconds for each judgement instead of 5, so a slow
-     but correct page is not read as the defect. A failure that is maul's own errs, never a fail: the browser not
-     answering or its key unreadable before any step ran, a failure placed at no step of the spec, the browser closing
-     or its page crashing under a step (an expect matcher it cut short included, whatever text it had seen so far), and
-     the test timing out. The page's own text and markup never make a failure maul's: the closing or the crash is read
-     only from the lines the test runner alone writes.
-
-   `maul-tool` prints `red by assertion at step <n> (<assertion>)` for such a run. The check must also write data of its
-   own run: `{{run}}` in a POST, PUT or PATCH (its path or body; in a JSON body, a value, never an object key), a
-   browser fill or its program. The one exception is a browser check whose failing assertion measures the page's layout:
-   it may write nothing, since a read of the page's own layout has no shared data to be wrong about, and a person
-   confirms what it finds (a pad 30 px tall where the outcome says at least 48, rows that scroll apart). Its reviewer is
-   asked whether the element it measures is the one the outcome is about on any data. A check that breaks these rules is
-   refused `red-check-rule`, its reason in the ledger; `no-red-dry-run` means only that no dry run failed an assertion,
-   or one ran green. This run-data rule guards a preview's shared data, so it is the preview's alone: a check of a CLI
-   or a library need not write data of its own run (see
-   [Without a preview: a CLI or a library](#without-a-preview-a-cli-or-a-library)). When a check the tool pod confirmed
-   for an outcome the evaluator reports failing is still not stored (a rule above, its confirmation not red by the
-   assertion it was proposed failing, no review that proved it, or a full check store), the outcome's row on the issue
-   says so and why, beside "unsure".
-
-2. **The expectation is the proposal's.** `tools` confirms a check proposed `expect: fail` only against a dry run red by
-   assertion, never one that also ran green, and never a saved check this round's replay saw green (as it confirms a
-   green proposal only against a green dry run, never one the replay saw red).
-3. **The red question.** The reviewer is told the check failed, at which step and by which assertion, and that the
-   application's state was not fresh. It is also handed what maul recorded of that assertion's failure in each of its
-   runs, the run's token written as `{{run}}` and quoted as untrusted data: a browser assertion's measurement ("visible
-   failed: contrast 1.27 < 1.5"), with maul's fact that the locator found the one element it asserts on (on any
-   assertion but `count`), or the line a program printed after its marker ("got [45 150] err <nil>"), the other agent's
-   words, of which only a value the program's source shows it observed counts. It answers `proves` only if that
-   assertion checks something the outcome as approved promises, on a setup that does what the outcome describes, fails
-   only where the outcome does not hold, and is the outcome itself and about data the check created, not setup or
-   something incidental. Where the assertion compares more than the outcome fixes (a whole output, a whole text), it
-   proves the outcome broken only if what maul recorded shows a value the outcome fixes, and shows it wrong; a failure
-   that differs only where the outcome fixes nothing, or one maul recorded nothing of, is `does_not_prove` or `unclear`.
-   It judges the check by that failure alone, never by what its other steps or expectations ask (an earlier step that
-   passed, a locator that found its element, what a passing run must print where the program printed its marker, a step
-   after the failure that never ran) or by whether a pass would prove the whole outcome: a check that shows one promise
-   broken is enough, even where the outcome has a clause no step asserts or no assertion can express (a button wholly
-   inside the viewport), though never one that skips or changes a condition the outcome is stated under. That is safe
-   because, until the check has passed once, maul counts a later run of it only when it fails at the same step by the
-   same assertion, and until the green question has answered `proves` every failure of it waits for a person (below).
-   For an `exec` or `run` check it is shown the marker its program printed and answers whether the program prints it
-   only when the approved outcome is violated, never inside a retry or poll before its final judgement, on a connection
-   error, a status code, a timeout or an exception; where it prints it on more than one condition, what maul recorded
-   shows which held. The answer counts only for that assertion: another failing assertion of the check needs a review of
-   its own. Anything else and the check is not stored; the outcome stays unsure. A program red by its `stdout`
-   expectation printed no marker: what maul recorded of its failure is then its exit code and the end of what it printed
-   (at most 768 bytes, quoted on one line), the application's bytes, shown as untrusted data.
-4. **maul's own run.** After the evaluator exits, `tools` runs the check again alone, in a fresh context, under a fresh
-   run token per attempt; only a run red by the same assertion as the dry run makes the outcome **failed**. A run that
-   passes, fails then passes, errs or fails some other way leaves it unsure, and never passes it.
-5. **No vetted check disagrees.** If another check of the outcome, valid and reviewed `proves`, passed cleanly in the
-   same round, the two disagree: the outcome is unsure. A check maul recorded as narrowed in an earlier round
-   (`status.acceptance.narrowed`) is not such a check: it tests less than the outcome, so its pass says nothing against
-   a failure, and the failing check is judged by the rules above alone. The round that records the narrowing still
-   counts it, so that round is judged alike every time. A check that both passed and failed at the same heads in one
-   round is flaky: unsure, never failed. Both hold for every check, not only red ones.
-
-The check is then stored (marked as saved red, with the assertion it failed), and once an approver confirms the defect
-the verify-fix round is handed its failure as the reproduction. After the fix, the same check replays at the new heads;
-green, it is asked the green question too (the red review never asked whether a pass could be special-cased or merely
-shows a call worked), and only once that answer is `proves` does it pass the outcome. A replay that clears it counts
-from the next round on, so the round and its fix are decided on the same facts. Once cleared and reviewed `proves` with
-the green question, it has been proven against a working build: from then on it is a saved green check, and a later
-regression of it starts the automatic fix, with no person's confirmation, when it writes data of its own run. A layout
-read that writes nothing is never promoted: like every check that writes no run data, its failures always wait for a
-person, cleared or not. Until it has replayed green once, its later steps and its other assertions have never run, so a
-replay or a new confirmation that fails other than by that same assertion is not evidence: never a second fix, never a
-block. Another proven check may pass the outcome, and a dispute with a proven replacement can still retire it. A check
-saved red that already replayed green and is proposed red again is unsure. Where a base is available, a check of a new
-outcome that fails at base too is expected (the feature did not exist), and is not a reason to refuse it.
-
-Known limits, which is why a person confirms: maul's own run happens on the preview the exploration used, so a check
-whose failing assertion reads state the evaluator left behind could go red deterministically (the write rule, the rule
-that the failing assertion reads the run's own record, a capture counting as the run's own only from a write that names
-`{{run}}`, rule 2's run-scoped list assertions, the reviewer and the red question narrow it; they do not close it). An
-http or exec check reads right after it writes, with no patience, so an application that updates asynchronously or
-serves a cached read for a few seconds can fail the same way on both attempts. A `clickable` check judges one moment, so
-a toast or spinner passing over the element can too. An exec program's marker is its own word: one printed from a
-catch-all on a connection error would look like a defect; the reviewer is asked about exactly that. A layout read that
-writes nothing measures whatever the page shows: an element whose size or place depends on rows other runs made (a list
-that grows, a long name from another run) can measure wrong; the reviewer is asked about that, and a person confirms.
-
-## Disputes
-
-A saved check can fail on a correct change: data from an earlier round got in the way, a component was still starting,
-or the check was simply wrong. Fixing code for that wastes a round and money. So a failing saved check starts a fix only
-when this round's evaluator agrees it shows a defect. If the evaluator **disputes** it instead, it says why and proposes
-a replacement check.
-
-- The outcome is **unsure** this round, never failed and never passed.
-- Once the replacement could pass the outcome itself, maul retires the disputed check (both are shown) and runs one more
-  round at the same heads: a **replay round**, with no model, when every outcome then has a proven saved check and the
-  dispute's evaluator raised nothing else; that round can pass the outcome. Otherwise the round is full, and it is the
-  head set's one escalation (see [The cost ladder](#the-cost-ladder-replay-rounds)). It counts toward
-  `maxVerifications`. The replacement could pass when it is confirmed with a run token, reviewed `proves`, discriminates
-  at the base on an agents round (red by assertion there for a `change` outcome, not red for a `keep` one, as for any
-  pass), and is not narrowed: neither in an earlier round, nor in this one by the evaluator also reporting that it saw
-  the outcome fail (a `fail` verdict or `contrary` entries). A replacement that shows nothing at the base, or asserts
-  less than the outcome, retires nothing: the failing check stands and the outcome stays unsure.
-- A check that failed in an earlier round is retired only this way, through a dispute with a confirmed replacement.
-
-A dispute only ever moves an outcome from failed to unsure, and the replacement must meet every rule above, so it can
-never make a pass on its own.
-
-## The cost ladder: replay rounds
-
-Not every round needs the model. When nothing has changed since a model looked, maul replays its saved checks alone: a
-**replay round**. It renders the same tool pod, which replays every saved check at the current heads (each alone, with
-its own fresh run token, a failure run once more, at the base too on an agents round), and then finishes. No evaluate
-run and no checkreview run is created, so the round spends nothing on a model. Its verification comment's heading says
-"replayed saved checks, no model", and `status.verification.rung` and the `PreviewVerification`'s `spec.rung` say
-`replay`.
-
-A new round replays only when all of these hold; otherwise it is **full** (replay, then the evaluator, as above):
-
-- the heads and the approved outcomes are those of the latest **model round** (`status.verification.modelRound`): the
-  latest full round judged on its evaluator's report. Round 1, the first round of a new plan revision and the first
-  round after the heads move (a fix or a person's push) are full;
-- that round's evaluator raised nothing against an outcome: none it judged `fail` and none with contrary entries
-  (`modelRound.clear`). Only a model can look again at what a model raised. A look-around anomaly is a note, not an
-  objection: a replay round carries the notes earlier rounds made at those heads;
-- no failing outcome an earlier round found at these heads still holds them (see
-  [A finding holds its commits](#a-finding-holds-its-commits)): a replay could never pass over it, and a round at heads
-  a finding holds is full;
-- every outcome but the manual ones is bound to a saved check that could pass it: stored (so confirmed), valid, in one
-  of maul's forms, reviewed `proves` for the outcome's exact text, not narrowed, and, for a check saved to show a
-  defect, cleared and reviewed with the green question too;
-- no approver asked for `/maul verify explore`, which makes the round full whatever else holds.
-
-A retry of an attempt maul's own machinery failed keeps its round's rung.
-
-A replay round is judged by exactly the rules in [What makes a pass](#what-makes-a-pass), unchanged, on the store as it
-stands and the round's own replay, base runs and environment. With no evaluator in the round, two things follow:
-
-- **It never fails an outcome.** A failure needs a deterministic failure and the evaluator's cited `fail`; a replay
-  round has no evaluator, so a saved check failing there leaves its outcome unsure (`evaluator-disagrees`), never a fix.
-- **It passes what a full round would.** For the same evidence (the store with its reviews and records, the replay, base
-  and environment), a replay round decides each outcome exactly as a full round whose evaluator raises nothing against
-  it, and an evaluator's claims in a full round can only withhold a pass, never add one. The replay rung runs only after
-  a model round whose evaluator raised nothing at those heads, and a check that passed while the evaluator saw its
-  outcome fail is narrowed and never passes it again. Seeded properties hold both
-  (`TestReplayRoundNeverPassesWhatAFullRoundWouldNot`, `TestReplayRoundJudgedAsAFullRoundWithTheSameEvidence`).
-
-**Escalation.** A replay round left unsure on an outcome a model is asked about (or by a failing environment) asks for
-one **full round at the same heads**, which starts by itself (`status.verification.escalation`) and which the hand-off
-waits for: its evaluator sees the replay's results and can agree a failing check shows a defect (then a verify-fix round
-starts as usual) or dispute it. A head set gets one escalation: a later unsure replay round at the same heads asks for
-none. A replay round unsure only on a manual outcome escalates to nothing. The full round after a dispute that could not
-be a replay spends that head set's escalation too.
-
-**Recheck.** A full round left unsure only on outcomes its evaluator passed with no check maul accepted (the reviewer
-answered `does_not_prove` or `unclear`, or no check was proposed: `model-only-pass`) asks for that same one full round
-at the same heads (`status.verification.escalation` with `recheck`): the reviewer's refusal reaches an evaluator only in
-a later round's handoff, and without the recheck no later round starts at unchanged heads. Its evaluator is told each
-refusal and the refused check, as any later round's is, and can amend it into a stronger check. The comments say maul is
-checking once more by itself because a check was not accepted (the recheck's verification comment says so in its
-heading), `maul/acceptance` stays pending and the hand-off waits for it. An approver's `/maul accept` of the open
-outcomes before it starts settles it with no round, and an approver's `/maul verify` while it is due runs that full
-round as theirs. It is judged by exactly the rules in [What makes a pass](#what-makes-a-pass). A round with anything
-else open asks for none: an outcome failed, quarantined, suspected, held by an earlier finding, or doubted in any other
-way, a dispute, a fix, an objection from the evaluator (a fail verdict or a contrary entry on any outcome) or a failing
-environment. Those stay as they are, for a person or a fix round. The recheck spends the head set's one escalation, so a
-later unsure round at the same heads asks for nothing by itself. On a Project with no preview, a recheck (or any
-automatic follow-up round) that can no longer run at those heads, because the accepted image is gone, settles as "maul
-couldn't confirm this" instead of waiting.
-
-| Round                                            | Model spend          |
-| ------------------------------------------------ | -------------------- |
-| `/maul verify` at unchanged heads                | none: a replay round |
-| the round after a dispute (every outcome proven) | none: a replay round |
-| an unsure replay round's escalation              | one full round       |
-| a full round held only by checks not accepted    | one full round       |
-| `/maul verify explore`                           | one full round       |
-
-Replay, escalation and recheck rounds count toward `maxVerifications` like any automatic round, and a request's round
-counts as before. A replay round runs past the evaluation ceiling (`limits.maxEvaluateCostMicroUSD`), since it spends
-nothing; an escalation or a recheck does not, and past the ceiling the round stays unconfirmed with the budget as the
-reason. Neither is spaced by the five minutes automatic rounds wait while automatic fixes are halted: each is the round
-before's own follow-up, once per head set. The scoped rung (a model re-exploring only what a diff touches) is not built:
-after the heads move, a round is full.
+**What maul does not check** is whether a cited call shows what the verdict says. A call that counts can still be about
+something else, or read wrong: that is the evaluator's reading, and every surface that shows a result says so and shows
+the calls, so a reviewer can judge it in a minute or two per outcome. See [Known limits](#known-limits) for what this
+leaves open.
 
 ## Look-around
 
 The outcomes are what the approver asked for; look-around is the rest of "does it look right". The evaluator visits the
-routes the change touches and checks each against a short list: text and links readable against their background,
+routes the change touches and looks at each against a short list: text and links readable against their background,
 nothing overlapping or clipped or blank, new controls clickable and doing something, new links loading, no console
 errors or failed requests, and nothing in the logs or events (errors, panics, restarts, OOMs).
 
-An **anomaly** must cite ledger entries. It is a **note for the reviewers**: the verification comment, the pull
-requests' sticky comments and the run panel show the evaluator's description, marked as its words, beside the outcomes.
-It never holds a round, never downgrades the hand-off, never keeps `maul/acceptance` from success and never starts a
-fix. The evaluator answers one question, whether the work is correct, and the approved outcomes alone answer it: a round
-whose outcomes are all confirmed is Passed with its notes shown.
+An **anomaly** must cite at least one call that counts, by the rules above, or it is dropped. It is a **note for the
+reviewers**: the verification comment, the pull requests' sticky comments and the run panel show the evaluator's
+description, marked as its words, beside the outcomes. It never holds a round, never downgrades the hand-off, never
+keeps `maul/acceptance` from success and never starts a fix. The evaluator answers one question, whether the work is
+correct, and the approved outcomes alone answer it: a round whose outcomes were all seen to hold is Passed with its
+notes shown.
 
-A defect in what an outcome promises is not an anomaly. The plan's outcomes state the issue's rules, beyond its
-examples, and the evaluator is told to report a defect in what an outcome states, on any input, as that outcome's
-`fail`, and a break of the rule an outcome's line of the request states beyond its example as that outcome's `contrary`.
-Either keeps the outcome from passing and holds the commits (see
-[A finding holds its commits](#a-finding-holds-its-commits)), so nothing an approved outcome promises can pass on a
-note. What no outcome promises (a regression elsewhere, an odd log line, a layout blemish on a page the change only
-touched, a line of the issue the plan left uncovered, which the plan comment lists for the approver) is for the reviewer
-to weigh: maul shows it and the human decides.
+The one way an anomaly bears on a result is about an outcome, not the round: an anomaly that names an approved outcome
+(its optional `anomalies[].outcome`, which the evaluator is told to add when what it noticed shows one not holding) is
+the evaluator's own word against that outcome, so the outcome is not passed on that report, whatever its verdict says.
+It is unsure (`contrary-note`), even when the anomaly cites nothing that counts; a `fail` that cites a call that counts
+still fails. maul does not look for an outcome's id in an anomaly's words.
+
+A defect in what an outcome promises is not an anomaly. The evaluator is told to report a defect in what an outcome
+states, on any input, as that outcome's `fail`, and a break of the rule an outcome's line of the request states beyond
+its example as that outcome's `unsure`. What no outcome promises (a regression elsewhere, an odd log line, a layout
+blemish on a page the change only touched, a line of the issue the plan left uncovered, which the plan comment lists for
+the approver) is for the reviewer to weigh: maul shows it and the human decides.
 
 maul's own objects are not the application's. The slot capture that `maul-tool events` reads leaves out every event
 about the tool pod and its Job (a readiness probe blip on the tool pod's `:8090/readyz`, for example), so the evaluator
@@ -561,99 +201,91 @@ is kept.
 
 ## A finding holds its commits
 
-What a round finds about an outcome is a fact about the commits it checked. An outcome a round found failing on a saved
-check, a suspected defect, and an outcome the evaluator saw fail all **hold those commits**: no later round at the same
-heads can pass that outcome until the heads move (a fix, or a person's push) or an approver accepts it. A later round's
-evaluator that raises nothing does not clear it: at unchanged code a model that does not reproduce what an earlier one
-saw (often by reading the source) has not shown it is gone, and running the saved checks again cannot either, since they
-never covered it.
+What a round finds about an outcome is a fact about the commits it evaluated. An outcome seen not to hold **holds those
+commits**: no later round at the same heads can pass it (`held-finding`), whatever its evaluator reports, until one of
+these:
 
-- **A look-around anomaly holds nothing.** It is carried onto every later round at those heads as a note
-  (`status.verification.anomalies`, each with the `round` that found it), so the reviewers still see it, and the comment
-  names the round that found it; once the heads move it is gone.
-- **An outcome found failing, or suspected defective,** on a saved check, or one the evaluator saw fail (a `fail`
-  verdict or `contrary` entries, recorded as the outcome's `objected`) whatever reason the round shows for it
-  (`model-only-fail` and `evaluator-saw-failure`, but also `no-base-evidence`, `quarantined`, `checks-disagree` and the
-  rest), is unsure in every later round there that would pass it (`held-finding`: a check that failed and then passed at
-  the same commits shows nothing was fixed, and a model that no longer sees a failure has not shown it is gone). Two
-  more ways out are recorded evidence. A check retired through a dispute with a confirmed, reviewed replacement releases
-  the hold once the retirement is stored (the check was wrong); the dispute round itself still holds it. A fix round
-  handed the reproduction at these commits that concludes, with its reason, that the code has no defect releases what it
-  was handed (a reproduced failure, or a suspected defect an approver confirmed), so a round after `/maul verify` can
-  pass once what failed was the environment; it releases nothing it was not handed, and nothing once a later round at
-  these commits finds the failure again.
-- **An approver ends a hold** at the current commits: `/maul accept <id>` for a held outcome, `/maul accept all` for
-  every outcome maul could not confirm. The acceptance holds only at those commits. `/maul verify --reset` does not end
-  a hold: it changes the preview's data, not the commits.
+- the heads move (a fix, or a person's push);
+- an approver accepts it at those heads (`/maul accept <id>`, or `/maul accept all`);
+- the fix round handed that failure at those heads concludes, with its reason, that the code has no defect. It releases
+  what it was handed, so a round after `/maul verify` can pass once what failed was the environment; it releases nothing
+  once a later round there sees the failure again.
+
+A later round at those heads that reports the outcome unsure, or gives it no verdict, keeps the hold on record, and one
+that sees it not hold again makes a new finding. At unchanged code an evaluator that no longer sees a failure an earlier
+one saw has not shown it is gone. `/maul verify --reset` does not end a hold: it changes the preview's data, not the
+commits.
+
+**A look-around anomaly holds nothing.** It is carried onto every later round at those heads as a note
+(`status.verification.anomalies`, each with the `round` that found it), so the reviewers still see it, and the comment
+names the round that found it; once the heads move it is gone.
 
 ## The fix round's reproduction
 
-A verify-fix round gets a bug report maul writes from its own ledger, never the evaluator's instructions, notes or other
-checks:
+A verify-fix round gets a bug report maul writes from its own record of the round, never the evaluator's prompt, its
+report's body, another outcome's note, its anomalies or its transcript. For each outcome seen not to hold:
 
 - the approved outcome, quoted;
-- the failing check's steps, each with what it expects (an http, browser or exec check, in plain words);
-- what was observed on the failing run, as the check runner reported it, and for a browser text assertion what the
-  element showed (the application's text, bounded and quoted, its run token written back as `{{run}}`);
-- the component's log lines from the failing run's window, redacted, at most 40 lines, starting at the first panic,
+- the evaluator's one-line note on it, under "The evaluator's reading, not checked by maul";
+- the evaluator's own calls before the first cited one, in order, at most the last 8, each with what it sent (the path
+  that led there; their output is not shown);
+- the cited calls that count, each with what it sent, its exit status and what came back (up to 8 KiB of output each, 48
+  KiB per outcome), as maul's tools recorded them;
+- each component's log lines from the first cited call's window, redacted, at most 40, starting at the first panic,
   fatal, error, exception or traceback line. The window is between the evaluator's last `maul-tool logs` read before the
-  failing run and its first one after it, so there is an excerpt only when the evaluator read the logs after the check
-  failed. For a check saved red, maul's failing run comes after the evaluator exits, so its window is that of the red
-  dry run it confirmed.
+  call and its first one after it, so there is an excerpt only when the evaluator read the logs after the call.
 
-`{{run}}` stays a placeholder in it: the fix must make the outcome hold for any token. The next round replays the check
-(with a new token) and the evaluator reads the fix's diff for special cases. A diff of up to 32 KiB, with the names of
-any files it does not show in full, is quoted whole. A longer one is cut to at most 28 KiB, at a commit, file or hunk
-boundary where it can be, keeping 4 KiB for those names (with several repositories, each under its repository's), and
-the prompt says that the evaluator has not seen the whole fix: how many bytes it shows of how many maul read, which
-files it does not show in full, which repositories' diffs GitHub had already cut, and which could not be read at all (a
-compare that failed is said to be unavailable, never left out). It tells the evaluator that finding no special-casing in
-what is shown proves nothing, and to judge every outcome the fix may touch with data of its own.
+The fix agent is told the calls are the evaluator's reading, to reproduce them where it can, and to fix the behaviour
+the outcome states, never the calls or their data. The next round is a new evaluation, whose evaluator reads the fix's
+diff for special-casing of those calls. A diff of up to 32 KiB, with the names of any files it does not show in full, is
+quoted whole. A longer one is cut to at most 28 KiB, at a commit, file or hunk boundary where it can be, keeping 4 KiB
+for those names (with several repositories, each under its repository's), and the prompt says that the evaluator has not
+seen the whole fix: how many bytes it shows of how many maul read, which files it does not show in full, which
+repositories' diffs GitHub had already cut, and which could not be read at all (a compare that failed is said to be
+unavailable, never left out). It tells the evaluator that finding no special-casing in what is shown proves nothing, and
+to judge every outcome the fix may touch with data of its own.
 
 ## The hand-off
 
 The hand-off is when people get the preview link and hear that the change is ready.
 
-| Mode              | The link                                                                                                                                                                                                                                                                                                                                                                           |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gated` (default) | Held until the evaluation decides. The status comment says "The preview is live, and maul holds its link until it has checked the approved outcomes." It is then released as "Ready: maul checked the approved outcomes." once every outcome is confirmed (or accepted by an approver), whatever notes the evaluator made, or as "maul couldn't confirm this: ..." with the reason |
-| `early`           | Posted as soon as the preview runs the heads, labelled as still being checked: slice 1's behaviour                                                                                                                                                                                                                                                                                 |
+| Mode              | The link                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gated` (default) | Held until the evaluation decides. The status comment says "The preview is live, and maul holds its link until its evaluator has looked at the approved outcomes." It is then released as "Ready: maul's evaluator saw every approved outcome hold, citing calls maul recorded." once every outcome is seen to hold (or accepted by an approver), whatever notes the evaluator made, or as "maul can't call this ready: ..." with the reason |
+| `early`           | Posted as soon as the preview runs the heads, labelled as still being looked at                                                                                                                                                                                                                                                                                                                                                              |
 
 `gated` holds the link at most `handoffMax` (default 60 minutes, 10 minutes to 4 hours), counted from when CI first went
-green at the first pull request heads; past it the link is released as "maul couldn't confirm this: it ran out of time".
+green at the first pull request heads; past it the link is released as "maul can't call this ready: it ran out of time".
 **A human always wins:** an approver's changes-requested review or `/maul revise` or `/maul retry` on a pull request, a
-push maul did not make, or `/maul preview` releases the link at once ("Shown while maul is still checking the approved
-outcomes."), even before the first evaluation has started, and maul goes on checking. A plain comment, `/maul verify`
-and `/maul verify fix` do not release it. The pull requests open as usual, not as drafts, so GitHub still notifies their
-watchers; maul only holds its own words. A released link is labelled "Ready" only while the pull requests are at the
-heads maul judged: after a push it reads as still being checked until a round is about the new heads.
+push maul did not make, or `/maul preview` releases the link at once ("Shown while maul's evaluator is still looking at
+the approved outcomes."), even before the first evaluation has started, and maul goes on evaluating. A plain comment,
+`/maul verify` and `/maul verify fix` do not release it. The pull requests open as usual, not as drafts, so GitHub still
+notifies their watchers; maul only holds its own words. A released link is labelled "Ready" only while the pull requests
+are at the heads maul judged: after a push it reads as still being looked at until a round is about the new heads.
 
-"maul couldn't confirm this" names one reason:
+"maul can't call this ready" names one reason:
 
-| Reason                                                                         | Meaning                                                                                 |
-| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| some outcomes are unsure                                                       | no check proves them yet; read each outcome's line                                      |
-| the evaluator judged 2 outcomes not to hold, but no check maul re-ran shows it | maul proved no failure: the outcomes are unsure, never failed; read each outcome's line |
-| an outcome fails and maul stopped fixing it                                    | a reproduced failure, and automatic fixing halted (out of fixes, a repeat, a human)     |
-| it used every round it may run                                                 | `maxVerifications` is spent                                                             |
-| it spent its evaluation budget                                                 | the intent's evaluation ceiling is reached                                              |
-| it ran out of time                                                             | `handoffMax` passed                                                                     |
-| its sandbox was not enforced                                                   | the evaluator's strict probe found DNS, the API server, metadata or the internet open   |
-| it suspects a defect in `<id>`, which a person should confirm                  | a check saved red fails at these heads; maul waits for an approver's `/maul verify fix` |
-| the preview failed while it was checked                                        | a component crashed, was evicted or ran out of memory during the round                  |
-| its own checking environment failed while it checked                           | maul's tools or the cluster failed during the round, not the change                     |
-| it could not re-run every check it saved                                       | a replay round ended before every saved check ran                                       |
-| it could not run its checks                                                    | maul's own machinery failed every attempt                                               |
+| Reason                                                      | Meaning                                                                                    |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| some outcomes are unsure                                    | no verdict maul counts says they hold yet: read each outcome's line                        |
+| an outcome fails and maul stopped fixing it                 | an outcome seen not to hold, and automatic fixing halted (out of fixes, a repeat, a human) |
+| it used every round it may run                              | `maxVerifications` is spent                                                                |
+| it spent its evaluation budget                              | the intent's evaluation ceiling is reached                                                 |
+| it ran out of time                                          | `handoffMax` passed                                                                        |
+| its sandbox was not enforced                                | the evaluator's strict probe found DNS, the API server, metadata or the internet open      |
+| the preview failed during the evaluation                    | a component crashed, was evicted or ran out of memory during the round                     |
+| its own evaluation environment failed during the evaluation | maul's tools or the cluster failed during the round, not the change                        |
+| it could not run its checks                                 | maul's own machinery failed every attempt                                                  |
 
-A suspected defect leads, then the outcomes in doubt. A look-around anomaly is never a reason: it is a note in the
-comment. When every outcome was confirmed or accepted and only a failing environment kept the round unconfirmed, the
-commit status and the progress line name that cause instead of reading as all confirmed, for example "maul couldn't
-confirm this: 3/3 outcomes confirmed, but the preview failed while it was checked".
+A look-around anomaly is never a reason: it is a note in the comment. When every outcome was seen to hold or accepted
+and only a failing environment kept the round from ready, the commit status and the progress line name that cause
+instead of reading as all seen to hold, for example "maul can't call this ready: 3/3 outcomes seen to hold, but the
+preview failed during the evaluation".
 
-"Couldn't confirm" is never a block. The intent stays in review, and an approver decides: accept the outcomes maul could
-not confirm with `/maul accept <id>` (or `/maul accept all`), ask for another round with `/maul verify`, or merge.
-Another round at the same commits does not clear what an earlier one found there (see
-[A finding holds its commits](#a-finding-holds-its-commits)).
+"maul can't call this ready" is never a block. The intent stays in review, and an approver decides: accept the outcomes
+maul's evaluator did not see hold with `/maul accept <id>` (or `/maul accept all`), ask for another round with
+`/maul verify`, or merge. Another round at the same commits is a new evaluation, spends from the evaluation ceiling, and
+does not clear what an earlier one found there (see [A finding holds its commits](#a-finding-holds-its-commits)).
 
 Set the mode chart-wide with `intentController.verification.defaultHandoff`, or per Project:
 
@@ -668,9 +300,8 @@ spec:
     browser:
       entry: / # the path the browser opens first (the evaluator is told to start there); without it the evaluator has http and the sandbox only
   limits:
-    maxEvaluateCostMicroUSD: 6000000 # what the intent's evaluate and checkreview runs may spend together
+    maxEvaluateCostMicroUSD: 6000000 # what the intent's evaluate runs may spend together
     evaluate: { maxCostMicroUSD: 1500000, maxTurns: 40 } # each evaluate run (limits.evaluate, like limits.build); fewer turns with less money, see below
-    checkReview: { maxCostMicroUSD: 300000 } # each checkreview run (limits.checkReview)
 ```
 
 `surfaces.browser.entry` must be an absolute path on the preview host (at most 256 visible ASCII characters, no space,
@@ -681,106 +312,101 @@ The evaluation ceiling is counted apart from the intent's own `limits.maxCostMic
 what the fix rounds need; the chart's `maxEvaluateCostUSD` caps it for every Project. Under
 `egressBroker.limits.unit: cost` each run's own cost budget is stamped on its pod as for every other stage: its stage's
 `maxCostMicroUSD`, or the evaluation ceiling when that is unset, never more than the ceiling. Like every other stage,
-`limits.evaluate` and `limits.checkReview` lower a run's turns, tokens and `timeout` but never raise them past the
-controller's, and an evaluate or checkreview run budget over half the broker's hourly cost limit keeps the Project from
-Ready (`RunBudgetOverHourlyLimit`).
+`limits.evaluate` lowers a run's turns, tokens and `timeout` but never raises them past the controller's, and an
+evaluate run budget over half the broker's hourly cost limit keeps the Project from Ready (`RunBudgetOverHourlyLimit`).
 
 **Each request reserves its output bound.** Under the cost unit the broker admits a request only while what the pod
 spent plus the request's whole output bound, at the model's output price, fits the pod's budget, so a run can spend at
-most its budget less one such reservation. agent-runner therefore bounds what each request of these two stages may
-write: 32000 output tokens for evaluate (its largest response is a Write of its report or an exec check's program, each
-under 64 KiB) and 8192 for checkreview (a review is one short report). On claude-sonnet-5-5 (\$10 per million output
-tokens) that reserves \$0.32 and \$0.08 a request. A run budget under twice that keeps the Project from Ready
-(`RunBudgetUnderRequestReserve`, naming the stage and the least budget it needs): on sonnet at least \$0.64 for evaluate
-and \$0.16 for checkreview, on claude-opus-5-5 \$1.28 and \$0.33, on claude-haiku-5-5 \$0.16 and \$0.04. The example
-above (\$1.50 and \$0.30) fits sonnet; on opus raise the checkreview budget. Without the bound a request reserves the
-CLI's default (128000 tokens on the 5.5 models, \$1.28 on sonnet), and a \$1 checkreview run was once refused after four
-calls. A codex run gets no such bound and is not judged: a request that sets no `max_output_tokens` reserves the
-broker's `--max-tokens-ceiling`, if any.
+most its budget less one such reservation. agent-runner therefore bounds what each evaluate request may write: 32000
+output tokens (its largest response is a Write of its report or of a program, each under 64 KiB). On claude-sonnet-5-5
+(\$10 per million output tokens) that reserves \$0.32 a request. A run budget under twice that keeps the Project from
+Ready (`RunBudgetUnderRequestReserve`, naming the stage and the least budget it needs): on sonnet at least \$0.64, on
+claude-opus-5-5 \$1.28, on claude-haiku-5-5 \$0.16. The example above (\$1.50) fits each. Without the bound a request
+reserves the CLI's default (128000 tokens on the 5.5 models, \$1.28 on sonnet). A codex run gets no such bound and is
+not judged: a request that sets no `max_output_tokens` reserves the broker's `--max-tokens-ceiling`, if any.
 
-**Turns come first.** Every tool call is one agent turn, so an evaluate run's turn cap (`--intent-evaluate-max-turns`,
-chart `evaluateMaxTurns`, default 100; a Project's `limits.evaluate.maxTurns` only lowers it) is what it runs out of,
-long before the round's 300 tool calls. A run that reaches it still reports: agent-runner gives the run's first part all
-but its last few turns (a tenth, at least 6 and at most 12, never more than half: two repair rounds of at least 3 turns
-each, enough to read the report, write it again and reply), counted in the CLI's own turns, and when that part ends on
-the cap with no report it resumes the agent's own session on the kept turns, telling it to write the report now from
-what it has: the checks whose dry run passed proposed, every outcome it did not show unsure. The prompt states the run's
-turns and the turn by which to write the report, and asks for the report as soon as every outcome is shown or unsure.
-The wall clock is kept back the same way: the first part runs on all but the last fifth of the stage's
-`--intent-evaluate-timeout` (at least 4 and at most 10 minutes, never more than half; none for a stage under 8 minutes),
-so of the default 20 minutes it gets 16, which its prompt states, and when its clock stops it with no report its session
-is resumed on the kept minutes, told its time ran out. Every `maul-tool` call prints the time left of the run it is in
-(`[maul-tool time left]`, from `MAUL_TOOLS_DEADLINE`), and the prompt asks for the report by the time an eighth of the
-clock is left. A run stopped by its cost budget gets no such turn (the broker refuses the pod any further request), and
-one whose resumed session still writes no report ends `timeout`, saying why, so keep the turn cap the limit that binds
-first: live, an evaluate run spent \$1.26-2.51 over its first 60 turns, 4-7 seconds each, a turn costing more as the
-session grows, so 100 turns fit the default \$6 run budget and the 20 minutes. Raise the cost budget and the timeout
-before the turns, and lower the turns with a smaller `limits.evaluate.maxCostMicroUSD` (about 40 turns for \$1.50).
+**Cost bounds the run; turns keep it its report.** Every tool call is one agent turn, so an evaluate run's turn cap
+(`--intent-evaluate-max-turns`, chart `evaluateMaxTurns`, default 100; a Project's `limits.evaluate.maxTurns` only
+lowers it) comes long before the round's 300 tool calls. A run that reaches it still reports: agent-runner gives the
+run's first part all but its last few turns (a tenth, at least 6 and at most 12, never more than half: two repair rounds
+of at least 3 turns each, enough to read the report, write it again and reply), counted in the CLI's own turns, and when
+that part ends on the cap with no report it resumes the agent's own session on the kept turns, telling it to write the
+report now from what it has: each outcome the verdict its calls already show, every outcome it did not see unsure. The
+prompt states the run's turns and the turn by which to write the report, and asks for the report as soon as every
+outcome has a verdict. The wall clock is kept back the same way: the first part runs on all but the last fifth of the
+stage's `--intent-evaluate-timeout` (at least 4 and at most 10 minutes, never more than half; none for a stage under 8
+minutes), so of the default 20 minutes it gets 16, which its prompt states, and when its clock stops it with no report
+its session is resumed on the kept minutes, told its time ran out. Every `maul-tool` call prints the time left of the
+run it is in (`[maul-tool time left]`, from `MAUL_TOOLS_DEADLINE`), and the prompt asks for the report by the time an
+eighth of the clock is left. A run stopped by its cost budget gets no such turn (the broker refuses the pod any further
+request), and one whose resumed session still writes no report ends `timeout`, saying why. So set the cost budget to
+what a round may spend, and keep the turn cap just inside it, so the run stops on its turns, with its report, before its
+money runs out: live, an evaluate run spent \$1.26-2.51 over its first 60 turns, 4-7 seconds each, a turn costing more
+as the session grows, so 100 turns fit the default \$6 run budget and the 20 minutes. Lower the turns with a smaller
+`limits.evaluate.maxCostMicroUSD` (about 40 turns for \$1.50).
 
 ## Reading the evidence
 
-- **On GitHub.** The verification comment and each pull request's sticky comment list every outcome once, with its kind
-  (`change` or `keep`), its result (`confirmed`, `failed`, `unsure: maul couldn't confirm it`, `quarantined`,
-  `accepted by a human`), why maul could not confirm it and, for a decided one, **maul's check** in one line it renders
-  itself, such as `http to api: POST /api/players, POST /api/battles, GET /api/leaderboard; 3 expectations`. Application
-  output appears only in fenced blocks labelled as the application's output of the outcome they name, and the
-  evaluator's own words (an anomaly, a note) are marked as its words, not checked by maul. For an outcome the evaluator
-  judged not to hold but no check maul re-ran shows failing (`model-only-fail`, including a red check the reviewer
-  refused), the comments also show **the evaluator's claim**: its note, marked as its words and not confirmed by maul,
-  and up to 3 of the calls it cites (where it saw the outcome fail first), in one fenced, defanged block as maul's tools
-  recorded them: a check run's steps and what maul's own failing run of that check observed (else its dry run's), or an
-  exploratory `exec`, `run`, `http` or `browser` call's request, exit status and output, so a person can try it
-  themselves. A replay or confirmation run it cites is worded as maul's own run. A source read, a log read, a refused
-  call or any other call maul made itself is never shown. The claim is display only: it changes no result, and no agent
-  is handed it. For an outcome the evaluator was itself `unsure` of, the comments show **its note** the same way (often
-  a question for a person, such as whether a layout reading holds), marked as its words and not checked by maul, and
-  only while the outcome is unsure: never once a check confirmed it or an approver accepted it, and never for an outcome
-  it passed. It too is display only. A comment always fits GitHub's size limit: when the evidence would not, maul keeps
-  it most important first (its reproduction of a suspected defect, then each failing outcome's application output in
-  plan order, then the evaluator's unconfirmed claims, then its notes on outcomes it was unsure of, then the anomalies,
-  then the component log tails), each piece whole while it still fits (a large one left out does not stop a smaller one
-  after it), and the comment names what it left out. Every outcome's line and maul's own notes are always shown whole;
-  only a plan whose statements alone leave no room has them shortened, and the comment says so. Results are shown only
-  for the round that decided them, at the heads it checked: a round that settles without a judgement (its attempts all
-  failed, or maul's own build of the head did not finish) lists every outcome as `unsure`, with no earlier round's
-  results, and a push clears them until the new heads are judged: from the pass that sees the push, the status comment
-  and the sticky comments read "maul is checking the new commits" with no result, and the last round's verification
-  comment is left as it stood, about the heads it checked.
+- **On GitHub.** The verification comment and each pull request's sticky comment say once what maul counts: "maul counts
+  a verdict only when it cites calls the evaluator made in this evaluation through maul's tools; whether a cited call
+  shows what the verdict says is for the reviewers to judge." Then they list every outcome once, with its kind (`change`
+  or `keep`) and its result: "seen to hold by maul's evaluator", "seen not to hold by maul's evaluator", "unsure" with
+  why (the reasons above, in words), or "accepted by a human, not re-checked", and the calls it cites that count ("it
+  cites calls 4 and 6"). Under the outcome each cited call that counts is shown in one fenced, defanged block, as maul's
+  tools recorded it: "Call 9, an http request:", what it sent, the exit status of a browser command or a program, and up
+  to 1 KiB of its output, marked as the application's; a page script or program of the evaluator's own is headed "the
+  evaluator's own page script" or "the evaluator's own program", "and what it returned", and a call whose output maul
+  did not keep says "Its output was not kept by maul." A cited call that does not count (a `logs`, `events` or `files`
+  read, a call at the base, a refused one, one of maul's own) is not listed in the comment at all; the status page shows
+  every seq the evaluator cited to a reader with the transcripts tier. The evaluator's note on an outcome, of any
+  result, is shown as "The evaluator's note on `<id>` (its words, not checked by maul)", and a look-around anomaly as
+  "Look-around: maul's evaluator noticed (its words, not checked by maul)". A comment always fits GitHub's size limit:
+  when the evidence would not, maul keeps it most important first (the cited calls in plan order, then the evaluator's
+  notes, then the anomalies, then the component log tails), each piece whole while it still fits (a large one left out
+  does not stop a smaller one after it), and the comment names what it left out. Every outcome's line and maul's own
+  notes are always shown whole; only a plan whose statements alone leave no room has them shortened, and the comment
+  says so. Results are shown only for the round that decided them, at the heads it evaluated: a round that settles
+  without a judgement (its attempts all failed, or maul's own build of the head did not finish) lists every outcome as
+  `unsure`, with no earlier round's results, and a push clears them until the new heads are judged: from the pass that
+  sees the push, the status comment and the sticky comments read "maul is evaluating the new commits" with no result,
+  and the last round's verification comment is left as it stood, about the heads it evaluated.
 - **In the cluster.** Each round is a `PreviewVerification` in the release namespace
   (`kubectl get previewverifications -l maul.run/intent=<intent>`; maul keeps the newest three per intent). Its
-  `status.ledger` indexes every tool call; its `status.tools` names the round's tool pod. The full ledger is in the
-  ConfigMap `<verification>-ledger` (`ledger.jsonl`, each call's request and full output, with sha256s) and the cited
-  screenshots in `<verification>-evidence`, both deleted with the request. The intent's stored checks are in the
-  immutable ConfigMap `<intent>-checks-<n>` that `status.acceptance.checks` names, and the reviewer's answers are cached
-  in `status.acceptance.reviews`.
+  `status.ledger` indexes every tool call (its seq, kind, verb, exit, whether it was refused and, at an agents round's
+  base, `side: base`); its `status.tools` names the round's tool pod. The full ledger is in the ConfigMap
+  `<verification>-ledger` (`ledger.jsonl`, each call's request and full output, with sha256s) and the cited screenshots
+  in `<verification>-evidence`, both deleted with the request. Each outcome's result, reason and counted calls are on
+  the Intent, in `status.verification.outcomes`.
 - **On the status page.** With the [intents dashboard](dashboard.md#the-evaluation-evidence) on, an evaluate run's panel
-  shows the same round: outcomes with maul's decided result, the checks and their compiled specs, anomalies, the
-  hand-off and the ledger. A reader with the transcripts tier also sees each call's request and output, the evaluator's
-  own verdicts and notes, and the cited screenshots.
-- **Trust order.** Read maul's result first (`confirmed`, `failed`, `unsure`, `quarantined`), then **maul's check**
-  beside it, which maul rendered itself. The evaluator's verdict and note are claims: they can disagree with the result,
-  and an outcome is green only when maul's own checks support it. A ledger output is shown only where it hashes to the
-  index, so an output marked dropped was cut to fit or is missing; treat it as unknown rather than as empty.
-- **The runs.** The evaluator and the reviewer are ordinary IntentRuns of stages `evaluate` and `checkreview`, metered
-  like every run; their reports are on the run's status.
+  shows the same round: outcomes with maul's decided result and the calls it counted for each, anomalies, the hand-off
+  and the ledger. A reader with the transcripts tier also sees what each counted call sent and returned, which ones ran
+  the evaluator's own page script or program, each call's request and output, the evaluator's own verdicts and notes,
+  and the cited screenshots.
+- **Trust order.** Read maul's result first, then the calls it counted: what each sent and what came back, and whether
+  that shows the outcome as approved. That is the judgement maul leaves to you. The evaluator's note is its reading of
+  those calls, and a call labelled as its own page script or program shows what the evaluator's code returned, not what
+  a person sees. A ledger output is shown only where it hashes to the index, so an output marked not kept was cut to fit
+  or is missing; treat it as unknown rather than as empty.
+- **The runs.** The evaluator is an ordinary IntentRun of stage `evaluate`, metered like every run; its report is on the
+  run's status.
 
-Nothing of the evaluator reaches a build or fix agent beyond the reproduction above: not its prompt, its notes, the
-check store or its transcript.
+Nothing of the evaluator reaches a build or fix agent beyond the reproduction above: not its prompt, its report's body,
+its anomalies or its transcript.
 
 ## Without a preview: a CLI or a library
 
 A Project with no preview is evaluated too when it says what to build: a command-line program (`surfaces.cli`) or a Go
 library (`surfaces.library`). The evaluator is the same run, judged by the same rules; what changes is where its hands
-are and one rule more. intent-controller runs the round's tool pod itself, in the agents namespace, and that pod builds
-the pull request **twice**, in the repository's accepted runner image: at its head, and at its **base**, the merge base
-of the head and the repository's default branch (read from GitHub when the round starts, so a merge of the default
-branch into the pull request moves it). Every check runs at both, and a check of a `change` outcome counts only if it
-tells the change from its absence.
+are. intent-controller runs the round's tool pod itself, in the agents namespace, and that pod builds the pull request
+**twice**, in the repository's accepted runner image: at its head, and at its **base**, the merge base of the head and
+the repository's default branch (read from GitHub when the round starts, so a merge of the default branch into the pull
+request moves it). Every call runs at the head; the evaluator may make the same call at the base (`--base`) to see how
+the code behaved before the change, if that helps it judge, but a call at the base never counts.
 
 It is off by default: chart `intentController.verification.agents.enabled` (intent-controller
 `--intent-evaluator-agents`), beside the evaluator, with repository images on; previews need not be. Off, such a Project
 carries `VerificationOff` (reason `AgentsToolPodNotEnabled`) and its plans are not asked for outcomes; switched off
-under open intents, their views stay link-less and say "maul couldn't confirm this", never offering a preview. The
+under open intents, their views stay link-less and say "maul can't call this ready", never offering a preview. The
 operator's side (the pod, its privileges, capacity and rollback) is in
 [the agents tool pod](../configuration/intent-controller.md#the-agents-tool-pod).
 
@@ -810,8 +436,8 @@ spec:
   directory. A library's build is `go build ./...`. `maul check project` checks the surface, the build and the profile
   before anything runs (checks `surface`, `surface-build`, `surface-profile`).
 - **The image.** Both sandboxes run the image the repository's latest build ran in (its accepted pin), never one the
-  pull request declares. A repository with no accepted image is never evaluated: the round settles "maul couldn't
-  confirm this: the repository has no accepted runner image to build the pull request in", never a block, and while
+  pull request declares. A repository with no accepted image is never evaluated: the round settles "maul can't call this
+  ready: the repository has no accepted runner image to build the pull request in", never a block, and while
   `--repository-images` is off the Project shows `RepositoryImageRequired` from the start. An approver's `/maul verify`
   at commits an earlier round already judged changes nothing when the round cannot run (no accepted image, a tree that
   cannot be fetched, the evaluation budget spent): that round's result stands, on every surface, and the reply says the
@@ -830,141 +456,95 @@ The tool pod has no preview, so `http`, `browser`, `logs` and `events` are refus
 per-evaluation key, which agent-runner stages where the model's own file tools cannot read it; a call without it is
 refused and recorded.
 
-| Command                                         | Does                                                                                                                                                                                                                                              |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `maul-tool exec [--base] [--file f]... -- argv` | Runs a program in the head's sandbox (or the base's), in a fresh scratch directory of its own; `{{bin}}` (the built binary) and `{{tree}}` (the tree's writable copy, `/work/tree`) are substituted                                               |
-| `maul-tool files ls`, `grep`, `read` `[--base]` | Looks at the tree as fetched, never as a build rewrote it: a listing, a literal-substring search (at most 200 hits) or the first 64 KiB of one file. Nothing reaches outside the tree                                                             |
-| `maul-tool run <dir> [--base] [-- args]`        | Compiles the Go program in `<dir>` (at most 8 `.go` files at its top, no subdirectories) against the side's tree, then runs it: how a library is used, or a checker that reads what the binary wrote                                              |
-| `maul-tool check run [--base] <file>`           | A dry run of a check the evaluator wrote, as on a preview. A cli check runs the binary (an `exec` whose `argv[0]` is `{{bin}}`, or a `run` whose program names it), a library check is a `run`, and each asserts on its standard output's content |
+| Command                                         | Does                                                                                                                                                                                                           |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `maul-tool exec [--base] [--file f]... -- argv` | Runs a program in the head's sandbox (or the base's), in a fresh scratch directory of its own; `{{bin}}` (the built binary) and `{{tree}}` (the tree's writable copy, `/work/tree`) are substituted            |
+| `maul-tool files ls`, `grep`, `read` `[--base]` | Looks at the tree as fetched, never as a build rewrote it: a listing, a literal-substring search (at most 200 hits) or the first 64 KiB of one file. Nothing reaches outside the tree. Never counts on its own |
+| `maul-tool run <dir> [--base] [-- args]`        | Compiles the Go program in `<dir>` (at most 8 `.go` files at its top, no subdirectories) against the side's tree, then runs it: how a library is used, or a checker that reads what the binary wrote           |
+
+At the head an `exec` or a `run` whose program ran counts whatever its exit status. An `exec` of the built binary alone
+(its first argument `{{bin}}` or the binary's path, no files passed) is not labelled as the evaluator's own while
+nothing of the evaluator's has run at that side; any other `exec`, and every `run`, is shown as the evaluator's own
+program. `/work` is writable, so once an earlier `exec` labelled as its own, or a `run`, ran at a side (or an `exec`
+whose line maul did not keep), every later `exec` of the built binary there is labelled the evaluator's own too: what it
+ran may be what that call left (see [Known limits](#known-limits)). A refused `exec` or `run` counts here as one that
+ran, since a refusal can come after the call was sent (the sandbox did not answer, or refused it part way). The
+exceptions are a call without the per-evaluation key and one past `maxToolCalls`: the relay refuses those before sending
+them anywhere (`ranNothing` in the ledger index), so they change no label.
 
 A `run` program is compiled offline against the tree's own module graph: maul writes a minimal `go.mod` (module
 `maulcheck`, the tree's `go` line) beside the program and makes a `go work` workspace of it and the tree, then builds
 with no module proxy, the module files read-only and no user `go env` file, so the compile never reaches the network and
 never changes the tree's `go.mod` or `go.sum`. A tree with a `vendor` directory, a `replace` by an absolute path or a
-directory outside the tree, or no `go.mod` maul can read refuses every `run` by name. Each exploratory call gets a fresh
-scratch directory, but `HOME` and the writable tree are shared by every call at that side while the evaluator explores.
-maul's own runs of a check (a dry run, a replay, a confirmation, at either side) get a fresh scratch directory and run
-token each, and start from the tree, the build output and `HOME` exactly as that side's build left them: after the build
-the sandbox keeps a copy of the three (at most 768 MiB) and their digests, and before each check run it puts them back
-unless they still match. The caches (Go's build cache, npm's) are too large to copy: the sandbox records each entry the
-build left (its type, mode, size, inode and change time, which no program can set) and before each check run removes
-every entry that is not exactly one of those, so a check sees only the build's own entries, and one deleted stays
-deleted, a cache miss, never another answer. Each check run also gets an empty `TMPDIR` of its own. What exploration or
-an earlier check changed there never reaches a check. So a check that shows a defect need not write data of its own run
-(`{{run}}`), as one on a preview must: a fixed input file or argument is its own. It is held to the same rules otherwise
-(red by its assertion in each of maul's own runs, reviewed yes on the red question), and like every check that writes no
-data of its own run, its failure is a suspected defect a person confirms with `/maul verify fix`, never an automatic
-fix. When a copy itself no longer matches its digest (or the build's output could not be kept) the check run does not
-run: it is an error, which can never pass. Only what a program writes to `/tmp` by its absolute path, and a network
-profile's module and package caches under `/tmp`, are shared between check runs.
+directory outside the tree, or no `go.mod` maul can read refuses every `run` by name. Each call gets a fresh scratch
+directory, but `HOME` and the writable tree are shared by every call at that side while the evaluator explores. Nothing
+is copied or put back between calls: the tree, the build output, `HOME`, the caches and the tmp root are that side's,
+and each call sees what the build and the calls before it left there, so the evaluator reads a call's output knowing
+what it ran before.
 
 ### Head and base
 
 The pod builds both trees first, in parallel, each in its own sandbox, under its own user, with its own tree, caches and
-socket: code at the head cannot touch the base's files, and nothing a program leaves behind survives into the next run
+socket: code at the head cannot touch the base's files, and nothing a program leaves behind survives into the next call
 (the sandbox kills every process of its user before it answers). maul reaches each side only through a socket that
 side's user serves: code that swaps its socket for a link to the other side's, or for a socket of another user, gets
-maul's calls refused, never answered by the other side, so the outcomes it touches are unsure, never judged. Then:
+maul's calls refused, never answered by the other side. Then:
 
 - **A head that does not build** runs nothing more: the pod finishes there, before it is ready, so no evaluator is
   launched and none is paid for. CI built that head green, so it is maul's trouble, never the change's: every outcome is
   unsure ("its own build of the pull request did not finish"), and no fix round starts.
-- **A base that does not build** is the base's fact (its build ran to its own end and refused the tree: a normal exit of
-  1 to 125 (a shell reports a killed child as 128 or more), nothing left running, its output whole, and no sign of an
-  environmental failure such as a killed compiler, memory, disk or a module fetch): every check's base run is recorded
-  as having no base, and a pass rests on the other rules, marked **no base comparison**. A base build that timed out,
-  was killed, failed for an environmental reason or that maul could not run is not that: it gives no base evidence
-  (below).
-- **Every check runs at both**, the head then the base, each alone under its own fresh run token: the replay of every
-  saved check, and the confirmation of every proposed one. A check has no side: the same text runs at both. At most 80
-  base runs are recorded per round.
-
-How a check's base runs count, for an outcome a check passed at the head by every other rule:
-
-| At the base, the check...                                                                                                             | `change` outcome                     | `keep` outcome |
-| ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------- |
-| failed by assertion (its stdout lacked what it asserts, or the program printed its marker)                                            | **tells the change apart**: may pass | no pass        |
-| passed                                                                                                                                | no pass: it does not tell them apart | may pass       |
-| could not run there for a reason of the base tree itself: the program did not compile, or the base did not build                      | **no base comparison**: may pass     | may pass       |
-| failed with no assertion (a wrong exit, a crash), timed out, left processes behind, cut its output, or hit a bind or connection error | no pass                              | may pass       |
-| has no run at the base (the round's base runs were spent)                                                                             | no pass                              | no pass        |
-| passed on one attempt and failed on another, or is quarantined                                                                        | no pass                              | no pass        |
-
-A "no pass" here is unsure with the reason `no-base-evidence`, never a fail. **"Did not compile" is narrow on purpose.**
-A compile counts as the base tree's only when the Go compiler ran to its end and refused the program's own files: a
-clean exit 1, output that is not cut, the `# maulcheck` header first, and then only diagnostics located in the program's
-own `.go` files (and their continuation lines), with no sign of anything else (a killed compiler, memory, disk, the
-module cache, the network, the toolchain). Anything else gives no base evidence, so a pass is never resting on an
-environmental failure. The cost: a check whose program imports a package the change adds fails to load at the base
-(`cannot find module providing package`), which is not a compile refusal, so it leaves its outcome unsure. Prefer a
-check that uses the new symbol from a package that already exists at the base, or an `exec` of the binary.
-
-**"The base did not build" is as narrow.** The base counts as unbuildable only when its build ran to its own end and
-refused the tree: a plain exit of 1 to 125, nothing left running, output that is not cut, and no sign of the environment
-in it (the same signs as above, plus a bind or connection error: the head and the base build at once on one loopback, so
-a port the other build held is not the tree's fault). A build that timed out, was killed, left processes behind, cut its
-output, named a bind or connection error, a connection that timed out or a name that did not resolve, or that maul could
-not run is no base evidence: its outcomes are unsure, never confirmed on the head alone.
-
-A check run that errs at the base carries its cause (`compile`, `vendored-tree`, `replace-outside-tree`, `no-module`,
-`base-unbuildable`) on the request's `status.base.runs`, the cause the check reviewer sees too. Only those causes mean
-no base comparison; an error without one means no base evidence.
-
-A confirmed `change` outcome's check line says which it rested on: `...; discriminates: fails at base by assertion`, or
-`...; no base comparison: does not compile at base` (or `the base did not build`, `the base tree is vendored`, and so
-on).
+- **A base that does not build** (or whose build did not end in a failure maul can tell is the tree's) changes nothing
+  but the base: every `exec --base` and `run --base` is then refused, and recorded; `files --base` still reads the
+  base's source as fetched.
+- **The base never decides a result.** Every call at the base is recorded with `side: base` in the round's ledger index,
+  as context a reviewer can read beside the head's calls in the round's ledger.
 
 ### What changes for people
 
-- **No link.** The hand-off holds maul's word, not a link: the status comment says maul is checking the approved
+- **No link.** The hand-off holds maul's word, not a link: the status comment says maul is evaluating the approved
   outcomes "in its own build of the pull request" and holds its hand-off to the reviewers until it has. A review asking
   for changes, `/maul revise` or a push maul did not make hands it over at once; `/maul preview` does nothing, and says
   so.
 - **Accepting an outcome.** `/maul accept <id>` binds only when maul had started a round at exactly those heads before
-  the comment; otherwise maul replies that it was not checking those commits when the approver commented.
-- **Couldn't confirm** has three more reasons: "its own build of the pull request did not finish" (the head did not
-  build in the tool pod), "the repository has no accepted runner image to build the pull request in", and "it could not
-  fetch the source of the pull request or of its base" (a tree did not become ready within 15 minutes, or GitHub has no
-  such commit or does not let maul see it). The intent's `status.verification.unavailableReason` records the last as
-  `TreeUnavailable` (the round is retried while the heads stay), the first two as `ToolsBuildFailed` and
+  the comment; otherwise maul replies that it was not evaluating those commits when the approver commented.
+- **"maul can't call this ready"** has three more reasons: "its own build of the pull request did not finish" (the head
+  did not build in the tool pod), "the repository has no accepted runner image to build the pull request in", and "it
+  could not fetch the source of the pull request or of its base" (a tree did not become ready within 15 minutes, or
+  GitHub has no such commit or does not let maul see it). The intent's `status.verification.unavailableReason` records
+  the last as `TreeUnavailable` (the round is retried while the heads stay), the first two as `ToolsBuildFailed` and
   `SandboxImageUnavailable` beside the state `Unconfirmed`. A round whose every attempt ended with its tool pod's
-  sandbox open, its tool pod lost (evicted, past its deadline, or unable to keep its build) or its replay cut short is
-  `Unavailable` and records `SandboxUnenforced`, `ToolsLost` or `ReplayIncomplete`, which the hand-off and the
-  `maul/acceptance` status name. A failing environment there reads "its own checking tools failed while it checked",
-  never a preview.
-- **A suspected defect's note** names the held hand-off, not a preview link, and only while it is held; its known limits
-  are those of the exec and run checks a workspace runs.
+  sandbox open or its tool pod lost (evicted, or past its deadline) is `Unavailable` and records `SandboxUnenforced` or
+  `ToolsLost`, which the hand-off and the `maul/acceptance` status name. A failing environment there reads "its own
+  tools failed during the evaluation", never a preview.
 - **In the cluster.** The round is a `PreviewVerification` with `spec.placement: agents` and its `spec.workspace` (the
   repository, the head and base commits and their Repositories, the image, the network profile, the surface). Its status
-  carries the builds (`status.ledger.builds`), the base side (`status.base`: whether a base was required, whether it was
-  unbuildable, each base run with `tree: base`), and the full ledger in `<verification>-ledger`; there are no
-  screenshots. The two trees are Intent-owned Repositories pinned to exact commits (`spec.ref.commit`). The status page
-  shows the tree of each run, the builds and the base runs.
+  carries the builds (`status.ledger.builds`) and the ledger index, each base call marked `side: base`, and the full
+  ledger is in `<verification>-ledger`; there are no screenshots. The two trees are Intent-owned Repositories pinned to
+  exact commits (`spec.ref.commit`). The status page shows each call's side and the builds.
 
 ## codex: built, not verified
 
-The evaluator is verified live on claude. A codex Project's intents are evaluated on codex only with
-`--intent-evaluate-codex` (chart `intentController.verification.codexEvaluator: true`, needing the codex runner). Off,
-the default, such a Project is not evaluated at all: its hand-off is `early`, and it carries the advisory condition
-`EvaluatorUnverified` (reason `CodexEvaluatorOff`). On, the codex path runs as built and tested end to end against a
-scripted codex, but no live run has proved it yet, screenshot viewing included: treat it as unverified until one has.
+The evaluator has run live on claude, though the judging rule on this page has not yet been run against a live install.
+A codex Project's intents are evaluated on codex only with `--intent-evaluate-codex` (chart
+`intentController.verification.codexEvaluator: true`, needing the codex runner). Off, the default, such a Project is not
+evaluated at all: its hand-off is `early`, and it carries the advisory condition `EvaluatorUnverified` (reason
+`CodexEvaluatorOff`). On, the codex path runs as built and tested end to end against a scripted codex, but no live run
+has proved it yet, screenshot viewing included: treat it as unverified until one has.
 
 ## Limits
 
-| Bound                       | Default                                                                   | Where                                                                                                                            |
-| --------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| One evaluate run            | 100 turns (the last few kept for its report), 20 minutes                  | `--intent-evaluate-max-turns`, chart `evaluateMaxTurns`; `--intent-evaluate-timeout`, chart `evaluateTimeout`; `limits.evaluate` |
-| One checkreview run         | 6 turns per check (3 kept for a repair), 15 minutes                       | `--intent-checkreview-max-turns`, chart `checkReviewMaxTurns`; `limits.checkReview`                                              |
-| Tool calls per round        | 300 (50 to 300)                                                           | `verification.maxToolCalls`, chart `maxToolCalls`                                                                                |
-| Look-around                 | 8 routes per round                                                        | fixed                                                                                                                            |
-| Evaluation spend per intent | \$6 (replay rounds spend nothing)                                         | `limits.maxEvaluateCostMicroUSD`, chart `maxEvaluateCostUSD`                                                                     |
-| Rounds and fixes            | as slice 1: `maxVerifications` (replay rounds included), `maxVerifyFixes` | the Project's `limits`                                                                                                           |
-| Hand-off wait               | 60 minutes                                                                | `verification.handoffMax`, chart `handoffMax`                                                                                    |
-| Saved checks                | 40 per intent, 8 KiB each, 30 steps                                       | fixed                                                                                                                            |
-| Captured logs               | a bounded tail per component per round; 40 lines in a reproduction        | fixed                                                                                                                            |
-| Agents tool pods at once    | 2; at the bound a round waits, never a verdict                            | `--intent-max-tool-pods`, chart `verification.agents.maxToolPods`                                                                |
-| One tree's build (agents)   | 10 minutes, 1 to 20                                                       | `surfaces.cli.buildTimeout`, capped by chart `verification.agents.buildTimeoutMax`                                               |
-| Base runs (agents)          | 80 per round                                                              | fixed                                                                                                                            |
+| Bound                       | Default                                                            | Where                                                                                                                            |
+| --------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| One evaluate run            | 100 turns (the last few kept for its report), 20 minutes           | `--intent-evaluate-max-turns`, chart `evaluateMaxTurns`; `--intent-evaluate-timeout`, chart `evaluateTimeout`; `limits.evaluate` |
+| Tool calls per round        | 300 (50 to 300)                                                    | `verification.maxToolCalls`, chart `maxToolCalls`                                                                                |
+| Cited calls kept            | 8 per outcome, the lowest seqs that count                          | fixed                                                                                                                            |
+| Look-around                 | 8 routes per round                                                 | fixed                                                                                                                            |
+| Evaluation spend per intent | \$6                                                                | `limits.maxEvaluateCostMicroUSD`, chart `maxEvaluateCostUSD`                                                                     |
+| Rounds and fixes            | as slice 1: `maxVerifications`, `maxVerifyFixes`                   | the Project's `limits`                                                                                                           |
+| Hand-off wait               | 60 minutes                                                         | `verification.handoffMax`, chart `handoffMax`                                                                                    |
+| Captured logs               | a bounded tail per component per round; 40 lines in a reproduction | fixed                                                                                                                            |
+| Agents tool pods at once    | 2; at the bound a round waits, never a verdict                     | `--intent-max-tool-pods`, chart `verification.agents.maxToolPods`                                                                |
+| One tree's build (agents)   | 10 minutes, 1 to 20                                                | `surfaces.cli.buildTimeout`, capped by chart `verification.agents.buildTimeoutMax`                                               |
 
 A tool pod lives as long as its evaluate run plus five minutes, under the slot's verification deadline
 (`preview.verification.deadlineMaxSeconds`), and needs about 2.5 CPU and 2 GiB beside the Preview: see
@@ -974,33 +554,50 @@ as long as its evaluate run, plus one tree's build, plus five minutes, at most 7
 
 ## Known limits
 
-- **No replan once the pull requests are open.** An approved plan cannot be replanned while its intent is in review:
-  `/maul replan` and a re-applied trigger label are answered as not available there, and no notice offers them. To start
-  over with a new plan, an approver comments `/maul cancel` on the intent's issue (the pull requests are left as they
-  are) and opens a new issue. Replanning from review is an owner decision, deferred to a later release; until then the
-  options in review are `/maul revise`, a verify fix and `/maul cancel`.
-- **A model judging a screenshot is never support.** The evaluate model of the time (`claude-sonnet-5`) was calibrated
-  on screenshots of known defects and failed: it called 5 of 15 defect runs a pass, with confident evidence it invented,
-  and failed 3 of 18 correct builds. It was right on gross structure (steps 14.8 px against 32 px, rows visibly offset
-  after a swipe) and a coin flip below about 3 px (30 against 32 px, a label overlapping by 1.3 px). So a screenshot
-  judged by the model alone never turns an outcome green: the answer is `unsure`. Pixel facts belong to the
-  deterministic browser assertions (`size`, `aligned`, `above`), which measure exactly. Citing evidence does not fix
-  this, because the citations themselves were invented. The rule would be reopened only with a gate per question class
-  and a fresh run of the calibration set per model; a higher screenshot scale factor is untried.
+- **maul does not judge relevance.** It holds a citation to the round's own verified ledger, never to what the verdict
+  claims. This is the cost of letting the evaluator's observations count, and the reason every counted call is shown and
+  a human merges. It leaves two things for the person reviewing to look at on every outcome:
+  - **A cited call can be about something else.** A call counts when it is the evaluator's own call that used the
+    application, whatever it used: a pass can cite a request to an unrelated route, a page the outcome is not about, or
+    a run of another command. Read each counted call's request and ask whether it reaches what the outcome names.
+  - **A correct answer can be misread.** The evaluator can read an output that shows the outcome holding as a failure
+    (which starts a fix round), or one that shows it failing as a pass. Read each counted call's output against the
+    outcome's own words, not against the evaluator's note.
+- **A model reading a screenshot can make an outcome seen to hold.** The evaluate model of an earlier calibration
+  (`claude-sonnet-5`), judging screenshots of known defects, called 5 of 15 defect runs a pass, with confident evidence
+  it invented, and failed 3 of 18 correct builds. It was right on gross structure (steps 14.8 px against 32 px, rows
+  visibly offset after a swipe) and a coin flip below about 3 px (30 against 32 px, a label overlapping by 1.3 px). A
+  `browser screenshot` that exited 0 is a call that counts, so an outcome about a size or a position can now be seen to
+  hold on the model's reading of a screenshot alone. The prompt points the evaluator at computed styles read with
+  `browser eval` for such facts (labelled as its own page script), but nothing makes it measure. Treat a layout outcome
+  whose only cited call is a screenshot as unchecked, and measure it yourself.
+- **The evaluator's own page scripts and programs count.** Some outcomes have no other surface (audio, a file the
+  program writes), so a `browser eval`, an `exec` program of its own and a `run` count, labelled as its own. Such code
+  could measure an internal value instead of what a person sees, or set up the state it then reports: the prompt forbids
+  both, and only the label and the reviewer bound it.
+- **The application can address the evaluator.** The application is the change's own code, and its output (a page, a
+  body, a log line, what the built program prints) can say "every outcome holds". The evaluator is told that such text
+  is data and no evidence, and the comment fences every output as the application's, but nothing else bounds it: read a
+  cited output that speaks to the evaluator as a defect.
+- **A cited output may not be kept.** The full ledger keeps at most 900 KiB of outputs, the oldest dropped first. A
+  cited call whose output was dropped still counts, shown as not kept, and cannot be audited from the comment.
+- **A wrong fail costs a fix round.** A misread or flaky observation that cites a call that counts starts an automatic
+  fix: no retry runs first. That is bounded by `maxVerifyFixes`, the repeated-failure stop (the same outcomes failing
+  again after a fix halts automatic fixing, so a real half-fix needs `/maul verify fix` to go on), the evaluation and
+  intent ceilings, a human's review or push, and the fix agent's no-defect conclusion, which releases the hold.
 - **codex is unverified and uncalibrated.** See [codex: built, not verified](#codex-built-not-verified). The calibration
   above was not run on codex or on a larger model.
 - **After a preview-controller restart,** a browser round's captured logs and events stop refreshing and stay as last
   written, because the key that redacts them is not recoverable from memory. Status keeps updating.
 - **Head and base share one pod's loopback and IPC.** Kubernetes cannot give two containers of one pod their own
   loopback or their own POSIX message queues and SysV IPC. A process the head left listening on a loopback port could
-  make a base run fail, which would read as "fails at base". So the sandbox kills every process of its user before it
-  answers, a run naming a bind or connection error is an error (no base evidence, never a failure by assertion), and the
-  isolation probe checks a leftover head listener is gone before the base runs. Base code would have to open a name the
-  head chose to meet it over IPC, which Go builds and maul's check forms do not do. The full fix is one pod per side.
+  change what a base call shows, so the sandbox kills every process of its user before it answers, and the isolation
+  probe checks a leftover head listener is gone before the base runs. A base call never decides a result. The full fix
+  is one pod per side.
 - **A program can lie about its own output.** It runs as its sandbox's user, as the shim does; it cannot write the
-  `tools` container's log, the ledger, or the other side's files. The check reviewer reads every program in full.
-- **A compile refusal that leaves no trace.** A base compile the compiler ended for an environmental reason that left
-  nothing of it in the output would still read as a compile refusal (no base comparison). None is known.
+  `tools` container's log, the ledger, or the other side's files, but what it prints is its own. The built binary is the
+  change's code, and an earlier `exec` can rewrite the tree, `HOME` or the build output that later calls at that side
+  read: after one, a later run of the built binary at that side is labelled as the evaluator's own program.
 - **The evaluation ceiling counts toward the hourly limit.** With the evaluator on, the default \$6 ceiling counts
   toward `RunBudgetOverHourlyLimit`: a broker `costPerHour` below \$12 keeps such a Project from Ready.
 
@@ -1062,3 +659,95 @@ refuses to start: `/maul cancel` such intents first, before the change.
 (`kubectl -n <namespace> get previewverifications -o json | jq -r '.items[] | select(.spec.criteria) | .metadata.name'`),
 and cancel (or delete) each open intent whose approved plan states criteria. The chart's guard and the census name
 anything left.
+
+## Migrating from saved checks
+
+Earlier releases trusted an outcome only through a check: the evaluator wrote checks and maul re-ran them, a second
+model (the check reviewer) said whether each proved its outcome, maul stored and replayed the proven ones without a
+model (the replay rounds and their cost ladder), a failing check could be disputed, a check that showed a defect was a
+suspected defect for a person to confirm, a check that passed only on its retry was quarantined, and on a Project with
+no preview a check counted only if it also told the head from the base. All of that is gone. The evaluator writes no
+check: each verdict counts when it cites calls of the round's own verified ledger
+([What makes a pass](#what-makes-a-pass)), and the base is for exploration only.
+
+**What changed for the operator.**
+
+- intent-controller's `--intent-checkreview-model` and `--intent-checkreview-max-turns`
+  (`MAUL_INTENT_CHECKREVIEW_MODEL`, `MAUL_INTENT_CHECKREVIEW_MAX_TURNS`) are accepted and ignored for one release, and
+  each one set logs a warning naming this section. Drop them; the next release removes them.
+  `--intent-checkreview-model` no longer admits its model: a Project that chose it for another stage, and not through
+  `--intent-model-allowlist`, is not Ready (`ModelNotAllowed`) until the allowlist names it or the Project drops it.
+- The chart no longer renders them: `intentController.verification.checkReviewModel` and `checkReviewMaxTurns` are
+  removed, and either one set, whatever its value, fails the render naming it. Drop them from your values. An upgrade
+  with `helm upgrade --reuse-values` carries the previous chart's defaults, both keys among them, so it fails too:
+  upgrade with your values files, or with `--reset-then-reuse-values`.
+- A Project's `spec.models.checkReview` and `spec.limits.checkReview` are kept in the schema for one release and read by
+  nothing: whatever they hold, they never keep the Project from Ready. Drop them.
+- `/maul verify explore`, which asked for a round with the model where saved checks alone could have settled it, is now
+  a plain `/maul verify`: every round is a full evaluation.
+- The schema keeps every field the saved checks wrote for one release, marked retired and never read, so a rollback
+  finds them as it left them: an Intent's `status.acceptance.checks`, `reviews`, `redCleared` and `narrowed`, and a
+  `PreviewVerification`'s `spec.checks` and `spec.rung` (always written as `full`). Beside them this release adds
+  fields, and drops only the check reviewer's entries of a Project's `status.admits` (`defaultModels.checkReview`,
+  `stages.checkReview`, `runBudgetFloors[].checkReviewMicroUSD`), which intent-controller alone writes: a round's
+  verdicts are judged under the marker `status.verification.judge: observed/1`, each outcome's counted calls are in
+  `status.verification.outcomes[].cites`, and an agents ledger entry at the base carries `side: base`.
+- The tool images and agent-runner come from the same chart release as the controllers. Mixed during a roll, they fail
+  safe: an older tools image's ledger does not hold (`Infra`, retried), and an older evaluator's report carrying the
+  retired keys (`disputes`, `proposed`, `retire`, `contrary`) is refused and claims nothing. Neither ever passes an
+  outcome.
+
+**At the upgrade.** On its first pass over each open intent of a Project the evaluator verifies whose verification an
+earlier release wrote (no `status.verification.judge`), intent-controller withdraws the old result once and starts one
+fresh evaluation:
+
+- a round in flight is dropped (its unsettled `PreviewVerification` deleted, its evaluate run cancelled), and a
+  checkreview run an earlier release left is stopped, its Job deleted; what it spent still counts toward the evaluation
+  ceiling;
+- the old results, rung, escalation, disputes, suspected and quarantined outcomes and anomalies are cleared; the round
+  number, a waiting `/maul verify`, a released hand-off, the automatic-fix state (an approver's `/maul verify stop`
+  included), the counters of rounds, fixes and evaluation spend, and `status.acceptance` (accepted outcomes and the
+  retired check records) are kept;
+- the Intent carries the condition `VerificationSuperseded` (reason `VerificationRulesChanged`), its status comment adds
+  "An earlier result was withdrawn because maul's rules for judging the approved outcomes changed; it is not shown.",
+  and `maul/acceptance` reads pending, until the fresh round is judged;
+- the fresh round counts toward neither `maxVerifications` nor the spacing between automatic rounds, but is held to the
+  evaluation ceiling: an intent whose ceiling is spent settles "maul can't call this ready: it spent its evaluation
+  budget", and an approver can raise the limit and comment `/maul verify`;
+- an old result is not withdrawn while its Project cannot run an evaluation (no outcome maul evaluates, or a codex
+  Project without `--intent-evaluate-codex`): it stays as it is until the Project can.
+
+An intent that had already ended (merged, closed, cancelled) is never superseded: its result stands as the earlier rules
+reached it, and its comments keep that release's words for it ("Ready: maul checked the approved outcomes.", "maul
+couldn't confirm this: …"), which are true of it, so the upgrade edits none of them for wording alone.
+
+The gauge `maul.intent.verification_superseded` counts the intents superseded since intent-controller started. The
+upgrade spends one evaluation per open verifying intent, unasked, each as soon as its intent's gate opens, within its
+evaluation ceiling. Do not pause agents (`agent.paused`) to hold it back: the pause holds the evaluate run's Job, not
+the round, so the round's tool pod runs with no evaluator, its attempts end as maul's own failure, and the intent is
+left "maul can't call this ready" until an approver comments `/maul verify`. This runbook has not yet been run against a
+live install.
+
+**The leftover check stores.** Each intent's saved checks are in immutable ConfigMaps `<intent>-checks-<n>` it owns.
+Nothing reads them now, and intent-controller cannot delete them: they go with their Intent. Leave them until the next
+release while a rollback is possible (a rolled-back controller numbers its next store from them). To remove them sooner,
+match the name against each ConfigMap's own intent label, since other ConfigMaps of an intent carry that label too:
+
+```sh
+kubectl -n <namespace> get configmaps -l maul.run/intent \
+  -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.labels.maul\.run/intent}{"\n"}{end}' \
+  | awk '$1 ~ ("^" $2 "-checks-[0-9]+$") {print "configmap/" $1}' \
+  | xargs -r kubectl -n <namespace> delete
+```
+
+**Rolling back.** `helm rollback` to the previous release re-applies its CRDs, so the fields this release added
+(`judge`, `cites`, `side`, `noAnswer`, `ranNothing`) are pruned, and every object this release wrote still meets the
+previous schema; the previous controller publishes the check reviewer's `status.admits` entries again. A round under way
+at the rollback whose ledger records a `run` whose program did not compile (`notRun`) does not verify under the previous
+release, which settles that round as maul's own trouble (`ledger-mismatch`). The previous controller then starts its
+rounds with the model (a round with no model needs a record this release never writes), reads this release's evaluator
+reports (they hold a subset of its keys, except an anomaly's `outcome`: a report naming an outcome in an anomaly is
+refused whole by the previous controller and claims nothing), and numbers its next check store after the ones it left.
+Its comments, though, count the results this release judged as "outcomes confirmed": after a rollback, have an approver
+comment `/maul verify` on each open verifying intent, which judges it again under that release's rules. Rolling forward
+again withdraws those results once more (the marker was pruned), at the cost of one more evaluation each.

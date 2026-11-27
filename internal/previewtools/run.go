@@ -12,26 +12,24 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
 	"golang.org/x/mod/modfile"
 
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/toolexec"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
 
-// A run program (SPEC-S2 Q25, the run verb and the run check form) is a
-// small Go consumer the agent writes, compiled and run against one side's
-// tree. maul writes its module itself, so the program can only use the real
-// tree: beside the agent's .go files, a go.mod naming module maulcheck at
-// the pristine tree's go version; then `go work init . <WorkTree>` makes a
-// workspace of the program's directory and the side's writable tree, whose
-// go.mod, go.sum and replaces are the module graph's exactly as the tree's
-// own build left them (its go line included, which a build may raise), so
-// the go command writes go.work's go line itself.
+// A run program (SPEC-S2 Q25, the run verb) is a small Go consumer the
+// agent writes, compiled and run against one side's tree. maul writes its
+// module itself, so the program can only use the real tree: beside the
+// agent's .go files, a go.mod naming module maulcheck at the pristine
+// tree's go version; then `go work init . <WorkTree>` makes a workspace of
+// the program's directory and the side's writable tree, whose go.mod,
+// go.sum and replaces are the module graph's exactly as the tree's own
+// build left them (its go line included, which a build may raise), so the
+// go command writes go.work's go line itself.
 //
 // This is SP-8's amended Q25 by another route: SP-8 rendered the tree's
 // go.mod with its module line replaced and copied the tree's go.sum beside
@@ -43,15 +41,11 @@ import (
 // The compile is steps of its own (go work init, then go build, both under
 // compileEnv: no module network, the module files read-only, no user go env
 // file), then the binary runs in the same scratch directory under the
-// run's token. A compile that fails, whatever
-// the compiler said (an undefined name at base, a package not in std, no
-// module providing an import), is an error: n/a at the base, never a fail.
-// Only the compiler's own refusal of the program's files records the
-// compile cause (compilerRefused); a load or environmental failure records
-// none, so it is never read as no base comparison. A tree with a vendor
-// directory, a replace leaving the tree, or a go.mod maul cannot read
-// refuses the run by name (ReasonVendoredTree,
-// ReasonReplaceOutsideTree, ReasonNoModule), never widening the network.
+// run's token. A program that does not compile answers the compiler's
+// output and exit. A tree with a vendor directory, a replace leaving the
+// tree, or a go.mod maul cannot read refuses the run by name
+// (ReasonVendoredTree, ReasonReplaceOutsideTree, ReasonNoModule), never
+// widening the network.
 
 // consumerBinary is the compiled program, in its scratch directory.
 const consumerBinary = "maulcheck"
@@ -74,23 +68,21 @@ type consumer struct {
 func renderConsumer(treeDir, workTree string) (consumer, error) {
 	root, err := os.OpenRoot(treeDir)
 	if err != nil {
-		// maul's own failure, not the tree's: no cause.
 		return consumer{}, fmt.Errorf("%s: the tree cannot be read", ReasonNoModule)
 	}
 	defer func() { _ = root.Close() }()
 	if _, err := root.Lstat("vendor"); err == nil {
-		return consumer{}, treeRefusal(toolwire.CauseVendoredTree, fmt.Errorf(
-			"%s: the tree vendors its modules, which a run program cannot build against", ReasonVendoredTree))
+		return consumer{}, fmt.Errorf("%s: the tree vendors its modules, which a run program cannot build against",
+			ReasonVendoredTree)
 	}
 	data, err := readBounded(root, "go.mod", maxGoModBytes)
 	if err != nil {
-		return consumer{}, treeRefusal(toolwire.CauseNoModule, fmt.Errorf("%s: the tree has no go.mod maul can read",
-			ReasonNoModule))
+		return consumer{}, fmt.Errorf("%s: the tree has no go.mod maul can read", ReasonNoModule)
 	}
 	f, err := modfile.Parse("go.mod", data, nil)
 	if err != nil || f.Module == nil || f.Module.Mod.Path == "" || f.Module.Mod.Path == consumerModule {
-		return consumer{}, treeRefusal(toolwire.CauseNoModule, fmt.Errorf(
-			"%s: the tree's go.mod does not name a module maul can build against", ReasonNoModule))
+		return consumer{}, fmt.Errorf("%s: the tree's go.mod does not name a module maul can build against",
+			ReasonNoModule)
 	}
 	for _, rep := range f.Replace {
 		if rep.New.Version != "" {
@@ -98,13 +90,13 @@ func renderConsumer(treeDir, workTree string) (consumer, error) {
 		}
 		p := rep.New.Path
 		if filepath.IsAbs(p) || path.IsAbs(p) {
-			return consumer{}, treeRefusal(toolwire.CauseReplaceOutsideTree, fmt.Errorf(
-				"%s: %s is replaced by an absolute path", ReasonReplaceOutsideTree, rep.Old.Path))
+			return consumer{}, fmt.Errorf("%s: %s is replaced by an absolute path", ReasonReplaceOutsideTree,
+				rep.Old.Path)
 		}
 		joined := path.Join(workTree, filepath.ToSlash(p))
 		if joined != workTree && !strings.HasPrefix(joined, workTree+"/") {
-			return consumer{}, treeRefusal(toolwire.CauseReplaceOutsideTree, fmt.Errorf(
-				"%s: %s is replaced by a directory outside the tree", ReasonReplaceOutsideTree, rep.Old.Path))
+			return consumer{}, fmt.Errorf("%s: %s is replaced by a directory outside the tree",
+				ReasonReplaceOutsideTree, rep.Old.Path)
 		}
 	}
 	mod := "module " + consumerModule + "\n"
@@ -112,32 +104,6 @@ func renderConsumer(treeDir, workTree string) (consumer, error) {
 		mod += "\ngo " + f.Go.Version + "\n"
 	}
 	return consumer{goMod: []byte(mod)}, nil
-}
-
-// treeError is a tree a run program cannot be built against: a property
-// of the tree itself, which the ledger records as the step's cause
-// (toolwire.StepCause).
-type treeError struct {
-	cause toolwire.StepCause
-	err   error
-}
-
-func (e *treeError) Error() string { return e.err.Error() }
-func (e *treeError) Unwrap() error { return e.err }
-
-// treeRefusal is err, a refusal of the tree, with its cause.
-func treeRefusal(cause toolwire.StepCause, err error) error {
-	return &treeError{cause: cause, err: err}
-}
-
-// causeOf is the cause err records, "" for an error that is not the
-// tree's.
-func causeOf(err error) toolwire.StepCause {
-	var te *treeError
-	if errors.As(err, &te) {
-		return te.cause
-	}
-	return ""
 }
 
 // readBounded reads name under root, a regular file of at most limit bytes.
@@ -195,51 +161,18 @@ func sideName(side toolwire.Side) toolwire.Side {
 	return toolwire.SideHead
 }
 
-// compiled is a program's compile outcome; files are the program's .go
-// file names.
+// compiled is a program's compile outcome.
 type compiled struct {
-	res   toolexec.Result
-	err   error
-	ok    bool
-	files []string
+	res toolexec.Result
+	err error
+	ok  bool
 }
-
-// goBuildFailed is the go command's exit for a build it refused.
-const goBuildFailed = 1
-
-// cause is a failed compile's cause: CauseCompile only when the compiler
-// ran to its end and refused the program (the sandbox answered, refused
-// nothing, the compile ended on its own, cleanly, with the go command's
-// build failure exit, and its whole output is the compiler's refusal of
-// the program's own files: compilerRefused); "" for a compile maul cannot
-// tell was refused (no answer, a refusal, a signal, go not found, cut
-// short, output cut or leaving processes, a load or environmental
-// failure): no evidence about the tree (SPEC-S2 S2-20, S2-20b).
-func (c compiled) cause() toolwire.StepCause {
-	if c.ok || c.err != nil || c.res.Refused != "" || c.res.TimedOut || c.res.Unclean || c.res.Truncated ||
-		c.res.Exit != goBuildFailed || !compilerRefused(c.res.Output, c.files) {
-		return ""
-	}
-	return toolwire.CauseCompile
-}
-
-// consumerHeader is the line the go command prints before the compiler's
-// diagnostics of the program's package.
-const consumerHeader = "# " + consumerModule
-
-// diagnosticLine is a compiler diagnostic: a file in the build's directory,
-// its line and, when the compiler knows it, its column, the message. The
-// compiler prints no column for one it cannot hold (column 255 and past:
-// cmd/internal/src's colMax is "unknown"), as in a program on one long
-// line (G5-B-LIB-1).
-var diagnosticLine = regexp.MustCompile(`^(?:\./)?([A-Za-z0-9_][A-Za-z0-9_.-]*\.go):[0-9]+(?::[0-9]+)?: \S`)
 
 // environmental are what the go command prints when a build ended for a
-// reason outside the program (a killed compiler or linker, memory, disk,
-// files, the module cache or network, the toolchain), and what the shim
-// prints when it could not start the program at all, lowercased; one
-// anywhere in a compile's or a tree build's output, even inside a
-// diagnostic, leaves the compile without a cause and the build an error
+// reason outside the tree (a killed compiler or linker, memory, disk, files,
+// the module cache or network, the toolchain), and what the shim prints
+// when it could not start the build at all, lowercased; one anywhere in a
+// tree build's output leaves the build an error, never the tree's refusal
 // (environmentalFailure).
 var environmental = []string{
 	"signal:", "killed", "out of memory", "cannot allocate memory", "no space left on device", "disk quota exceeded",
@@ -256,59 +189,21 @@ var environmental = []string{
 }
 
 // environmentalFailure reports an environmental marker anywhere in output:
-// the build or compile may have ended for a reason outside the tree, so it
-// is no evidence about the tree.
+// the build may have ended for a reason outside the tree, so it is no
+// evidence about the tree.
 func environmentalFailure(output string) bool {
 	lower := strings.ToLower(output)
 	return slices.ContainsFunc(environmental, func(m string) bool { return strings.Contains(lower, m) })
 }
 
-// compilerRefused reports whether output, a failed `go build` of the
-// program whose .go files are files, is the compiler's refusal of the
-// program itself: the program package's header, then only diagnostics
-// located in the program's own files (file.go:line:col, or file.go:line
-// when the compiler printed no column) and their tab-indented continuation
-// lines, at least one diagnostic, and no environmental marker. Anything else (a load failure, which prints no
-// header; another package's header; a diagnostic in the tree's own files;
-// a go command line) is not (SPEC-S2 S2-20b): zero false passes outranks
-// the confirmed rate, so a doubt leaves the base with no evidence.
-func compilerRefused(output string, files []string) bool {
-	if strings.ContainsRune(output, '\r') || environmentalFailure(output) {
-		return false
-	}
-	lines := strings.Split(strings.TrimSuffix(output, "\n"), "\n")
-	if len(lines) < 2 || lines[0] != consumerHeader {
-		return false
-	}
-	diagnostics := 0
-	for _, line := range lines[1:] {
-		switch m := diagnosticLine.FindStringSubmatch(line); {
-		case m != nil && slices.Contains(files, m[1]):
-			diagnostics++
-		case strings.HasPrefix(line, "\t") && diagnostics > 0:
-		default:
-			return false
-		}
-	}
-	return diagnostics > 0
-}
-
 // compileProgram compiles p at side in run's scratch directory: its files
-// written by the workspace's init, then the build. A check's compile is
-// fresh: it starts from the tree and build output as the build left them
-// (review VC-2), and neither step after it runs the tree's code.
-func (r *Relay) compileProgram(ctx context.Context, side toolwire.Side, run string, p program,
-	fresh bool) compiled {
+// written by the workspace's init, then the build; neither step runs the
+// tree's code.
+func (r *Relay) compileProgram(ctx context.Context, side toolwire.Side, run string, p program) compiled {
 	steps := []*toolexec.Request{
 		{Argv: []string{"go", "work", "init", ".", r.workTree}, Files: p.files, Side: side, Run: run,
-			Env: r.compileEnv(), Fresh: fresh},
+			Env: r.compileEnv()},
 		{Argv: []string{"go", "build", "-o", consumerBinary, "."}, Side: side, Run: run, Env: r.compileEnv()},
-	}
-	var names []string
-	for _, f := range p.files {
-		if strings.HasSuffix(f.Name, ".go") {
-			names = append(names, f.Name)
-		}
 	}
 	var c compiled
 	for _, req := range steps {
@@ -316,7 +211,7 @@ func (r *Relay) compileProgram(ctx context.Context, side toolwire.Side, run stri
 			return compiled{err: err}
 		}
 		res, err := r.sandbox(side).Do(ctx, req)
-		c = compiled{res: res, err: err, files: names,
+		c = compiled{res: res, err: err,
 			ok: err == nil && res.Refused == "" && !res.Unclean && !res.TimedOut && res.Exit == 0}
 		if !c.ok {
 			return c
@@ -326,19 +221,19 @@ func (r *Relay) compileProgram(ctx context.Context, side toolwire.Side, run stri
 }
 
 // runProgram runs a compiled program at side in run's scratch directory,
-// for at most timeoutMs (a check's timeout, timeoutMs), which the shim
-// holds it to and reports cut (TimedOut) as it does an exec's; 0 is the
-// shim's own bound.
-func (r *Relay) runProgram(ctx context.Context, side toolwire.Side, run string, args []string,
-	timeoutMs int64) (toolexec.Result, error) {
+// held to the shim's own bound, which reports a cut run (TimedOut) as it
+// does an exec's.
+func (r *Relay) runProgram(ctx context.Context, side toolwire.Side, run string, args []string) (toolexec.Result,
+	error) {
 	return r.sandbox(side).Do(ctx, &toolexec.Request{Argv: append([]string{"./" + consumerBinary}, args...),
-		Side: side, Run: run, Env: r.programEnv(), TimeoutMs: timeoutMs})
+		Side: side, Run: run, Env: r.programEnv()})
 }
 
 // runVerb answers `maul-tool run`: the agent's program compiled and run at
 // the side asked for, in a fresh scratch directory; {{bin}} and {{tree}}
 // substituted as in an exec. A program that does not compile answers the
-// compiler's output and exit, its reason saying so.
+// compiler's output and exit, its reason saying so, and its entry records
+// that it never ran (notRun), so the call is never evidence.
 func (r *Relay) runVerb(ctx context.Context, req *toolwire.RunRequest) result {
 	side := req.Side.Recorded()
 	if !r.cfg.IsWorkspace() {
@@ -364,56 +259,15 @@ func (r *Relay) runVerb(ctx context.Context, req *toolwire.RunRequest) result {
 		return sideRefusal(side, code, err.Error())
 	}
 	run := r.token()
-	c := r.compileProgram(ctx, side, run, p, false)
+	c := r.compileProgram(ctx, side, run, p)
 	if !c.ok {
 		res := programResult(c.res, c.err, "the sandbox refused the compile")
 		if res.refused == "" {
 			res.reason = strings.TrimSuffix("the program did not compile; "+res.reason, "; ")
+			res.notRun = true
 		}
 		return withSide(side, res)
 	}
-	res, err := r.runProgram(ctx, side, run, p.args, 0)
+	res, err := r.runProgram(ctx, side, run, p.args)
 	return withSide(side, programResult(res, err, "the sandbox refused the program"))
-}
-
-// workspaceRunAttempt runs a run check once at side: its files and args
-// substituted (the marker in the files only), compiled, then run and
-// judged as an exec is. A program that cannot be built against the tree,
-// or does not compile, is an error.
-func (r *Relay) workspaceRunAttempt(ctx context.Context, rc checks.RunCheck, run string,
-	side toolwire.Side) []toolwire.StepRecord {
-	marker := checks.ExecMarker(randomMarkerNonce())
-	pl := r.places()
-	files := make([]toolwire.File, 0, len(rc.Files))
-	for _, f := range rc.Files {
-		s, err := substituteProgram(f.Content, run, marker, pl)
-		if err != nil {
-			return errStep("the program could not be built: " + err.Error())
-		}
-		files = append(files, toolwire.File{Name: f.Path, Content: []byte(s)})
-	}
-	args := make([]string, 0, len(rc.Args))
-	for _, a := range rc.Args {
-		s, err := substitute(a, run, pl)
-		if err != nil {
-			return errStep("the program could not be built: " + err.Error())
-		}
-		args = append(args, s)
-	}
-	p, err := r.prepareProgram(side, files, args)
-	if err != nil {
-		return causedStep(causeOf(err), "the program cannot be built against the tree: "+err.Error())
-	}
-	if c := r.compileProgram(ctx, side, run, p, true); !c.ok {
-		if c.err == nil && c.res.Refused != "" {
-			return errStep("the sandbox refused the program's compile, so maul cannot judge the run")
-		}
-		if c.res.Unclean || c.res.TimedOut {
-			return errStep("the program's compile did not end cleanly, so maul cannot judge the run")
-		}
-		return causedStep(c.cause(), fmt.Sprintf("the program did not compile (exit %d): a compile failure is no "+
-			"evidence about the outcome", c.res.Exit))
-	}
-	res, err := r.runProgram(ctx, side, run, p.args, timeoutMs(rc.Timeout))
-	return judgeWorkspace(res, err, rc.Expect, marker, run, pl)
 }

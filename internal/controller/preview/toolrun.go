@@ -29,7 +29,6 @@ import (
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/previewtools"
 	"github.com/devthenet-labs/maul/internal/toolledger"
@@ -121,10 +120,10 @@ func (v *VerificationReconciler) deadlineMax() time.Duration {
 }
 
 // approvedOutcomes holds an outcome verification to its Intent: exactly
-// the approved outcomes, under their digest; its saved checks under the
-// check store's digest (none before a first check is saved), each valid,
-// its id and digest its body's, bound to an approved outcome; and the
-// tools it asks for.
+// the approved outcomes, under their digest, and the tools it asks for.
+// Saved checks are no part of it (the relay replays none), so neither the
+// verification's retired checks nor the Intent's check store, which an
+// earlier release wrote and a rollback resumes, are read.
 func approvedOutcomes(pv *v1alpha1.PreviewVerification, in *v1alpha1.Intent) bool {
 	a := in.Status.Acceptance
 	if a == nil || len(a.Outcomes) == 0 || len(pv.Spec.Outcomes) == 0 || pv.Spec.Tools == nil {
@@ -136,27 +135,6 @@ func approvedOutcomes(pv *v1alpha1.PreviewVerification, in *v1alpha1.Intent) boo
 	if !ok || !ok2 || digest != a.OutcomesDigest || digest != pv.Spec.OutcomesDigest ||
 		acceptance.OutcomesDigest(requested) != digest {
 		return false
-	}
-	if a.Checks == nil {
-		return len(pv.Spec.Checks) == 0 && pv.Spec.ChecksDigest == ""
-	}
-	return pv.Spec.ChecksDigest == a.Checks.Digest && savedChecksValid(pv.Spec.Checks, a.Outcomes)
-}
-
-// savedChecksValid reports whether every saved check parses, its id,
-// outcome, form and digest its body's, within the saved bound, bound to one
-// of outcomes.
-func savedChecksValid(saved []v1alpha1.SavedCheck, outcomes []v1alpha1.AcceptanceOutcome) bool {
-	ids := map[string]bool{}
-	for _, o := range outcomes {
-		ids[o.ID] = true
-	}
-	for _, sc := range saved {
-		c, err := checks.Parse([]byte(sc.Body))
-		if err != nil || c.ID != sc.ID || c.Outcome != sc.Outcome || string(c.Form) != string(sc.Form) ||
-			checks.Digest(c) != sc.Digest || len(sc.Body) > v1alpha1.MaxSavedCheckBytes || !ids[sc.Outcome] {
-			return false
-		}
 	}
 	return true
 }
@@ -556,9 +534,8 @@ func containerReady(statuses []corev1.ContainerStatus, name string) bool {
 }
 
 // recordTools settles a finished tool pod's attempt from its ledger and
-// the slot's environment. A ledger that holds is indexed onto status with
-// its runs and confirmed checks, stored whole in <pv>-ledger, and its
-// evidence in <pv>-evidence.
+// the slot's environment. A ledger that holds is indexed onto status,
+// stored whole in <pv>-ledger, and its evidence in <pv>-evidence.
 func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.PreviewVerification,
 	s *verifySubject, pod *corev1.Pod, log []byte, finishedAt time.Time) error {
 	out := toolledger.Parse(log, podstate.TerminationMessage(pod, toolsContainer))
@@ -575,8 +552,7 @@ func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.P
 	}
 	phase, reason := route(facts, out.Reason)
 	if phase == v1alpha1.VerificationObserved {
-		if why := toolledger.RoundReason(pv.Spec.Rung, out.Ledger.Entries, pv.Status.Tools != nil,
-			previewtools.ReplayFinished(out.Ledger.Entries)); why != "" {
+		if why := toolledger.RoundReason(out.Ledger.Entries, pv.Status.Tools != nil); why != "" {
 			phase, reason = v1alpha1.VerificationInfra, why
 		}
 	}
@@ -591,8 +567,8 @@ func (v *VerificationReconciler) recordTools(ctx context.Context, pv *v1alpha1.P
 	return v.settleWith(ctx, pv, phase, reason)
 }
 
-// storeLedger writes the verified ledger's index, runs and confirmed
-// checks onto pv's status, and the ledger and its kept evidence into their
+// storeLedger writes the verified ledger's index onto pv's status, and the
+// ledger and its kept evidence into their
 // ConfigMaps. A ConfigMap that cannot be written is retried for the grace
 // after the Job finished, then left out of status: the index stands.
 func (v *VerificationReconciler) storeLedger(ctx context.Context, pv *v1alpha1.PreviewVerification,
@@ -622,7 +598,7 @@ func (v *VerificationReconciler) storeLedger(ctx context.Context, pv *v1alpha1.P
 			return err
 		}
 	}
-	sum := toolledger.ApplyStatus(&pv.Status, &pv.Spec, out)
+	sum := toolledger.ApplyStatus(&pv.Status, out)
 	sum.ConfigMap, sum.Evidence = ledgerName, evidenceName
 	pv.Status.Ledger = sum
 	return nil
@@ -680,7 +656,7 @@ func (v *VerificationReconciler) teardown(ctx context.Context, pv *v1alpha1.Prev
 }
 
 // fitToolStatus holds an outcome verification to maxToolVerificationObject:
-// log tails go first, from the last part back; then the ledger fields. An
+// log tails go first, from the last part back; then the ledger. An
 // Observed round's verdict rests on those, so one that loses them is
 // maul's trouble (Infra ledger-mismatch); any other phase rests on none
 // of them and keeps its own, so an EnvFailed round is never turned from
@@ -692,7 +668,7 @@ func fitToolStatus(pv *v1alpha1.PreviewVerification) {
 	if n := jsonSize(pv); n >= 0 && n <= maxToolVerificationObject {
 		return
 	}
-	pv.Status.Ledger, pv.Status.Replay, pv.Status.Confirmations, pv.Status.Confirmed = nil, nil, nil, nil
+	pv.Status.Ledger = nil
 	if pv.Status.Phase == v1alpha1.VerificationObserved {
 		pv.Status.Phase = v1alpha1.VerificationInfra
 		pv.Status.Reason = v1alpha1.VerificationReasonLedgerMismatch

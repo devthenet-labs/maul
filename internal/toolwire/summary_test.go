@@ -59,9 +59,9 @@ func writeLedger(t *testing.T, entries []LedgerEntry, evidence map[int64][]byte)
 
 func sample(t *testing.T) written {
 	return writeLedger(t, []LedgerEntry{
-		checkRunEntry(KindRelay, VerbCheckRun, ModeReplay, ResultPass),
+		relayEntry(KindRelay, VerbBuild),
 		browserEntry(),
-		checkRunEntry(KindAgent, VerbCheckRun, ModeDryRun, ResultPass),
+		{TS: ts, Kind: KindAgent, Verb: VerbExec, Args: []byte(`{"argv":["true"]}`), Output: "ok"},
 		{TS: ts, Kind: KindAgent, Verb: VerbBrowser, Args: []byte(`{"verb":"run-code"}`), Refused: "verb-not-allowed"},
 	}, map[int64][]byte{2: pngBytes})
 }
@@ -228,9 +228,11 @@ func (genLedger) Generate(r *rand.Rand, _ int) reflect.Value {
 		var e LedgerEntry
 		switch r.Intn(4) {
 		case 0:
-			e = checkRunEntry(KindRelay, VerbCheckRun, ModeReplay, genAttempts(r)...)
+			e = relayEntry(KindRelay, VerbFinish)
+			e.Exit = r.Intn(3)
 		case 1:
-			e = checkRunEntry(KindRelay, VerbConfirm, ModeConfirm, genAttempts(r)...)
+			e = relayEntry(KindRunner, VerbFinish)
+			e.Output = string(randBytes(r, r.Intn(200)))
 		case 2:
 			e = LedgerEntry{TS: ts, Kind: KindAgent, Verb: VerbBrowser, Args: []byte(`{}`),
 				Refused: "verb-not-allowed"}
@@ -251,14 +253,6 @@ func (genLedger) Generate(r *rand.Rand, _ int) reflect.Value {
 		g.entries = append(g.entries, e)
 	}
 	return reflect.ValueOf(g)
-}
-
-func genAttempts(r *rand.Rand) []AttemptResult {
-	first := []AttemptResult{ResultPass, ResultFail, ResultError}[r.Intn(3)]
-	if first == ResultPass || r.Intn(3) == 0 {
-		return []AttemptResult{first}
-	}
-	return []AttemptResult{first, []AttemptResult{ResultPass, ResultFail, ResultError}[r.Intn(3)]}
 }
 
 func randBytes(r *rand.Rand, n int) []byte {

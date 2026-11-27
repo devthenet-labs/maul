@@ -162,12 +162,12 @@ type Settings struct {
 	// Plan, Build and Revise are the per-stage ceilings: a Project's limits are
 	// clamped to them, and the Job's stage configuration carries them.
 	Plan, Build, Revise StageCeiling
-	// Evaluate and CheckReview are the evaluator's and the check reviewer's
-	// ceilings, set under --intent-evaluator (the evaluate timeout from
-	// --intent-evaluate-timeout, the rest maul's defaults); no run of either
-	// stage is created or launched while the evaluator is off
+	// Evaluate is the evaluator's ceiling, set under --intent-evaluator (the
+	// timeout from --intent-evaluate-timeout, the turns from
+	// --intent-evaluate-max-turns, the token budget maul's default); no run
+	// of the stage is created or launched while the evaluator is off
 	// (errStageNotEnabled, stageEnabled).
-	Evaluate, CheckReview StageCeiling
+	Evaluate StageCeiling
 	// MultiRepo runs intents of Projects that list more than one repository
 	// (--intent-multi-repo). Off, such a Project is not Ready, and every
 	// Intent of one is held Blocked (UnsupportedRepositories): nothing is
@@ -256,11 +256,10 @@ type Settings struct {
 	// nothing is verified. serve refuses it without Previews unless
 	// EvaluatorAgents is on, and sets Verification with it.
 	Evaluator bool
-	// EvaluateModel and CheckReviewModel are the canonical models a claude
-	// Project's evaluate and checkreview runs run on
-	// (--intent-evaluate-model, --intent-checkreview-model); a codex
-	// Project's run on Codex.BuildModel.
-	EvaluateModel, CheckReviewModel string
+	// EvaluateModel is the canonical model a claude Project's evaluate runs
+	// run on (--intent-evaluate-model); a codex Project's run on
+	// Codex.BuildModel.
+	EvaluateModel string
 	// DefaultHandoff is --intent-default-handoff, the hand-off mode of a
 	// Project that sets none (spec.verification.handoff), and HandoffMax
 	// --intent-handoff-max, the gated hand-off's bound when it sets none.
@@ -272,7 +271,7 @@ type Settings struct {
 	// (ConditionEvaluatorUnverified).
 	EvaluateCodex bool
 	// EvaluationCostMax is --intent-evaluation-cost-max in micro-USD: the
-	// most one intent's evaluate and checkreview runs may spend, whatever
+	// most one intent's evaluate runs may spend, whatever
 	// its Project's limits.maxEvaluateCostMicroUSD says; zero leaves the
 	// Project's alone (evaluationCeiling).
 	EvaluationCostMax int64
@@ -384,9 +383,9 @@ func (s Settings) ceiling(stage v1alpha1.IntentStage) StageCeiling {
 		return s.Revise
 	case v1alpha1.IntentStageEvaluate:
 		return s.Evaluate
-	case v1alpha1.IntentStageCheckReview:
-		return s.CheckReview
 	}
+	// A retired stage's (the check reviewer's) is zero too: none of its
+	// runs is launched.
 	return StageCeiling{}
 }
 
@@ -412,9 +411,9 @@ func stageLimits(p *v1alpha1.Project, stage v1alpha1.IntentStage) v1alpha1.Stage
 		return p.Spec.Limits.Revise
 	case v1alpha1.IntentStageEvaluate:
 		return p.Spec.Limits.Evaluate
-	case v1alpha1.IntentStageCheckReview:
-		return p.Spec.Limits.CheckReview
 	}
+	// spec.limits.checkReview is a retired field, kept in the schema for one
+	// release and read by nothing.
 	return v1alpha1.StageLimits{}
 }
 
@@ -481,15 +480,6 @@ const (
 	// tool calls (maxToolCalls) then never bind at the defaults.
 	DefaultEvaluateMaxTurns    int32 = 100
 	DefaultEvaluateTokenBudget int64 = 400000
-	// DefaultCheckReviewMaxTurns (--intent-checkreview-max-turns),
-	// DefaultCheckReviewTokenBudget and DefaultCheckReviewTimeout bound a
-	// checkreview run: its turns bound each review session, the rest the
-	// whole run. 6 turns, not DESIGN 5's 3: a session's first run gets 3 and
-	// keeps 3 back for one repair of its report (agentrun.Repairable; S1
-	// bug 8, a review of 3 turns could never be repaired).
-	DefaultCheckReviewMaxTurns    int32 = 6
-	DefaultCheckReviewTokenBudget int64 = 100000
-	DefaultCheckReviewTimeout           = 15 * time.Minute
 	// MaxStageTurns is the most turns a role stage's ceiling may be set to:
 	// the most a run's grant carries (IntentRunGrant.MaxTurns).
 	MaxStageTurns int32 = 1000
@@ -576,7 +566,7 @@ func subagentStage(stage v1alpha1.IntentStage) bool {
 
 // stageBudget is the cost budget of one run of stage in micro-USD, held to
 // the ceiling it is spent against: a build-side stage's runBudget, and an
-// evaluate or checkreview run's stage maxCostMicroUSD, or the evaluation
+// evaluate run's stage maxCostMicroUSD, or the evaluation
 // ceiling when that is unset, and never more than that ceiling.
 func (s Settings) stageBudget(p *v1alpha1.Project, stage v1alpha1.IntentStage) int64 {
 	if !roleStage(stage) {
@@ -592,7 +582,7 @@ func (s Settings) stageBudget(p *v1alpha1.Project, stage v1alpha1.IntentStage) i
 // budgetOverHourly reports the first stage whose run budget is more than
 // half the broker's hourly cost limit, with that budget: the guard that one
 // run cannot starve every other (design "limits that fit large features"
-// §1.4). The evaluate and checkreview stages count while the evaluator
+// §1.4). The evaluate stage counts while the evaluator
 // verifies the Project's intents. Nothing is reported unless the broker
 // counts cost under an hourly limit.
 func (s Settings) budgetOverHourly(p *v1alpha1.Project) (v1alpha1.IntentStage, int64) {
@@ -601,7 +591,7 @@ func (s Settings) budgetOverHourly(p *v1alpha1.Project) (v1alpha1.IntentStage, i
 	}
 	stages := []v1alpha1.IntentStage{v1alpha1.IntentStagePlan, v1alpha1.IntentStageBuild, v1alpha1.IntentStageRevise}
 	if s.evaluates(p) && !s.evaluatorUnverified(p) {
-		stages = append(stages, v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview)
+		stages = append(stages, v1alpha1.IntentStageEvaluate)
 	}
 	for _, stage := range stages {
 		// A budget is at most the schema's $1000 cap, so doubling it cannot
@@ -627,8 +617,7 @@ type reserveShortfall struct {
 // stages' claude CLI (harness.PromptRequest.MaxOutputTokens), so each of
 // their requests asks for, and the broker reserves, no more.
 var roleOutputBounds = map[v1alpha1.IntentStage]int{
-	v1alpha1.IntentStageEvaluate:    provider.EvaluateMaxOutputTokens,
-	v1alpha1.IntentStageCheckReview: provider.CheckReviewMaxOutputTokens,
+	v1alpha1.IntentStageEvaluate: provider.EvaluateMaxOutputTokens,
 }
 
 // budgetUnderReserve reports the first role stage whose run budget is less
@@ -638,7 +627,7 @@ var roleOutputBounds = map[v1alpha1.IntentStage]int{
 // model's output price, fits its budget, so a run can spend at most its
 // budget less one reservation, and a budget under two would end the run's
 // model traffic before it had spent half of it (S1 bug 6: four calls and
-// $0.044 of a $1 budget). It judges the evaluate and checkreview stages of
+// $0.044 of a $1 budget). It judges the evaluate stage of
 // a claude Project the evaluator verifies, on the models its runs run
 // (stageModel: its own choice, else the flags) and their output
 // bounds (roleOutputBounds); a model the registry cannot price, or a codex
@@ -648,7 +637,7 @@ func (s Settings) budgetUnderReserve(p *v1alpha1.Project) reserveShortfall {
 	if !s.CostBudgets || !s.evaluates(p) || p.Spec.Harness.IsCodex() {
 		return reserveShortfall{}
 	}
-	for _, stage := range []v1alpha1.IntentStage{v1alpha1.IntentStageEvaluate, v1alpha1.IntentStageCheckReview} {
+	for _, stage := range []v1alpha1.IntentStage{v1alpha1.IntentStageEvaluate} {
 		id := s.stageModel(p, stage)
 		tokens := roleOutputBounds[stage]
 		reserve, ok := outputReserve(id, tokens)

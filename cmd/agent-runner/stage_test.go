@@ -90,12 +90,12 @@ func TestRunRejectsBadPhase(t *testing.T) {
 	}
 }
 
-// TestRunRoleStages: the evaluate and checkreview phases are configured
-// stages. Their workspace holds no repository clone, so a Job whose prepare
-// staged no handoff fails on the missing handoff (a fatal event, exit 2),
-// never on a missing clone.
+// TestRunRoleStages: the evaluate phase is a configured stage (the retired
+// check reviewer's checkreview no longer is). Its workspace holds no
+// repository clone, so a Job whose prepare staged no handoff fails on the
+// missing handoff (a fatal event, exit 2), never on a missing clone.
 func TestRunRoleStages(t *testing.T) {
-	for _, phase := range []string{"evaluate", "checkreview"} {
+	for _, phase := range []string{"evaluate"} {
 		t.Run(phase, func(t *testing.T) {
 			stdout := captureStdout(t)
 			env := map[string]string{

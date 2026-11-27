@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/devthenet-labs/maul/internal/checks"
 	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/toolwire"
 )
@@ -46,21 +45,17 @@ type RunOptions struct {
 //     TCP connection, recorded as the first entry (a relay http entry
 //     whose args are {"readiness": …} and whose output is the
 //     httpstep.TargetWait list); a component still unreachable finishes
-//     the round there (FinishUnreachable), no check run;
+//     the round there (FinishUnreachable);
 //     in a workspace, build the head and the base instead (the first two
 //     entries); a head that did not build finishes the round there
-//     (FinishBuildFailed), never serving its readiness path, and so does
-//     a tree that built but could not be kept (FinishKeptCopyFailed);
-//  2. replay every stored check, each alone with fresh run tokens, one
-//     relay check-run entry each;
-//  3. a replay round finishes there (FinishReplayOnly);
-//  4. otherwise open the browser session, when the pod has a browser (a
-//     relay session entry), and serve the agent until the runner's
-//     finish, or finish on its own at the wall clock (FinishDeadline) or
-//     when ctx ends (FinishStopped).
+//     (FinishBuildFailed), never serving its readiness path;
+//  2. open the browser session, when the pod has a browser (a relay
+//     session entry), and serve the agent until the runner's finish, or
+//     finish on its own at the wall clock (FinishDeadline) or when ctx
+//     ends (FinishStopped).
 //
-// The preview front (o.Front) serves the browser throughout, replays
-// included.
+// The relay runs nothing of its own past the readiness wait and the
+// builds. The preview front (o.Front) serves the browser throughout.
 //
 // Every way out closes the ledger with its summary and writes the
 // termination message, so a crashed evaluator still leaves a ledger.
@@ -94,17 +89,12 @@ func Run(ctx context.Context, o RunOptions) (toolwire.Summary, error) {
 			r.finishRelay(stopReason(ctx, dctx, FinishBuildFailed))
 			return r.result()
 		}
-		if r.keptCopyFailed {
-			r.finishRelay(stopReason(ctx, dctx, FinishKeptCopyFailed))
-			return r.result()
-		}
 	case !r.awaitComponents(dctx, window):
 		r.finishRelay(stopReason(ctx, dctx, FinishUnreachable))
 		return r.result()
 	}
-	r.replay(dctx)
-	if o.Config.ReplayOnly || dctx.Err() != nil {
-		r.finishRelay(stopReason(ctx, dctx, FinishReplayOnly))
+	if dctx.Err() != nil {
+		r.finishRelay(stopReason(ctx, dctx, FinishDeadline))
 		return r.result()
 	}
 	if o.Listener == nil {
@@ -165,42 +155,4 @@ func (r *Relay) awaitComponents(ctx context.Context, window time.Duration) bool 
 	_, _ = r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbHTTP,
 		Args: mustArgs(map[string]any{"readiness": map[string]any{"targets": r.cfg.keys()}}), Output: string(out)})
 	return len(httpstep.Unreached(waits)) == 0 && ctx.Err() == nil
-}
-
-// replay runs every stored check alone, in the config's order, each a
-// relay check-run entry.
-func (r *Relay) replay(ctx context.Context) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.cfg.IsWorkspace() && !r.headBuilt {
-		return // a head that did not build runs nothing
-	}
-	for _, s := range r.cfg.Checks {
-		if ctx.Err() != nil {
-			return
-		}
-		c, err := checks.Parse([]byte(s.Body)) // Config.Validate parsed it
-		if err != nil {
-			continue
-		}
-		rec := r.runCheckAs(ctx, c, toolwire.ModeReplay, s.Expect == toolwire.ExpectFail)
-		if _, err := r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun,
-			Args: mustArgs(map[string]string{"digest": rec.Digest}), CheckRun: &rec}); err != nil {
-			return
-		}
-		r.replays = append(r.replays, rec)
-		if !r.cfg.IsWorkspace() {
-			continue
-		}
-		// In a workspace the same check replays at the base, tagged base.
-		base, ok := r.baseRun(ctx, c, toolwire.ModeReplay)
-		if !ok {
-			continue
-		}
-		if _, err := r.record(toolwire.LedgerEntry{Kind: toolwire.KindRelay, Verb: toolwire.VerbCheckRun,
-			Side: toolwire.SideBase, Args: mustArgs(map[string]string{"digest": base.Digest}), CheckRun: &base}); err != nil {
-			return
-		}
-		r.baseReplays = append(r.baseReplays, base)
-	}
 }

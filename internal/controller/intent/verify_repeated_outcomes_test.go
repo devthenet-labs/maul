@@ -42,7 +42,7 @@ The health endpoint no longer answers.
 // reevaluateFailing has an approver ask for another round of name at the
 // same heads, the evaluator reporting report and the saved checks replaying
 // as runs; it returns the verification once judged.
-func (e *env) reevaluateFailing(name, report string, runs ...v1alpha1.CheckRun) *v1alpha1.IntentVerification {
+func (e *env) reevaluateFailing(name, report string) *v1alpha1.IntentVerification {
 	e.t.Helper()
 	first := e.verification(name).Ref.Name
 	e.evaluateReporting(report)
@@ -52,7 +52,7 @@ func (e *env) reevaluateFailing(name, report string, runs ...v1alpha1.CheckRun) 
 	if again := e.verification(name); again.Ref == nil || again.Ref.Name == first {
 		e.t.Fatalf("no second round: %+v", again)
 	}
-	e.evalRound(name, runs...)
+	e.evalRound(name)
 	e.review(name, 3)
 	return e.verification(name)
 }
@@ -78,13 +78,11 @@ func (e *env) unpushedFix(name string) int {
 // TestOutcomeFixRepeatedFailureAfterAnUnpushedRound twins
 // TestVerifyFixRepeatedFailureAfterAnUnpushedRound.
 func TestOutcomeFixRepeatedFailureAfterAnUnpushedRound(t *testing.T) {
-	e, name, _, _ := outcomeEnv(t)
+	e, name := outcomeEnv(t)
 	e.failEveryFix()
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthCheck)
-	e.evalRound(name, replays(version, health, v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)...)
+	e.evalRound(name)
 	before := e.unpushedFix(name)
-	v := e.reevaluateFailing(name, failingReport, replays(version, health, v1alpha1.CheckRunFail,
-		v1alpha1.CheckRunPass)...)
+	v := e.reevaluateFailing(name, failingReport)
 	if n := len(e.verifyRuns(name)); n != before || v.AutoFix.State != v1alpha1.AutoFixHalted ||
 		v.AutoFix.Reason != v1alpha1.AutoFixRepeatedFailure {
 		t.Fatalf("verify runs %d (were %d), verification %+v; want halted RepeatedFailure, no new round", n,
@@ -100,14 +98,11 @@ func TestOutcomeFixRepeatedFailureBesideANewOne(t *testing.T) {
 	e.evaluateReporting(failingReport)
 	// The health check writes its run's own record: its new failure is a
 	// reproduced one beside the repeat, not a suspicion.
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthWritesCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
 	e.failEveryFix()
-	e.evalRound(name, replays(version, health, v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)...)
+	e.evalRound(name)
 	before := e.unpushedFix(name)
-	v := e.reevaluateFailing(name, bothFailingReport, replays(version, health, v1alpha1.CheckRunFail,
-		v1alpha1.CheckRunFail)...)
+	v := e.reevaluateFailing(name, bothFailingReport)
 	if n := len(e.verifyRuns(name)); n != before || v.Failed != 2 ||
 		v.AutoFix.Reason != v1alpha1.AutoFixRepeatedFailure {
 		t.Fatalf("verify runs %d (were %d), verification %+v; want both failing, halted RepeatedFailure", n,
@@ -115,27 +110,17 @@ func TestOutcomeFixRepeatedFailureBesideANewOne(t *testing.T) {
 	}
 }
 
-// healthWritesCheck is a check of the keep outcome that writes its run's
-// own record, so its failure once it passed is a regression maul may fix
-// (#309 review), not a suspicion held for a person.
-const healthWritesCheck = `{"id":"still-healthy.w","outcome":"still-healthy","form":"http","http":{"target":"app",
- "steps":[{"request":{"method":"POST","path":"/notes","json":{"name":"{{run}}-h"}},"expect":{"status":201}},
- {"request":{"path":"/healthz?q={{run}}"},"expect":{"json":{"/note":"{{run}}-h"}}}]}}`
-
 // TestOutcomeFixADifferentFailureIsFixed twins
 // TestVerifyFixADifferentFailureIsFixed: what the last fix was for passes
 // now and another outcome fails: no repeat, another round starts.
 func TestOutcomeFixADifferentFailureIsFixed(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.evaluateReporting(failingReport)
-	version, health := savedCheck(t, versionCheck), savedCheck(t, healthWritesCheck)
-	e.storeChecks(name, version, health)
 	e.review(name, 3)
 	e.failEveryFix()
-	e.evalRound(name, replays(version, health, v1alpha1.CheckRunFail, v1alpha1.CheckRunPass)...)
+	e.evalRound(name)
 	before := e.unpushedFix(name)
-	v := e.reevaluateFailing(name, healthFailingReport, replays(version, health, v1alpha1.CheckRunPass,
-		v1alpha1.CheckRunFail)...)
+	v := e.reevaluateFailing(name, healthFailingReport)
 	if (v.State != v1alpha1.VerificationFailing && v.State != v1alpha1.VerificationFixing) ||
 		v.AutoFix.Reason == v1alpha1.AutoFixRepeatedFailure {
 		t.Fatalf("verification %+v: want the new failure reproduced, no repeat", v)

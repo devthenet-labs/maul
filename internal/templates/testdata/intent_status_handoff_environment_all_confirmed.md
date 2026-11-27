@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Preview:** maul couldn't confirm this: the preview failed while it was checked. [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`. Evaluation 1: 3/3 outcomes confirmed, but maul couldn't confirm this: the preview failed while it was checked; 0 of 2 automatic fixes used.
+**Preview:** maul can't call this ready: the preview failed during the evaluation. [`target-1.preview.maul.example.com`](https://target-1.preview.maul.example.com) serves `4b825dc642cb`. Evaluation 1: 3/3 outcomes seen to hold, but maul can't call this ready: the preview failed during the evaluation; 0 of 2 automatic fixes used.
 
 **Commands now:** `/maul cancel`
 

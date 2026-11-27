@@ -11,7 +11,7 @@
 
 - [devthenet-labs/maul-target#12](https://github.com/devthenet-labs/maul-target/pull/12) (open)
 
-**Evaluation:** maul checks the approved outcomes in its own build of the pull request. Evaluation 1 running: 0 of 2 automatic fixes used.
+**Evaluation:** maul's evaluator looks at the approved outcomes in its own build of the pull request. Evaluation 1 running: 0 of 2 automatic fixes used.
 
 **Commands now:** `/maul cancel`
 

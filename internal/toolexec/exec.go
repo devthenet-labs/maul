@@ -69,11 +69,6 @@ type Result struct {
 	// NetError reports, from a workspace shim, that the output names a bind
 	// or connection error (NetError).
 	NetError bool `json:"netError,omitempty"`
-	// KeepFailed reports, from a workspace shim, a build that built whose
-	// tree, output and HOME could not be kept (past MaxKeptBytes, a full
-	// volume, a file the copy cannot make): no check run can start from it, which is maul's
-	// trouble, never the tree's.
-	KeepFailed bool `json:"keepFailed,omitempty"`
 }
 
 // Options configures a Server.
@@ -112,18 +107,6 @@ type Server struct {
 	// some survive it. Both are used holding slot.
 	sweep   sweeper
 	unclean bool
-	// built are the digests of the kept places (the tree, the build output
-	// and HOME) as the last build that built left them, kept beside them
-	// for a fresh request, and cached the caches' manifest; nil when none
-	// did (fresh.go, cache.go). checkRun names the check run the last fresh
-	// request started, whose later requests share its TMPDIR. All used
-	// holding slot.
-	built    []string
-	cached   manifest
-	checkRun string
-	// keptBound bounds the bytes the kept copy may take; MaxKeptBytes
-	// when zero.
-	keptBound int64
 }
 
 // NewServer returns a Server over opts, its scratch directory created.
@@ -246,7 +229,7 @@ func (s *Server) execute(ctx context.Context, argv []string, dir string, env []s
 		if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 			exit = 127
 		}
-		res := Result{Exit: exit, Output: fmt.Sprintf("[maul: could not start %s: %v]", argv[0], err),
+		res := Result{Exit: exit, Output: fmt.Sprintf("%s%s: %v]", toolwire.NotStartedPrefix, argv[0], err),
 			DurationMs: time.Since(start).Milliseconds()}
 		if apart {
 			// maul's words, as the program's stderr: it printed nothing.

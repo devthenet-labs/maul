@@ -94,7 +94,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		ev := a.investigate(ctx)
 		a.emit(envelope.Event{Type: envelope.TypeInvestigation, Investigation: ev})
 		return nil
-	case PhasePlan, PhaseBuild, PhaseEvaluate, PhaseCheckReview:
+	case PhasePlan, PhaseBuild, PhaseEvaluate:
 		return a.runIntent(ctx)
 	case PhaseRemediate:
 		// The controller supplies the analysis this run executes; thresholds

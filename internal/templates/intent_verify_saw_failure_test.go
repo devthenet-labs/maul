@@ -6,8 +6,6 @@ package templates
 import (
 	"strings"
 	"testing"
-
-	"github.com/devthenet-labs/maul/internal/acceptance"
 )
 
 // TestOutcomeDetailSawFailure (S1 demo bug 13): an outcome whose pass maul
@@ -15,7 +13,7 @@ import (
 // than the bare "couldn't confirm".
 func TestOutcomeDetailSawFailure(t *testing.T) {
 	o := VerifyOutcomeResult{ID: "create-round-trip", Result: OutcomeResultUnsure,
-		Reason: acceptance.ReasonEvaluatorSawFailure}
+		Reason: "evaluator-saw-failure"}
 	if got := outcomeVerdict(o, "unsure"); !strings.Contains(got, "the evaluator saw the outcome as worded fail") {
 		t.Errorf("verdict = %q, want the evaluator's observed failure named", got)
 	}

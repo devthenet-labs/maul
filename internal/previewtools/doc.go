@@ -11,8 +11,9 @@
 // controller mounts at DefaultConfigDir: ConfigFile holds the components
 // (key, path prefix on the preview host, "<ClusterIP>:<port>"; the pod
 // resolves no name), the preview host and the pairwise viewer the gateway
-// would send, the saved checks to replay, maxToolCalls, the wall clock, and
-// whether this is a replay round; "logs.<component>" and EventsFile hold the
+// would send, maxToolCalls and the wall clock (an earlier host's saved
+// checks or replay are refused, an unknown field); "logs.<component>" and
+// EventsFile hold the
 // captured log tails and pod events (capture.go), re-read on every call.
 //
 // The Relay (server.go) serves POST /v1/<verb> on Port, one endpoint per
@@ -32,11 +33,6 @@
 //     pod with no browser;
 //   - exec: argv run in the sandbox through the exec shim (exec.go);
 //   - logs, events: the captured files;
-//   - check run: internal/checks validates the check, then a dry run;
-//     check results: the replay and each dry-run check's latest run;
-//   - confirm (agent-runner's): every named digest needs a green dry run
-//     in this evaluation, else nothing runs; each check then runs again,
-//     a relay entry each;
 //   - finish (agent-runner's): the cited images as evidence lines, the
 //     summary to stdout and the termination message, and the relay ends.
 //
@@ -45,27 +41,25 @@
 // 0600 session config), its viewport set to 1280x800, reopened once if
 // lost; each open a relay session entry. The preview front (NewFront, on
 // loopback FrontAddr) gives the browser one origin, the components
-// path-routed behind it as the gateway routes them. A browser check
-// (browsercheck.go) is compiled by internal/checks/playwright, written
-// into a fresh directory beside maul's fixture (node/maul-fixture.ts) and
-// config, and run by the pinned Playwright test runner in its own process
-// against a fresh Chromium; the JSON reporter's report is judged here.
+// path-routed behind it as the gateway routes them. The image's adapters
+// are browser_cli.go's: the pinned CLI (PlaywrightCLI) and the artifact
+// directory (DirArtifacts).
 //
-// Every check run (checkrun.go) is the check alone, under a fresh run
-// token drawn from crypto/rand, re-run once under another after a
-// non-pass, so a fail then a pass is quarantined; every assertion is
-// judged here, never in the sandbox. A response keeps the application's
-// bytes (Untrusted) apart from maul's measurements (Observed) and maul's
-// words (Reason, step details), which never quote the application.
+// The check runner is gone: the relay replays, dry-runs and confirms no
+// check, and the retired check-run, check-results and confirm paths are no
+// tool (404). A response keeps the application's bytes (Untrusted) apart
+// from maul's measurements (Observed) and maul's words (Reason), which
+// never quote the application. Each exploratory exec and run gets a fresh
+// run token from crypto/rand, naming its own scratch directory.
 //
 // Past maxToolCalls an agent call is refused, and the refusal recorded;
-// the ledger keeps reservedEntries of room for confirmation and finish.
+// the ledger keeps reservedEntries of room for the finish.
 // GuardListener refuses connections from loopback and from the pod's own
 // addresses, so page JS and sandbox code cannot call the relay.
 //
-// Run (lifecycle.go) is the container's life: readiness wait, replay, a
-// replay round's finish, else serve until the runner's finish, the wall
-// clock or a stop; every way out closes the ledger.
+// Run (lifecycle.go) is the container's life: readiness wait (or the
+// workspace's builds), then serve until the runner's finish, the wall clock
+// or a stop; nothing is replayed; every way out closes the ledger.
 //
 // A workspace (Config.Mode ModeWorkspace; SPEC-S2 S2-08, workspace.go,
 // files.go, run.go) is the relay of an agents-namespace tool pod with no
@@ -78,24 +72,19 @@
 // build, BuildArgs; the head's is the httpstep.RoleBuild part,
 // BuildPart): a head that did not build runs nothing more, Run finishing
 // there (FinishBuildFailed) before its readiness path ever answers, so no
-// evaluator is launched for it (S2-B5), as does a tree that built but
-// whose sandbox could not keep it for its check runs
-// (FinishKeptCopyFailed); a
-// base that did not build is never run (its replays and confirmations
-// recorded as errors, base-unbuildable). Each saved check replays, and each
-// confirmed check is confirmed, at the head and then at the base, each
-// alone under fresh tokens, the base run's entry (or, on a confirm, its
-// args) and steps naming the base, at most MaxBaseRuns. files reads the
-// pristine trees through an os.Root; run compiles a Go consumer against the
-// side's writable tree (maul's go.mod, go work init, offline, read-only
-// module files) and runs it; one substitute pass serves every check path
-// ({{marker}} in program files only, {{bin}}, {{tree}}, then {{run}}; a
-// program file's other "{{" is its own text); judgeWorkspace says how a
-// workspace run maps to a result, never a bare exit an assertion.
+// evaluator is launched for it (S2-B5); a base that did
+// not build is never run (an exec or run there is refused,
+// base-unbuildable or base-build-error). The base is for the evaluator's
+// own exploration (--base): maul counts only what it saw at the head.
+// files reads the pristine trees through an os.Root; run compiles a Go
+// consumer against the side's writable tree (maul's go.mod, go work init,
+// offline, read-only module files) and runs it; exec and run substitute
+// {{bin}} and {{tree}} (explore), and leave any other "{{" as the agent's
+// own text.
 //
 // dial.go and, under the e2edial tag only, dial_e2e.go are the e2e
 // suite's seams. The package imports only the standard library,
-// api/v1alpha1, internal/acceptance, checks, checks/playwright,
-// previewauth, toolexec and toolwire, and golang.org/x/mod/modfile (a test
-// pins that): no Kubernetes client, no credential.
+// api/v1alpha1, httpstep, previewauth, toolexec and toolwire, and
+// golang.org/x/mod/modfile (a test pins that): no Kubernetes client, no
+// credential.
 package previewtools

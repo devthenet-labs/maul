@@ -290,8 +290,6 @@ func roleSettings() Settings {
 	s.Verification, s.Previews, s.Evaluator, s.CostBudgets = true, true, true, true
 	s.Evaluate = StageCeiling{MaxTurns: DefaultEvaluateMaxTurns, TokenBudget: DefaultEvaluateTokenBudget,
 		Timeout: DefaultEvaluateTimeout}
-	s.CheckReview = StageCeiling{MaxTurns: DefaultCheckReviewMaxTurns, TokenBudget: DefaultCheckReviewTokenBudget,
-		Timeout: DefaultCheckReviewTimeout}
 	return s
 }
 
@@ -303,11 +301,11 @@ func evaluatingProject() *v1alpha1.Project {
 	return p
 }
 
-// TestRoleStagesHonourTheirLimits (S1-29): an evaluate or checkreview run
-// is granted its stage's limits like any other stage (turns, tokens and the
-// wall clock lowered, never raised), and its cost budget is held to the
-// evaluation ceiling it is spent against, not the build ceiling: unset, it
-// is that ceiling; set, never above it.
+// TestRoleStagesHonourTheirLimits (S1-29): an evaluate run is granted its
+// stage's limits like any other stage (turns, tokens and the wall clock
+// lowered, never raised), and its cost budget is held to the evaluation
+// ceiling it is spent against, not the build ceiling: unset, it is that
+// ceiling; set, never above it.
 func TestRoleStagesHonourTheirLimits(t *testing.T) {
 	s := roleSettings()
 	p := evaluatingProject()
@@ -315,8 +313,6 @@ func TestRoleStagesHonourTheirLimits(t *testing.T) {
 	p.Spec.Limits.MaxEvaluateCostMicroUSD = new(int64(4000000))
 	p.Spec.Limits.Evaluate = v1alpha1.StageLimits{MaxTurns: 30, TokenBudget: 1000,
 		Timeout: &metav1.Duration{Duration: 10 * time.Minute}}
-	p.Spec.Limits.CheckReview = v1alpha1.StageLimits{MaxTurns: 9, MaxCostMicroUSD: 1000000,
-		Timeout: &metav1.Duration{Duration: 3 * time.Hour}}
 
 	g := s.grant(p, v1alpha1.IntentStageEvaluate)
 	if g.MaxTurns != 30 || g.TokenBudget != 1000 || g.TimeoutMilliseconds != (10*time.Minute).Milliseconds() {
@@ -324,13 +320,6 @@ func TestRoleStagesHonourTheirLimits(t *testing.T) {
 	}
 	if g.BudgetMicroUSD != 4000000 {
 		t.Errorf("evaluate budget = %d, want the evaluation ceiling 4000000, not the build ceiling", g.BudgetMicroUSD)
-	}
-	g = s.grant(p, v1alpha1.IntentStageCheckReview)
-	if g.MaxTurns != DefaultCheckReviewMaxTurns || g.TimeoutMilliseconds != DefaultCheckReviewTimeout.Milliseconds() {
-		t.Errorf("checkreview grant = %+v, want the controller's turns and timeout (the Project's are higher)", g)
-	}
-	if g.BudgetMicroUSD != 1000000 {
-		t.Errorf("checkreview budget = %d, want its stage's 1000000", g.BudgetMicroUSD)
 	}
 	s.EvaluationCostMax = 2000000
 	if g := s.grant(p, v1alpha1.IntentStageEvaluate); g.BudgetMicroUSD != 2000000 {
@@ -343,7 +332,7 @@ func TestRoleStagesHonourTheirLimits(t *testing.T) {
 }
 
 // TestRoleBudgetOverHourlyLimit (S1-29): RunBudgetOverHourlyLimit counts
-// the evaluate and checkreview runs of a Project the evaluator verifies,
+// the evaluate runs of a Project the evaluator verifies,
 // naming the stage and the field that lowers it, and not those of one it
 // does not.
 func TestRoleBudgetOverHourlyLimit(t *testing.T) {
@@ -354,8 +343,6 @@ func TestRoleBudgetOverHourlyLimit(t *testing.T) {
 	}{
 		{v1alpha1.IntentStageEvaluate, "limits.evaluate.maxCostMicroUSD",
 			func(l *v1alpha1.ProjectLimits) { l.Evaluate.MaxCostMicroUSD = 9000000 }},
-		{v1alpha1.IntentStageCheckReview, "limits.checkReview.maxCostMicroUSD",
-			func(l *v1alpha1.ProjectLimits) { l.CheckReview.MaxCostMicroUSD = 9000000 }},
 	} {
 		t.Run(string(tt.stage), func(t *testing.T) {
 			s := roleSettings()
@@ -364,7 +351,7 @@ func TestRoleBudgetOverHourlyLimit(t *testing.T) {
 			p.Spec.Limits.MaxCostMicroUSD = 10000000
 			p.Spec.Limits.MaxEvaluateCostMicroUSD = new(int64(9000000))
 			for _, st := range []*v1alpha1.StageLimits{&p.Spec.Limits.Plan, &p.Spec.Limits.Build,
-				&p.Spec.Limits.Revise, &p.Spec.Limits.Evaluate, &p.Spec.Limits.CheckReview} {
+				&p.Spec.Limits.Revise, &p.Spec.Limits.Evaluate} {
 				st.MaxCostMicroUSD = 1000000
 			}
 			tt.set(&p.Spec.Limits)
@@ -388,8 +375,8 @@ func TestRoleBudgetOverHourlyLimit(t *testing.T) {
 
 // TestRoleBudgetUnderRequestReserve (S1 bug 6): under the cost unit the
 // egress broker reserves each request's whole output bound at the model's
-// output price, so an evaluate or checkreview run budget smaller than two
-// such reservations (at the stage's output bound, provider.*MaxOutputTokens,
+// output price, so an evaluate run budget smaller than two such
+// reservations (at the stage's output bound, provider.*MaxOutputTokens,
 // on the stage's model) would starve the run; the Project is not Ready,
 // naming the stage, its budget, the least budget it needs and the field
 // that raises it. The docs' own example budgets are Ready, and nothing is
@@ -397,28 +384,26 @@ func TestRoleBudgetOverHourlyLimit(t *testing.T) {
 func TestRoleBudgetUnderRequestReserve(t *testing.T) {
 	settings := func() Settings {
 		s := roleSettings()
-		s.EvaluateModel, s.CheckReviewModel = "anthropic/claude-sonnet-5", "anthropic/claude-sonnet-5"
+		s.EvaluateModel = "anthropic/claude-sonnet-5"
 		return s
 	}
-	project := func(evaluate, checkReview int64) *v1alpha1.Project {
+	project := func(evaluate int64) *v1alpha1.Project {
 		p := evaluatingProject()
 		p.Spec.Limits.Evaluate.MaxCostMicroUSD = evaluate
-		p.Spec.Limits.CheckReview.MaxCostMicroUSD = checkReview
 		return p
 	}
-	// claude-sonnet-5 output is $10 per million tokens: 8192 tokens reserve
-	// 81920 micro-USD, 32000 reserve 320000.
+	// claude-sonnet-5 output is $10 per million tokens: 32000 tokens
+	// reserve 320000 micro-USD.
 	for _, tt := range []struct {
 		name                string
-		evaluate, review    int64
+		evaluate            int64
 		stage, field, least string
 		budget              string
 	}{
-		{"checkreview", 1500000, 150000, "checkreview run", "limits.checkReview.maxCostMicroUSD", "163840", "150000"},
-		{"evaluate", 600000, 300000, "evaluate run", "limits.evaluate.maxCostMicroUSD", "640000", "600000"},
+		{"evaluate", 600000, "evaluate run", "limits.evaluate.maxCostMicroUSD", "640000", "600000"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			reason, msg := settings().refusal(project(tt.evaluate, tt.review))
+			reason, msg := settings().refusal(project(tt.evaluate))
 			if reason != ReasonRunBudgetUnderRequestReserve {
 				t.Fatalf("refusal = %q (%s), want %s", reason, msg, ReasonRunBudgetUnderRequestReserve)
 			}
@@ -432,19 +417,19 @@ func TestRoleBudgetUnderRequestReserve(t *testing.T) {
 
 	// docs/intents/evaluator.md's example limits, and the defaults.
 	for name, p := range map[string]*v1alpha1.Project{
-		"the documented example": project(1500000, 300000),
-		"the defaults":           project(0, 0),
-		"exactly two reserves":   project(640000, 163840),
+		"the documented example": project(1500000),
+		"the defaults":           project(0),
+		"exactly two reserves":   project(640000),
 	} {
 		if reason, msg := settings().refusal(p); reason != "" {
 			t.Errorf("%s: refusal = %q (%s), want none", name, reason, msg)
 		}
 	}
-	tooSmall := project(1500000, 100000)
+	tooSmall := project(600000)
 	for name, s := range map[string]func(*Settings){
 		"the token unit":    func(s *Settings) { s.CostBudgets = false },
 		"no evaluator":      func(s *Settings) { s.Evaluator = false },
-		"an unpriced model": func(s *Settings) { s.CheckReviewModel = "" },
+		"an unpriced model": func(s *Settings) { s.EvaluateModel = "" },
 	} {
 		st := settings()
 		s(&st)

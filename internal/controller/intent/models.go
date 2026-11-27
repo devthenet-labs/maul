@@ -47,7 +47,7 @@ func (s Settings) harness(h v1alpha1.ProjectHarness) RunHarness {
 
 // admittedModels are the models a Project on harness h may choose in
 // spec.models: its stage flags' own (and, under the agent evaluator, the
-// claude evaluator's and check reviewer's), then the --intent-model-allowlist
+// claude evaluator's), then the --intent-model-allowlist
 // entries that resolved to h at startup. None while h is off.
 func (s Settings) admittedModels(h v1alpha1.ProjectHarness) []string {
 	if s.harnessOff(h) {
@@ -56,7 +56,7 @@ func (s Settings) admittedModels(h v1alpha1.ProjectHarness) []string {
 	rh := s.harness(h)
 	ids := []string{rh.PlanModel, rh.BuildModel}
 	if !h.IsCodex() && s.Evaluator {
-		ids = append(ids, s.EvaluateModel, s.CheckReviewModel)
+		ids = append(ids, s.EvaluateModel)
 	}
 	var out []string
 	for _, id := range append(ids, rh.Allowed.IDs()...) {
@@ -73,15 +73,17 @@ func (s Settings) modelAdmitted(h v1alpha1.ProjectHarness, id string) bool {
 }
 
 // projectModelFields are spec.models' fields by name, in the Project's
-// order: evaluate and checkReview only with the agent evaluator on, since
-// without it no run of either stage is ever created.
+// order: evaluate only with the agent evaluator on, since without it no
+// run of the stage is ever created. checkReview is a retired field, kept
+// in the schema for one release: no run of its stage is created, so what
+// it names is never judged and never keeps a Project from being Ready.
 func projectModelFields(m *v1alpha1.ProjectModels, evaluator bool) [][2]string {
 	if m == nil {
 		return nil
 	}
 	fields := [][2]string{{"plan", m.Plan}, {"build", m.Build}}
 	if evaluator {
-		fields = append(fields, [2]string{"evaluate", m.Evaluate}, [2]string{"checkReview", m.CheckReview})
+		fields = append(fields, [2]string{"evaluate", m.Evaluate})
 	}
 	return fields
 }
@@ -91,8 +93,8 @@ func projectModelFields(m *v1alpha1.ProjectModels, evaluator bool) [][2]string {
 // for its harness. Every field whose stage this controller can run is
 // judged, whether or not this Project's runs reach it now, so a choice that
 // could never run is reported when it is made, not when it is first used.
-// With the agent evaluator off, evaluate and checkReview are not judged: no
-// run of theirs is created, and turning the evaluator off (its rollback)
+// With the agent evaluator off, evaluate is not judged: no run of it is
+// created, and turning the evaluator off (its rollback)
 // must stop no Project. A Project on a harness this controller runs no intent on is refused for
 // that alone (HarnessNotEnabled), its runs waiting Pending, never held for
 // its models.
@@ -120,9 +122,9 @@ func (s Settings) modelRefusal(p *v1alpha1.Project) string {
 
 // chosenModel is the model p's spec.models chooses for a run of stage, ""
 // when it chooses none, so the run records none and runs the stage flag as
-// before (runModel). A revise run takes the build choice. An evaluate or
-// checkreview run takes its own; a codex Project's, unset, takes the build
-// choice, as a codex role run otherwise runs the codex build model.
+// before (runModel). A revise run takes the build choice. An evaluate run
+// takes its own; a codex Project's, unset, takes the build choice, as a
+// codex evaluate run otherwise runs the codex build model.
 func chosenModel(p *v1alpha1.Project, stage v1alpha1.IntentStage) string {
 	m := p.Spec.Models
 	if m == nil {
@@ -136,8 +138,6 @@ func chosenModel(p *v1alpha1.Project, stage v1alpha1.IntentStage) string {
 		return m.Build
 	case v1alpha1.IntentStageEvaluate:
 		id = m.Evaluate
-	case v1alpha1.IntentStageCheckReview:
-		id = m.CheckReview
 	}
 	if id == "" && p.Spec.Harness.IsCodex() {
 		return m.Build
@@ -156,9 +156,9 @@ func (s Settings) stageModel(p *v1alpha1.Project, stage v1alpha1.IntentStage) st
 }
 
 // flagModel is the stage flag's model for a run of stage on harness h: the
-// plan or build model of h (a revise run's is the build's); an evaluate or
-// checkreview run's, the stage's own on claude and the build model on codex,
-// which has no evaluator models of its own.
+// plan or build model of h (a revise run's is the build's); an evaluate
+// run's, the evaluate model on claude and the build model on codex, which
+// has no evaluator model of its own.
 func (s Settings) flagModel(h v1alpha1.ProjectHarness, stage v1alpha1.IntentStage) string {
 	rh := s.harness(h)
 	switch {
@@ -166,8 +166,6 @@ func (s Settings) flagModel(h v1alpha1.ProjectHarness, stage v1alpha1.IntentStag
 		return rh.PlanModel
 	case !roleStage(stage), h.IsCodex():
 		return rh.BuildModel
-	case stage == v1alpha1.IntentStageCheckReview:
-		return s.CheckReviewModel
 	}
 	return s.EvaluateModel
 }
