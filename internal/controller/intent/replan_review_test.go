@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/templates"
@@ -426,6 +427,10 @@ func TestReplanInReviewDropsTheVerification(t *testing.T) {
 	}
 	round := before.Status.Verification.Round
 	runs := len(e.runPtrs(name))
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		// The old plan's verification had halted its fixes.
+		setCondition(in, v1alpha1.ConditionVerifyFailing, metav1.ConditionTrue, "RepeatedFailure", "old plan")
+	})
 	e.clock.Advance(time.Minute)
 	e.gh.comment(approver, "/maul replan")
 	in := e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
@@ -437,6 +442,9 @@ func TestReplanInReviewDropsTheVerification(t *testing.T) {
 	}
 	if v := in.Status.Verification; v == nil || v.Round != round {
 		t.Errorf("verification after the replan = %+v, want its round numbering (%d) kept", v, round)
+	}
+	if c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionVerifyFailing); c != nil {
+		t.Errorf("VerifyFailing = %+v after the replan: it was the old plan's", c)
 	}
 	// Spend is summed from the runs, which a replan never deletes: the old
 	// plan's, evaluations included, keep counting.

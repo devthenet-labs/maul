@@ -360,7 +360,8 @@ const replanVerb = "replan"
 // raised to rounds so no new round takes a name an old run holds, and every
 // round notice still owed is dropped: its pull request is closed), the
 // default-branch heads its preview ran, the legacy checks observation, and
-// the blocks review set (resolved: the new plan is held to none of them).
+// the blocks review set (resolved: the new plan is held to none of them) and
+// the verification's VerifyFailing.
 // status.verification and status.acceptance stay: the new plan's approval
 // starts verification afresh (syncAcceptance), with the round numbering
 // carried on.
@@ -377,6 +378,9 @@ func clearReview(cur *v1alpha1.Intent, rounds int32) {
 			setCondition(cur, c, metav1.ConditionFalse, "Replanned", "the plan was replaced by a replan in review")
 		}
 	}
+	// It was about the replaced plan's verification; the new plan's sets it
+	// again if it must.
+	meta.RemoveStatusCondition(&cur.Status.Conditions, v1alpha1.ConditionVerifyFailing)
 }
 
 // highestRound is the highest revise round any run of the intent holds.
