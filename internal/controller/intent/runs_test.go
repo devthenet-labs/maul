@@ -1540,7 +1540,7 @@ func TestPullRequestAdoption(t *testing.T) {
 func TestDeletedBranchBlocksBeforePullRequest(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	branch := branchName(name)
+	branch := legacyBranch(name)
 	e.gh.prs[1] = &fakePR{head: branch, url: appRepoURL + "/pull/1", author: "mallory",
 		base: "main", headRepo: "acme/app", pr: ghclient.PullRequest{Number: 1, State: "open", NodeID: "PR_1"}}
 	e.gh.label(1, "maul:approved", approver)
@@ -1578,7 +1578,7 @@ func TestDeletedBranchBlocksBeforePullRequest(t *testing.T) {
 func TestMovedBranchBlocksBeforePullRequest(t *testing.T) {
 	e := newEnv(t, testProject())
 	name := e.awaiting()
-	branch := branchName(name)
+	branch := legacyBranch(name)
 	e.gh.prs[1] = &fakePR{head: branch, url: appRepoURL + "/pull/1", author: "mallory",
 		base: "main", headRepo: "acme/app", pr: ghclient.PullRequest{Number: 1, State: "open", NodeID: "PR_1"}}
 	e.gh.label(1, "maul:approved", approver)

@@ -119,7 +119,7 @@ func TestReviseHeadMovedBeforeLaunch(t *testing.T) {
 	}
 	const moved = "3333333333333333333333333333333333333333"
 	e.gh.mu.Lock()
-	e.gh.branches[branchName(name)] = moved
+	e.gh.branches[legacyBranch(name)] = moved
 	e.gh.mu.Unlock()
 	e.runRuns()
 	first := e.runsOf(name, v1alpha1.IntentStageRevise)[0]

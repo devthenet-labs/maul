@@ -384,7 +384,7 @@ func (p *pass) blockOnBranch(ctx context.Context, round int32, repo v1alpha1.Pro
 	if err != nil || sha == "" {
 		return false, err
 	}
-	branch := branchName(p.in.Name)
+	branch := branchName(p.in, round)
 	if stale != nil {
 		p.r.log().LogAttrs(ctx, slog.LevelWarn, "the intent branch is at a commit an earlier round pushed",
 			slog.String("intent", p.in.Name), slog.String("repository", repo.URL), slog.String("branch", branch),

@@ -429,7 +429,7 @@ func (p *pass) rearmedAfter(ctx context.Context, pushed []v1alpha1.VerificationH
 	if len(pushed) == 0 || af.State == v1alpha1.AutoFixHalted || af.Rearm == nil {
 		return false, nil
 	}
-	branch := branchName(p.in.Name)
+	branch := p.branch()
 	for _, h := range pushed {
 		at, ok, err := p.r.GitHub.PushedAt(ctx, h.Repository, branch, h.Revision)
 		if ghclient.IsNotFound(err) || ghclient.IsForbidden(err) {

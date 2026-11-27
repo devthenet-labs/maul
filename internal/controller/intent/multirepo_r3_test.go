@@ -251,7 +251,7 @@ func TestRoundBlockedInADepartedRepositoryLifts(t *testing.T) {
 	e.clock.Advance(3 * time.Minute)
 	e.passUntil(name, func() bool { return e.get(name).Status.Phase == v1alpha1.IntentRevising })
 	e.gh.mu.Lock()
-	delete(e.gh.branches, fakeRef(webRepoURL, branchName(name)))
+	delete(e.gh.branches, fakeRef(webRepoURL, legacyBranch(name)))
 	e.gh.mu.Unlock()
 	e.passUntil(name, func() bool { return e.get(name).Status.Phase == v1alpha1.IntentBlocked })
 	if c := meta.FindStatusCondition(e.get(name).Status.Conditions, v1alpha1.ConditionBranchConflict); c == nil ||

@@ -34,7 +34,7 @@ func (e *env) revisesIn(name, repoURL string) []v1alpha1.IntentRun {
 func (e *env) branchIn(name, repoURL string) string {
 	e.gh.mu.Lock()
 	defer e.gh.mu.Unlock()
-	return e.gh.branches[fakeRef(repoURL, branchName(name))]
+	return e.gh.branches[fakeRef(repoURL, legacyBranch(name))]
 }
 
 // inReviewLinked drives a new multi-repository intent to InReview and lets

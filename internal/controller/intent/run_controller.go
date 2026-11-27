@@ -1043,7 +1043,10 @@ func (r *RunReconciler) launchJob(ctx context.Context, run *v1alpha1.IntentRun,
 // before any agent Job is launched. It never falls back to the default image.
 func (r *RunReconciler) reviseSource(ctx context.Context, run *v1alpha1.IntentRun,
 	repo *v1alpha1.Repository) (*v1alpha1.Repository, *result, error) {
-	branch := branchName(run.Spec.IntentRef.Name)
+	branch, err := r.runBranch(ctx, run)
+	if err != nil {
+		return nil, nil, err
+	}
 	if repo.Spec.Ref.Branch != branch {
 		return nil, &result{outcome: OutcomeAborted,
 			detail: "revise Repository does not point at this intent's PR branch; nothing was launched"}, nil
@@ -2083,7 +2086,10 @@ func (r *RunReconciler) advanceBranch(ctx context.Context, run *v1alpha1.IntentR
 	case err != nil:
 		return err
 	}
-	branch := branchName(run.Spec.IntentRef.Name)
+	branch, err := r.runBranch(ctx, run)
+	if err != nil {
+		return err
+	}
 	head, err := r.GitHub.HeadSHA(ctx, run.Spec.Repository.URL, branch)
 	if ghclient.IsNotFound(err) {
 		return r.settle(ctx, run, result{outcome: OutcomeHeadMoved, keep: true,
@@ -2118,6 +2124,22 @@ func (r *RunReconciler) advanceBranch(ctx context.Context, run *v1alpha1.IntentR
 	return r.settle(ctx, run, result{outcome: string(envelope.OutcomeOK), complete: true, keep: true})
 }
 
+// runBranch is the branch a build or revise run pushes to: its plan
+// revision's (branchName), read from its Intent uncached. The Intent records
+// planBranchesFrom once, before any plan builds on a branch of its own, so
+// every read gives a run the same branch.
+func (r *RunReconciler) runBranch(ctx context.Context, run *v1alpha1.IntentRun) (string, error) {
+	var in v1alpha1.Intent
+	if err := r.APIReader.Get(ctx, types.NamespacedName{Namespace: run.Namespace, Name: run.Spec.IntentRef.Name},
+		&in); err != nil {
+		return "", fmt.Errorf("read the run's intent for its branch: %w", err)
+	}
+	if in.UID != run.Spec.IntentRef.UID {
+		return "", fmt.Errorf("read the run's intent for its branch: %w", errIntentEnded)
+	}
+	return branchName(&in, run.Spec.Inputs.PlanRevision), nil
+}
+
 // createBranch creates maul-intent/<intent> at the recorded commit,
 // create-only: an existing branch is adopted only when it already points at
 // that commit (a retry), and is otherwise branch_exists. Nothing is forced.
@@ -2130,8 +2152,11 @@ func (r *RunReconciler) createBranch(ctx context.Context, run *v1alpha1.IntentRu
 	case err != nil:
 		return err
 	}
-	branch := branchName(run.Spec.IntentRef.Name)
-	err := r.GitHub.CreateBranchRef(ctx, run.Spec.Repository.URL, branch, run.Status.PushedCommit)
+	branch, err := r.runBranch(ctx, run)
+	if err != nil {
+		return err
+	}
+	err = r.GitHub.CreateBranchRef(ctx, run.Spec.Repository.URL, branch, run.Status.PushedCommit)
 	switch {
 	case errors.Is(err, ghclient.ErrBranchExists):
 		return r.settle(ctx, run, result{outcome: OutcomeBranchExists, detail: err.Error(), keep: true})

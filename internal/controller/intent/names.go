@@ -39,8 +39,21 @@ func runInputName(run string) string { return run + "-input" }
 
 func runRepositoryName(run string) string { return run + "-src" }
 
-// branchName is the branch every pull request of the intent is opened from.
-func branchName(intent string) string { return v1alpha1.IntentBranchPrefix + intent }
+// branchName is the branch the pull requests of in's plan revision
+// planRevision are opened from (v1alpha1.IntentBranch): maul-intent/<intent>,
+// or, for a plan a replan in review made, a branch of its own.
+func branchName(in *v1alpha1.Intent, planRevision int32) string {
+	return v1alpha1.IntentBranch(in.Name, planRevision, in.Status.PlanBranchesFrom)
+}
+
+// branch is the branch the approved plan's pull requests are opened from.
+func (p *pass) branch() string {
+	var rev int32
+	if ap := p.in.Status.Approval; ap != nil {
+		rev = ap.PlanRevision
+	}
+	return branchName(p.in, rev)
+}
 
 // ConfigMap data keys.
 const (
