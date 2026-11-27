@@ -632,6 +632,7 @@ func TestIntentEvaluateFixRound(t *testing.T) {
 	// The round after the fix is handed the round before it.
 	evals = e.evaluatorJobs()
 	checkPriorRound(t, evals[len(evals)-1].Issue)
+	checkFocusedPrompts(t, evals)
 
 	// Case 9: no build or fix handoff of the whole run names the evaluator.
 	for _, r := range e.kubelet.Runs() {
@@ -662,6 +663,25 @@ func checkReproduction(t *testing.T, repro string) {
 	}
 	if strings.Contains(repro, "e2e-secret-token") {
 		t.Errorf("the fix handoff carries the bearer token unredacted:\n%s", repro)
+	}
+}
+
+// checkFocusedPrompts holds the prompts the scripted evaluator received to
+// the change-focused round: only the round after the fix (the one handed
+// its diff and the round before it, whole) is told what the diff changes
+// and that an untouched outcome that passed needs one look; round 1 and
+// round 2 (at unmoved heads: no diff) are first-round prompts.
+func checkFocusedPrompts(t *testing.T, evals []agentRun) {
+	t.Helper()
+	const heading = "### What this round covers"
+	for i, r := range evals {
+		prompt, err := os.ReadFile(filepath.Join(r.Workspace, ".fake-claude", "prompt-evaluate"))
+		if err != nil {
+			t.Fatalf("read evaluate Job %d's prompt: %v", i+1, err)
+		}
+		if got, want := strings.Contains(string(prompt), heading), i == len(evals)-1; got != want {
+			t.Errorf("evaluate Job %d's prompt has the change-focused section = %v, want %v", i+1, got, want)
+		}
 	}
 }
 

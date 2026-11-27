@@ -64,6 +64,25 @@ not pass, and every outcome the change since then touches. It is no evidence for
 cites calls you make in this run.
 
 {{fence . | chomp}}
+{{- end}}
+{{- if .Focused}}
+
+### What this round covers
+
+The code changed since round {{.PriorRound}}, and the approved outcomes did not. Start from the diff: work out which
+outcomes, and which parts of the application, it can affect. Then judge each outcome by how the previous round
+judged it:
+
+- An outcome that did not pass there (it failed, was unsure or is not listed), and every outcome the diff can affect,
+  is judged as fully as in a first round: with inputs of your own beyond each example, and its rule tried beyond the
+  example.
+- An outcome that passed there and that the diff cannot affect needs one direct look that it still holds: the call a
+  person would make to see it, with data of your own.
+- Where you cannot tell what the diff affects (the diff is cut, or it touches code many paths share: a router, a
+  schema, a shared component, a dependency, configuration), treat every outcome as affected.
+
+Every verdict still cites calls you make in this run: a result from round {{.PriorRound}} is never evidence here, and
+an outcome you did not look at in this run is unsure.
 {{- end}}{{end}}
 {{define "evaluate-rule"}}**Judge the rule, not only its example.** An outcome often states a rule (what holds for any input of a kind, a bound, a
 "never" or an "always") and names an example of it. The example is one instance: the outcome holds only if the rule

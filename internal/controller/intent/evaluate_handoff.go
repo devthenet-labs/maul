@@ -19,6 +19,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/acceptance/crdconv"
 	"github.com/devthenet-labs/maul/internal/agentrun"
 	"github.com/devthenet-labs/maul/internal/controller/intent/agentshost"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
@@ -226,7 +227,43 @@ func (p *pass) previousRound(ctx context.Context, pv *v1alpha1.PreviewVerificati
 	}
 	h.PriorRound = int(prev.Spec.Round)
 	h.FixDiff, h.FixDiffCut = p.fixDiff(ctx, prev, pv)
+	if !p.resultsAreOf(prev, pv) {
+		h.PriorVerdicts = nil
+	}
 	return nil
+}
+
+// resultsAreOf reports whether the Intent's recorded results are the clean
+// judgement of prev, the round the diff is since, on the components pv
+// evaluates. agent-runner derives a change-focused round (a light look at
+// what passed and the diff leaves untouched) from a handoff that carries a
+// diff and a result for every outcome, and cannot see these facts, so the
+// results are sent only when they hold: the observed judging rule, a clean
+// environment, the judgement of prev's own round (outcomes outlive their
+// round: a later judgement of another round does not describe prev), and
+// the same components (a component one round did not evaluate has no diff).
+// Otherwise the evaluator is handed no results and judges every outcome as
+// a first round does.
+func (p *pass) resultsAreOf(prev, pv *v1alpha1.PreviewVerification) bool {
+	v := p.in.Status.Verification
+	if v == nil || v.Judge != v1alpha1.JudgeObserved || v.OutcomesRound != prev.Spec.Round ||
+		!httpstep.EnvClass(v.OutcomesEnvironment).Clean() {
+		return false
+	}
+	return sameComponents(prev.Spec.Heads, pv.Spec.Heads)
+}
+
+// sameComponents reports whether a and b head exactly the same components.
+func sameComponents(a, b []v1alpha1.VerificationHead) bool {
+	keys := func(heads []v1alpha1.VerificationHead) []string {
+		out := make([]string, 0, len(heads))
+		for _, h := range heads {
+			out = append(out, h.Component)
+		}
+		slices.Sort(out)
+		return out
+	}
+	return slices.Equal(keys(a), keys(b))
 }
 
 // judgedBefore is the Intent's latest PreviewVerification before pv's round

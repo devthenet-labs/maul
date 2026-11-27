@@ -107,6 +107,13 @@ type EvaluatePrompt struct {
 	// or none, omits the section.
 	PriorRound    int
 	PriorVerdicts []PriorVerdict
+	// Focused makes the round a change-focused one: the prompt says what
+	// the diff since PriorRound can affect is judged in full and an
+	// outcome that passed and is untouched needs one look, and its turns
+	// go to the diff's effects. Set only by agentrun's derivation
+	// (EvaluateHandoff.changeFocused), which needs the whole round's
+	// facts; false is a round exactly as before.
+	Focused bool
 
 	// shed is what RenderEvaluatePrompt left out to keep the prompt within
 	// its bound, which the prompt says.

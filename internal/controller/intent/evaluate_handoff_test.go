@@ -14,6 +14,7 @@ import (
 
 	v1alpha1 "github.com/devthenet-labs/maul/api/v1alpha1"
 	"github.com/devthenet-labs/maul/internal/agentrun"
+	"github.com/devthenet-labs/maul/internal/httpstep"
 	"github.com/devthenet-labs/maul/internal/templates"
 )
 
@@ -44,6 +45,11 @@ func TestEvaluateHandoffCarriesThePreviousRound(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.setStatus(name, func(in *v1alpha1.Intent) {
+		// What a judgement of round 1 on a clean environment records
+		// beside its results.
+		v := in.Status.Verification
+		v.Judge, v.OutcomesRound, v.OutcomesEnvironment = v1alpha1.JudgeObserved, pv1.Spec.Round,
+			string(httpstep.EnvOK)
 		in.Status.Verification.Outcomes = []v1alpha1.OutcomeResult{
 			{ID: oVersion, Result: v1alpha1.OutcomeFailed, Reason: "the note is wrong\u202e"},
 			{ID: oHealthy, Result: v1alpha1.OutcomePassed, Cites: []int32{2}},
@@ -130,5 +136,71 @@ func TestEvaluateHandoffCarriesTheBrowserEntry(t *testing.T) {
 	pv.Spec.Tools.Browser = false
 	if got := decodeEvaluateHandoff(t, mustHandoff(t, p, &pv)).Tools.BrowserEntry; got != "" {
 		t.Errorf("browser entry without a browser = %q, want none", got)
+	}
+}
+
+// TestEvaluateHandoffSendsResultsOnlyOfTheJudgedRound: agent-runner derives
+// a change-focused round from a handoff that carries a diff and a result
+// for every outcome, so the controller sends those results only when they
+// are the clean judgement of the very round the diff is since: the same
+// judging rule, a clean environment, the judgement of the previous
+// PreviewVerification's own round, and the same components. Each condition
+// alone drops the results (the diff and the round stay), so the round is
+// then never change-focused.
+func TestEvaluateHandoffSendsResultsOnlyOfTheJudgedRound(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		intent func(*v1alpha1.IntentVerification)
+		pv     func(*v1alpha1.PreviewVerification)
+		sends  bool
+	}{
+		{name: "every condition holds", sends: true},
+		{name: "another judging rule", intent: func(v *v1alpha1.IntentVerification) { v.Judge = "" }},
+		{name: "an application failure", intent: func(v *v1alpha1.IntentVerification) {
+			v.OutcomesEnvironment = string(httpstep.EnvAppFailure)
+		}},
+		{name: "infrastructure trouble", intent: func(v *v1alpha1.IntentVerification) {
+			v.OutcomesEnvironment = string(httpstep.EnvInfra)
+		}},
+		{name: "no recorded environment", intent: func(v *v1alpha1.IntentVerification) { v.OutcomesEnvironment = "" }},
+		{name: "results of another round", intent: func(v *v1alpha1.IntentVerification) { v.OutcomesRound = 7 }},
+		{name: "a component the last round did not evaluate", pv: func(pv *v1alpha1.PreviewVerification) {
+			pv.Spec.Heads = append(pv.Spec.Heads, v1alpha1.VerificationHead{Component: "extra",
+				Repository: "https://github.com/acme/extra", Revision: strings.Repeat("c", 40)})
+		}},
+	} {
+		e, name := newEvaluatorEnv(t, 0.4)
+		e.review(name, 3)
+		pv1 := e.onlyVerification(name)
+		pv1.Status.Phase = v1alpha1.VerificationObserved
+		if err := e.c.Update(context.Background(), &pv1); err != nil {
+			t.Fatal(err)
+		}
+		e.setStatus(name, func(in *v1alpha1.Intent) {
+			v := in.Status.Verification
+			v.Judge, v.OutcomesRound, v.OutcomesEnvironment = v1alpha1.JudgeObserved, pv1.Spec.Round,
+				string(httpstep.EnvOK)
+			v.Outcomes = []v1alpha1.OutcomeResult{{ID: oVersion, Result: v1alpha1.OutcomeFailed, Reason: "no"},
+				{ID: oHealthy, Result: v1alpha1.OutcomePassed, Cites: []int32{2}}}
+			if tt.intent != nil {
+				tt.intent(v)
+			}
+		})
+		p := e.prVerifyPass(name)
+		pv2 := pv1.DeepCopy()
+		pv2.Name, pv2.UID = pv1.Name+"-next", types.UID("pv2-uid")
+		pv2.Spec.Round, pv2.Status = 2, v1alpha1.PreviewVerificationStatus{}
+		pv2.Spec.Heads[0].Revision = strings.Repeat("b", 40)
+		if tt.pv != nil {
+			tt.pv(pv2)
+		}
+		h := decodeEvaluateHandoff(t, mustHandoff(t, p, pv2))
+		if h.PriorRound != 1 || h.FixDiff == "" {
+			t.Errorf("%s: prior round %d, fix diff %d bytes, want the round and the diff kept", tt.name, h.PriorRound,
+				len(h.FixDiff))
+		}
+		if got := len(h.PriorVerdicts) > 0; got != tt.sends {
+			t.Errorf("%s: results sent = %v, want %v", tt.name, got, tt.sends)
+		}
 	}
 }

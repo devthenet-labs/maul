@@ -322,6 +322,7 @@ func (h EvaluateHandoff) prompt(reportPath, shotsDir string, limits templates.St
 			MaxToolCalls: h.Tools.MaxToolCalls, LookAroundRoutes: h.Tools.LookAroundRoutes,
 		},
 		Request: h.Request, Outcomes: h.Outcomes, FixDiff: h.FixDiff, PriorRound: h.PriorRound,
+		Focused: h.changeFocused(),
 	}
 	if c := h.FixDiffCut; c != nil {
 		p.FixDiffCut = templates.FixDiffCut{ShownBytes: c.ShownBytes, ReadBytes: c.ReadBytes, ForgeCut: c.ForgeCut,

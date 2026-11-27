@@ -85,6 +85,23 @@ verdict cites. Output separates what maul measured (`[observed]`) from the bytes
    - It spends its turns on the outcomes first, within a turn budget per outcome, and writes its report as soon as every
      outcome has a verdict.
 
+   **After a change: a change-focused round.** A round that follows a judged one at moved heads (an agent's fix or a
+   person's push) is handed the diff since that round and its results. When the diff is whole enough to read (maul could
+   read every repository's compare, and the forge cut none of them) and the previous round's results are the clean
+   judgement of the round the diff is since, on the same components, the evaluator's prompt says so, and changes its
+   words in four ways: it starts from the diff and works out which outcomes, and which parts of the application, it can
+   affect; an outcome that did not pass in the previous round (it failed, was unsure or is not listed), and every
+   outcome the diff can affect, is judged as fully as in a first round; only an outcome that passed there and that the
+   diff cannot affect needs one direct look, the call a person would make, with data of its own; and where the diff is
+   cut, or touches code many paths share (a router, a schema, a shared component, a dependency, configuration), every
+   outcome counts as affected. Its turns go to what the diff can affect, and its look-around visits only the pages or
+   endpoints the diff changes. Nothing else changes: the limits, the ledger and the pass rules are a first round's,
+   every verdict still cites calls made in this run (a result from the previous round is never evidence), and an outcome
+   the evaluator did not look at is unsure. agent-runner derives the focus from the handoff, so there is no setting for
+   it; a round without a diff, or whose previous results do not cover every outcome, is a first-round prompt. The aim is
+   fewer turns and less cost on the rounds after a fix; compare a fix cycle's evaluate runs with its first round's turns
+   and cost to see it.
+
    The report's frontmatter is decoded strictly: `verdicts` (per outcome its `outcome` id, the older `id` still read,
    both differing refused; `verdict`; `ledger`, the seqs it cites, at most 8 that count kept; an optional one-line
    `note`) and `anomalies`. Any other key refuses the whole report, among them the keys an earlier release's evaluator
