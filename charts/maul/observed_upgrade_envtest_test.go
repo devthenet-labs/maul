@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
@@ -742,28 +741,7 @@ func holds(v any, path []string) bool {
 
 // applyCRDs replaces the four CRDs with those under dir.
 func (u *observedUpgrade) applyCRDs(dir string) {
-	t, ctx := u.t, u.t.Context()
-	for _, file := range observedKinds {
-		b, err := os.ReadFile(dir + file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var want apiextensionsv1.CustomResourceDefinition
-		dec := utilyaml.NewYAMLOrJSONDecoder(strings.NewReader(string(b)), 4096)
-		for want.Name == "" {
-			if err := dec.Decode(&want); err != nil {
-				t.Fatalf("decode %s: %v", file, err)
-			}
-		}
-		var crd apiextensionsv1.CustomResourceDefinition
-		if err := u.crds.Get(ctx, client.ObjectKey{Name: want.Name}, &crd); err != nil {
-			t.Fatal(err)
-		}
-		crd.Spec = want.Spec
-		if err := u.crds.Update(ctx, &crd); err != nil {
-			t.Fatalf("apply %s%s: %v", dir, file, err)
-		}
-	}
+	applyCRDFiles(u.t, u.crds, dir, observedKinds)
 }
 
 // waitServed waits until the API server serves the CRDs just applied: N's

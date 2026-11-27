@@ -266,11 +266,23 @@ func censusClient(t *testing.T, objs ...client.Object) client.Client {
 // TestSlice1CensusGauge: Report publishes the census as
 // maul.intent.slice1_records, one point per kind.
 func TestSlice1CensusGauge(t *testing.T) {
+	got := gaugePoints(t, "maul.intent.slice1_records", func() {
+		Slice1Census{Intents: []string{"a", "b"}, Verifications: []string{"a-v1"}}.Report()
+	})
+	if want := map[string]int64{"intent": 2, "previewverification": 1}; !maps.Equal(got, want) {
+		t.Errorf("gauge = %v, want %v", got, want)
+	}
+}
+
+// gaugePoints runs report under a fresh meter provider and returns the
+// int64 gauge name's points by their kind attribute.
+func gaugePoints(t *testing.T, name string, report func()) map[string]int64 {
+	t.Helper()
 	reader := sdkmetric.NewManualReader()
 	prev := otel.GetMeterProvider()
 	otel.SetMeterProvider(sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader)))
 	t.Cleanup(func() { otel.SetMeterProvider(prev) })
-	Slice1Census{Intents: []string{"a", "b"}, Verifications: []string{"a-v1"}}.Report()
+	report()
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(context.Background(), &rm); err != nil {
 		t.Fatal(err)
@@ -278,12 +290,12 @@ func TestSlice1CensusGauge(t *testing.T) {
 	got := map[string]int64{}
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
-			if m.Name != "maul.intent.slice1_records" {
+			if m.Name != name {
 				continue
 			}
 			g, ok := m.Data.(metricdata.Gauge[int64])
 			if !ok {
-				t.Fatalf("maul.intent.slice1_records is %T, want an int64 gauge", m.Data)
+				t.Fatalf("%s is %T, want an int64 gauge", name, m.Data)
 			}
 			for _, dp := range g.DataPoints {
 				kind, _ := dp.Attributes.Value(attribute.Key("kind"))
@@ -291,9 +303,7 @@ func TestSlice1CensusGauge(t *testing.T) {
 			}
 		}
 	}
-	if want := map[string]int64{"intent": 2, "previewverification": 1}; !maps.Equal(got, want) {
-		t.Errorf("gauge = %v, want %v", got, want)
-	}
+	return got
 }
 
 // TestSlice1CensusPointsUnlisted: PreviewVerifications that could not be

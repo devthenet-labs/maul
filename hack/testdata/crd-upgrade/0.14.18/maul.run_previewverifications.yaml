@@ -1,0 +1,1481 @@
+# Copyright 2026 Bitwise Media Group Ltd.
+# SPDX-License-Identifier: MIT
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.22.0
+  name: previewverifications.maul.run
+spec:
+  group: maul.run
+  names:
+    categories:
+    - maul
+    kind: PreviewVerification
+    listKind: PreviewVerificationList
+    plural: previewverifications
+    shortNames:
+    - pver
+    singular: previewverification
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.intentRef.name
+      name: Intent
+      type: string
+    - jsonPath: .spec.round
+      name: Round
+      type: integer
+    - jsonPath: .spec.attempt
+      name: Attempt
+      type: integer
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.reason
+      name: Reason
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          PreviewVerification is one attempt to evaluate an Intent's approved
+          outcomes, against its Preview inside the Preview's slot or, for a Project
+          with no preview, in the agents namespace. It lives in the release
+          namespace, owned by its Intent (controller reference), named
+          <intent>-v<round>-a<attempt>. intent-controller creates and deletes it
+          and decides what its ledger shows; preview-controller (or, for an agents
+          verification, intent-controller's agents host) runs the tool pod and
+          writes its status. Its name is written into label values, so
+          the schema refuses one over 63 characters.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              PreviewVerificationSpec is one request to evaluate an Intent's approved
+              outcomes (the agent evaluator) against its Preview, or in the agents
+              namespace's workspace, at exactly the recorded heads: the outcomes with
+              their digest, the rung and the tool pod's tools. Slice 1's criteria are
+              removed: a request without outcomes is refused (a stored one, pruned of
+              its criteria, is answered Stale stale-approval and never run).
+              intent-controller writes it once, at creation, and it is immutable: a new
+              attempt or round is a new PreviewVerification. preview-controller re-checks
+              every field against the Intent and the Preview before it renders anything.
+            properties:
+              attempt:
+                description: |-
+                  Attempt within the round, 1-based; only an infrastructure failure
+                  starts another (MaxVerificationAttempts).
+                format: int32
+                maximum: 3
+                minimum: 1
+                type: integer
+              checks:
+                description: |-
+                  Checks are the Intent's saved checks, copied inline from its check
+                  store (status.acceptance.checks), which preview-controller copies
+                  into the slot tool pod's ConfigMap: it never reads the store, so it
+                  needs no read of the release namespace's ConfigMaps (SPEC Q1). Empty
+                  on a first round, before any check is saved. Retired with saved
+                  checks: the observed evaluator never writes it. Kept for a rollback;
+                  removed in the next release.
+                items:
+                  description: |-
+                    SavedCheck is one confirmed, reviewed check of an approved outcome an
+                    earlier release saved: its canonical JSON and digest. Retired with saved
+                    checks: the observed evaluator neither writes nor reads one. The body is
+                    the agent's, and is untrusted text.
+                  properties:
+                    body:
+                      description: Body is the check's canonical JSON, at most MaxSavedCheckBytes
+                        bytes.
+                      maxLength: 8192
+                      minLength: 1
+                      type: string
+                    digest:
+                      description: |-
+                        Digest is the body's digest, as the earlier release computed it:
+                        what its dry runs, confirmations, replays and reviews were recorded
+                        against.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    expect:
+                      description: |-
+                        Expect is fail for a check saved to show a defect: proposed for a fail
+                        verdict, its dry run and its confirmation red by assertion, reviewed
+                        with the red question. It is the check of the outcome as approved all
+                        the same, so it passes once the defect is fixed. Unset for a check
+                        saved green.
+                      enum:
+                      - fail
+                      type: string
+                    failedAssertion:
+                      description: |-
+                        FailedAssertion is, for a check saved red, which assertion of
+                        FailedStep failed (CheckRun.AssertionID). Until the check replays green
+                        once, only a run red by this same assertion reproduces its defect.
+                      maxLength: 512
+                      type: string
+                    failedStep:
+                      description: |-
+                        FailedStep is, for a check saved red, the step (1-based) at which its
+                        confirmation failed by assertion.
+                      format: int32
+                      maximum: 64
+                      minimum: 1
+                      type: integer
+                    form:
+                      description: Form is how the check runs.
+                      enum:
+                      - http
+                      - browser
+                      - exec
+                      - run
+                      type: string
+                    id:
+                      description: 'ID names the check: its outcome''s id with an
+                        optional .<name>.'
+                      pattern: ^[a-z][a-z0-9-]{0,31}(\.[a-z0-9][a-z0-9-]{0,31})?$
+                      type: string
+                    outcome:
+                      description: Outcome is the id of the outcome the check is bound
+                        to.
+                      pattern: ^[a-z][a-z0-9-]{0,31}$
+                      type: string
+                  required:
+                  - body
+                  - digest
+                  - form
+                  - id
+                  - outcome
+                  type: object
+                  x-kubernetes-validations:
+                  - message: a saved check's body is at most 8 KiB (MaxSavedCheckBytes)
+                    rule: size(bytes(self.body)) <= 8192
+                maxItems: 40
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: atomic
+              checksDigest:
+                description: |-
+                  ChecksDigest is the check store's digest
+                  (status.acceptance.checks.digest). Set with Checks, and only with it.
+                  Retired with saved checks, as Checks is.
+                pattern: ^sha256:[0-9a-f]{64}$
+                type: string
+              headSetDigest:
+                description: |-
+                  HeadSetDigest is the sha256 over the sorted (repository, revision)
+                  pairs of every Preview component: the combined change verified.
+                pattern: ^sha256:[0-9a-f]{64}$
+                type: string
+              heads:
+                description: |-
+                  Heads are the Preview spec's components and their revisions; on an
+                  agents verification, the PR heads, the workspace's repository among
+                  them at its headSHA.
+                items:
+                  description: |-
+                    VerificationHead is one previewed component's revision in the combined
+                    change a verification ran against: what the Preview spec runs.
+                  properties:
+                    component:
+                      description: Component is the previewed repository key.
+                      maxLength: 16
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    repository:
+                      description: Repository is the repository's https URL.
+                      maxLength: 256
+                      minLength: 1
+                      pattern: ^https://[^/\s@?#]+/[^/\s?#]+/[^/\s?#]+$
+                      type: string
+                    revision:
+                      description: Revision is the full commit SHA the component runs.
+                      pattern: ^[0-9a-f]{40}$
+                      type: string
+                  required:
+                  - component
+                  - repository
+                  - revision
+                  type: object
+                maxItems: 4
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - component
+                x-kubernetes-list-type: map
+              intentRef:
+                description: IntentRef is the Intent that owns the verification, pinned
+                  by UID.
+                properties:
+                  name:
+                    description: Name of the referent.
+                    minLength: 1
+                    type: string
+                  uid:
+                    description: UID of the referent at the time the reference was
+                      written.
+                    type: string
+                required:
+                - name
+                type: object
+              outcomes:
+                description: |-
+                  Outcomes are the Intent's approved outcomes (status.acceptance.outcomes),
+                  in plan order, manual ones included: the evaluator judges them.
+                items:
+                  description: |-
+                    AcceptanceOutcome is one outcome of an approved plan: a statement of what
+                    must hold, the issue line it answers, and whether a human checks it.
+                  properties:
+                    from:
+                      description: From quotes the issue line the outcome answers.
+                      maxLength: 300
+                      pattern: ^[^\r\n]*$
+                      type: string
+                    id:
+                      description: ID names the outcome, unique within its plan.
+                      pattern: ^[a-z][a-z0-9-]{0,31}$
+                      type: string
+                    kind:
+                      description: Kind is change or keep; unset is change.
+                      enum:
+                      - change
+                      - keep
+                      type: string
+                    manual:
+                      description: Manual marks an outcome only a human can check
+                        (/maul accept).
+                      type: boolean
+                    outcome:
+                      description: Outcome is the approved one-line statement of what
+                        must hold.
+                      maxLength: 500
+                      minLength: 1
+                      pattern: ^[^\r\n]*$
+                      type: string
+                    reason:
+                      description: Reason says why a manual outcome needs a human.
+                      maxLength: 120
+                      pattern: ^[^\r\n]*$
+                      type: string
+                  required:
+                  - id
+                  - outcome
+                  type: object
+                maxItems: 20
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - id
+                x-kubernetes-list-type: map
+              outcomesDigest:
+                description: |-
+                  OutcomesDigest is the Intent's status.acceptance.outcomesDigest. Set
+                  with Outcomes, and only with it.
+                pattern: ^sha256:[0-9a-f]{64}$
+                type: string
+              placement:
+                description: |-
+                  Placement is where the tool pod runs (VerificationPlacement); unset
+                  is slot. Immutable with the spec.
+                enum:
+                - slot
+                - agents
+                type: string
+              previewGeneration:
+                description: |-
+                  PreviewGeneration is the Preview generation the heads were read at:
+                  at least 1 on a slot verification, unset on an agents one.
+                format: int64
+                type: integer
+              previewRef:
+                description: |-
+                  PreviewRef is the Intent's Preview, pinned by UID. Required on a slot
+                  verification, unset on an agents one.
+                properties:
+                  name:
+                    description: Name of the referent.
+                    minLength: 1
+                    type: string
+                  uid:
+                    description: UID of the referent at the time the reference was
+                      written.
+                    type: string
+                required:
+                - name
+                type: object
+              round:
+                description: Round is the verification round, 1-based.
+                format: int32
+                maximum: 999
+                minimum: 1
+                type: integer
+              run:
+                description: |-
+                  Run is the random token every run placeholder of this attempt carries:
+                  v<round>a<attempt>t<try>-<run>.
+                pattern: ^[0-9a-f]{6}$
+                type: string
+              rung:
+                description: |-
+                  Rung is how much of an evaluation the round runs. Set on an outcome
+                  verification, and only on one. Retired with the cost ladder: the
+                  observed evaluator always writes full, which the schema's rules still
+                  require of an outcome verification. Removed in the next release.
+                enum:
+                - full
+                - replay
+                type: string
+              timeout:
+                description: Timeout is the tool pod's wall clock.
+                type: string
+              tools:
+                description: |-
+                  Tools is what the slot tool pod offers. Set on an outcome
+                  verification, and only on one.
+                properties:
+                  browser:
+                    description: Browser runs the browser sidecar.
+                    type: boolean
+                  lookAroundRoutes:
+                    description: |-
+                      LookAroundRoutes bounds the routes the look-around visits; zero
+                      skips it.
+                    format: int32
+                    maximum: 8
+                    minimum: 0
+                    type: integer
+                  maxToolCalls:
+                    description: |-
+                      MaxToolCalls bounds the evaluator's tool calls; a call past it is
+                      refused, and the refusal is a ledger entry.
+                    format: int32
+                    maximum: 300
+                    minimum: 50
+                    type: integer
+                  sandbox:
+                    description: |-
+                      Sandbox runs the sandbox sidecar (exec checks and agent-written
+                      clients).
+                    type: boolean
+                required:
+                - maxToolCalls
+                type: object
+              workspace:
+                description: |-
+                  Workspace is what an agents verification builds and runs: one
+                  repository's head and base trees in its accepted runner image. Set
+                  on an agents verification, and only on one.
+                properties:
+                  baseRepositoryRef:
+                    description: BaseRepositoryRef is the Repository pinned to BaseSHA,
+                      by UID.
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        minLength: 1
+                        type: string
+                      uid:
+                        description: UID of the referent at the time the reference
+                          was written.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                    x-kubernetes-validations:
+                    - message: the base repository's uid is required
+                      rule: has(self.uid) && size(self.uid) > 0
+                  baseSHA:
+                    description: BaseSHA is the merge base of the head and the PR's
+                      base branch.
+                    pattern: ^[0-9a-f]{40}$
+                    type: string
+                  headRepositoryRef:
+                    description: HeadRepositoryRef is the Repository pinned to HeadSHA,
+                      by UID.
+                    properties:
+                      name:
+                        description: Name of the referent.
+                        minLength: 1
+                        type: string
+                      uid:
+                        description: UID of the referent at the time the reference
+                          was written.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                    x-kubernetes-validations:
+                    - message: the head repository's uid is required
+                      rule: has(self.uid) && size(self.uid) > 0
+                  headSHA:
+                    description: HeadSHA is the PR head commit.
+                    pattern: ^[0-9a-f]{40}$
+                    type: string
+                  networkProfile:
+                    description: |-
+                      NetworkProfile is the operator network profile the repository's
+                      build gets; unset means none. The tool pod's network is never wider.
+                    pattern: ^[a-z]([a-z0-9-]{0,30}[a-z0-9])?$
+                    type: string
+                  repository:
+                    description: Repository is the Project repository's key.
+                    maxLength: 16
+                    minLength: 1
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                    type: string
+                  sandboxImage:
+                    description: |-
+                      SandboxImage is the repository's accepted runner image, by digest:
+                      both sandboxes run it.
+                    maxLength: 512
+                    pattern: ^[a-z0-9][^@\s]*@sha256:[0-9a-f]{64}$
+                    type: string
+                  sandboxSearchPath:
+                    description: |-
+                      SandboxSearchPath is that image's sanitized PATH (its RunnerImage's
+                      searchPath): absolute entries only.
+                    maxLength: 4096
+                    minLength: 1
+                    pattern: ^/[^:\x00-\x1f]*(:/[^:\x00-\x1f]*)*$
+                    type: string
+                  surface:
+                    description: 'Surface is what the tool pod builds: a cli or a
+                      library.'
+                    properties:
+                      cli:
+                        description: CLI builds a binary from the tree.
+                        properties:
+                          binary:
+                            description: Binary is the built binary (CLISurface.Binary).
+                            maxLength: 139
+                            pattern: ^/work/bin(/[A-Za-z0-9_][A-Za-z0-9._-]{0,63}){1,2}$
+                            type: string
+                          build:
+                            description: Build is the build argv (CLISurface.Build).
+                            items:
+                              maxLength: 256
+                              minLength: 1
+                              pattern: ^[^\x00-\x1f\x7f]+$
+                              type: string
+                            maxItems: 16
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-type: atomic
+                            x-kubernetes-validations:
+                            - message: the build must write under /work/bin
+                              rule: self.exists(a, a.contains('/work/bin/') || a.endsWith('/work/bin'))
+                          buildTimeout:
+                            description: BuildTimeout bounds each tree's build, between
+                              1m and 20m.
+                            type: string
+                            x-kubernetes-validations:
+                            - message: buildTimeout must be between 1m and 20m
+                              rule: duration(self) >= duration('1m') && duration(self)
+                                <= duration('20m')
+                        required:
+                        - binary
+                        - build
+                        - buildTimeout
+                        type: object
+                      library:
+                        description: Library runs consumer programs against the tree.
+                        properties:
+                          language:
+                            description: Language of the library.
+                            enum:
+                            - go
+                            type: string
+                        required:
+                        - language
+                        type: object
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a workspace surface is exactly one of cli and library
+                      rule: has(self.cli) != has(self.library)
+                required:
+                - baseRepositoryRef
+                - baseSHA
+                - headRepositoryRef
+                - headSHA
+                - repository
+                - sandboxImage
+                - sandboxSearchPath
+                - surface
+                type: object
+            required:
+            - attempt
+            - headSetDigest
+            - heads
+            - intentRef
+            - round
+            - run
+            - timeout
+            type: object
+            x-kubernetes-validations:
+            - message: spec is immutable; create a new PreviewVerification for a new
+                attempt
+              rule: self == oldSelf
+            - message: 'a verification evaluates outcomes: slice 1''s criteria are
+                removed'
+              rule: has(self.outcomes)
+            - message: outcomes and outcomesDigest are set together
+              rule: has(self.outcomes) == has(self.outcomesDigest)
+            - message: an outcome verification, and only one, names its rung and its
+                tools
+              rule: has(self.outcomes) == has(self.rung) && has(self.outcomes) ==
+                has(self.tools)
+            - message: saved checks belong to an outcome verification
+              rule: '!has(self.checks) || has(self.outcomes)'
+            - message: checks and checksDigest are set together
+              rule: has(self.checks) == has(self.checksDigest)
+            - message: 'a replay round replays saved checks: it needs at least one'
+              rule: '!has(self.rung) || self.rung != ''replay'' || has(self.checks)'
+            - message: spec.intentRef.uid is required
+              rule: has(self.intentRef.uid) && size(self.intentRef.uid) > 0
+            - message: spec.previewRef.uid is required
+              rule: (has(self.placement) && self.placement == 'agents') || (has(self.previewRef)
+                && has(self.previewRef.uid) && size(self.previewRef.uid) > 0)
+            - message: spec.previewGeneration must be at least 1 on a slot verification
+              rule: (has(self.placement) && self.placement == 'agents') || (has(self.previewGeneration)
+                && self.previewGeneration >= 1)
+            - message: spec.timeout must be between 1m and 1h (75m on an agents verification)
+              rule: 'duration(self.timeout) >= duration(''1m'') && duration(self.timeout)
+                <= ((has(self.placement) && self.placement == ''agents'') ? duration(''75m'')
+                : duration(''1h''))'
+            - message: an agents verification, and only one, names its workspace
+              rule: has(self.workspace) == (has(self.placement) && self.placement
+                == 'agents')
+            - message: 'an agents verification has no Preview: previewRef and previewGeneration
+                are unset'
+              rule: '!has(self.placement) || self.placement != ''agents'' || (!has(self.previewRef)
+                && !has(self.previewGeneration))'
+            - message: 'an agents verification''s workspace builds one of its heads:
+                spec.heads names spec.workspace.repository at spec.workspace.headSHA'
+              rule: '!has(self.workspace) || self.heads.exists(h, h.component == self.workspace.repository
+                && h.revision == self.workspace.headSHA)'
+            - message: an agents verification evaluates outcomes with no browser and
+                no look-around
+              rule: '!has(self.placement) || self.placement != ''agents'' || (has(self.outcomes)
+                && has(self.tools) && !(has(self.tools.browser) && self.tools.browser)
+                && (!has(self.tools.lookAroundRoutes) || self.tools.lookAroundRoutes
+                == 0))'
+          status:
+            description: |-
+              PreviewVerificationStatus is written only by preview-controller (and, for
+              an agents verification, by intent-controller's agents host): what the
+              tool pod and the kubelet observed, never a verdict.
+            properties:
+              base:
+                description: |-
+                  Base is an agents verification's base side: whether its outcomes need
+                  a base comparison, whether the base tree built, and each check's run
+                  at base. Unset on a slot verification. Retired with saved checks: the
+                  agents host no longer writes it (a base-side call is context, marked
+                  on its ledger index entry). Kept for a rollback; removed in the next
+                  release.
+                properties:
+                  required:
+                    description: |-
+                      Required reports that a change outcome's check must fail by assertion
+                      at base.
+                    type: boolean
+                  runs:
+                    description: |-
+                      Runs are the checks' runs at base, each with a fresh run token
+                      (CheckRun.tree base). Each names the base tree explicitly: an unset
+                      tree reads as head (CheckRun.Side), so a base run without it would
+                      stand for a head run.
+                    items:
+                      description: CheckRun is one run of one check, as the ledger
+                        recorded it.
+                      properties:
+                        assertionID:
+                          description: |-
+                            AssertionID names which assertion of that step failed, as that check
+                            runner recorded it: "json <pointer>", "header <name>", "bodyContains",
+                            "marker <id>" or "expect". Set with AssertionStep.
+                          maxLength: 512
+                          type: string
+                        assertionStep:
+                          description: |-
+                            AssertionStep is, for a failed run red by assertion, the step (1-based)
+                            at which both attempts failed, an assertion of a check that otherwise
+                            ran, as an earlier release's check runner recorded it: never a check
+                            error, a timeout or a locator that resolved to nothing. Unset
+                            otherwise.
+                          format: int32
+                          maximum: 64
+                          minimum: 1
+                          type: integer
+                        cause:
+                          description: |-
+                            Cause is, for an error run at the base of an agents verification,
+                            why it errored, when the error is the tree's (CheckRunCause); unset
+                            for every other run, and on every slot run.
+                          enum:
+                          - compile
+                          - vendored-tree
+                          - replace-outside-tree
+                          - no-module
+                          - base-unbuildable
+                          type: string
+                        checkDigest:
+                          description: CheckDigest is the check's digest.
+                          pattern: ^sha256:[0-9a-f]{64}$
+                          type: string
+                        dryRunSeq:
+                          description: |-
+                            DryRunSeq is the ledger entry of the dry run a confirmation required:
+                            green, or, for a check expected to fail (Expect), red by assertion;
+                            unset on a replay.
+                          format: int32
+                          maximum: 512
+                          minimum: 1
+                          type: integer
+                        expect:
+                          description: |-
+                            Expect is fail for a confirmation of a check the evaluator proposed
+                            to show a defect.
+                          enum:
+                          - fail
+                          type: string
+                        result:
+                          description: Result of the run.
+                          enum:
+                          - pass
+                          - fail
+                          - quarantined
+                          - error
+                          - refused
+                          type: string
+                        seq:
+                          description: Seq is the ledger entry of the run.
+                          format: int32
+                          maximum: 512
+                          minimum: 1
+                          type: integer
+                        token:
+                          description: |-
+                            Token is the fresh run token the run substituted for the check's
+                            run placeholder.
+                          maxLength: 40
+                          minLength: 1
+                          pattern: ^[A-Za-z0-9-]+$
+                          type: string
+                        tree:
+                          description: |-
+                            Tree is the tree the run ran against in an agents verification;
+                            unset is head (Side), and a slot verification never sets it.
+                          enum:
+                          - head
+                          - base
+                          type: string
+                      required:
+                      - checkDigest
+                      - result
+                      - seq
+                      - token
+                      type: object
+                    maxItems: 80
+                    type: array
+                    x-kubernetes-list-type: atomic
+                    x-kubernetes-validations:
+                    - message: every base run names the base tree
+                      rule: self.all(r, has(r.tree) && r.tree == 'base')
+                  unbuildable:
+                    description: |-
+                      Unbuildable reports that the base tree did not build: every base run
+                      is n/a and a pass rests on the other rules, labelled "no base
+                      comparison".
+                    type: boolean
+                type: object
+              capture:
+                description: |-
+                  Capture summarises the component log tails and slot events captured
+                  for the evaluator.
+                properties:
+                  components:
+                    description: Components are the per-component log tails.
+                    items:
+                      description: ComponentCapture is one component's captured log
+                        tail.
+                      properties:
+                        bytes:
+                          description: Bytes held, at most 64 KiB.
+                          format: int32
+                          maximum: 65536
+                          minimum: 0
+                          type: integer
+                        name:
+                          description: Name of the part.
+                          maxLength: 20
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                        truncated:
+                          description: Truncated reports that older output was dropped
+                            to keep the newest.
+                          type: boolean
+                      required:
+                      - bytes
+                      - name
+                      type: object
+                    maxItems: 12
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  events:
+                    description: Events counts the slot events and container states
+                      captured.
+                    format: int32
+                    maximum: 100000
+                    minimum: 0
+                    type: integer
+                type: object
+              completedAt:
+                description: CompletedAt is when the attempt settled.
+                format: date-time
+                type: string
+              confirmations:
+                description: |-
+                  Confirmations is each proposed check's confirmation run, alone with
+                  a fresh run token, after the evaluator finished. Retired with saved
+                  checks, as Replay is.
+                items:
+                  description: CheckRun is one run of one check, as the ledger recorded
+                    it.
+                  properties:
+                    assertionID:
+                      description: |-
+                        AssertionID names which assertion of that step failed, as that check
+                        runner recorded it: "json <pointer>", "header <name>", "bodyContains",
+                        "marker <id>" or "expect". Set with AssertionStep.
+                      maxLength: 512
+                      type: string
+                    assertionStep:
+                      description: |-
+                        AssertionStep is, for a failed run red by assertion, the step (1-based)
+                        at which both attempts failed, an assertion of a check that otherwise
+                        ran, as an earlier release's check runner recorded it: never a check
+                        error, a timeout or a locator that resolved to nothing. Unset
+                        otherwise.
+                      format: int32
+                      maximum: 64
+                      minimum: 1
+                      type: integer
+                    cause:
+                      description: |-
+                        Cause is, for an error run at the base of an agents verification,
+                        why it errored, when the error is the tree's (CheckRunCause); unset
+                        for every other run, and on every slot run.
+                      enum:
+                      - compile
+                      - vendored-tree
+                      - replace-outside-tree
+                      - no-module
+                      - base-unbuildable
+                      type: string
+                    checkDigest:
+                      description: CheckDigest is the check's digest.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    dryRunSeq:
+                      description: |-
+                        DryRunSeq is the ledger entry of the dry run a confirmation required:
+                        green, or, for a check expected to fail (Expect), red by assertion;
+                        unset on a replay.
+                      format: int32
+                      maximum: 512
+                      minimum: 1
+                      type: integer
+                    expect:
+                      description: |-
+                        Expect is fail for a confirmation of a check the evaluator proposed
+                        to show a defect.
+                      enum:
+                      - fail
+                      type: string
+                    result:
+                      description: Result of the run.
+                      enum:
+                      - pass
+                      - fail
+                      - quarantined
+                      - error
+                      - refused
+                      type: string
+                    seq:
+                      description: Seq is the ledger entry of the run.
+                      format: int32
+                      maximum: 512
+                      minimum: 1
+                      type: integer
+                    token:
+                      description: |-
+                        Token is the fresh run token the run substituted for the check's
+                        run placeholder.
+                      maxLength: 40
+                      minLength: 1
+                      pattern: ^[A-Za-z0-9-]+$
+                      type: string
+                    tree:
+                      description: |-
+                        Tree is the tree the run ran against in an agents verification;
+                        unset is head (Side), and a slot verification never sets it.
+                      enum:
+                      - head
+                      - base
+                      type: string
+                  required:
+                  - checkDigest
+                  - result
+                  - seq
+                  - token
+                  type: object
+                maxItems: 40
+                type: array
+                x-kubernetes-list-type: atomic
+              confirmed:
+                description: |-
+                  Confirmed are the proposed checks that passed their confirmation,
+                  their bodies read from the verified ledger (never from the
+                  evaluator's report): what intent-controller may store once reviewed.
+                  Retired with saved checks, as Replay is.
+                items:
+                  description: |-
+                    SavedCheck is one confirmed, reviewed check of an approved outcome an
+                    earlier release saved: its canonical JSON and digest. Retired with saved
+                    checks: the observed evaluator neither writes nor reads one. The body is
+                    the agent's, and is untrusted text.
+                  properties:
+                    body:
+                      description: Body is the check's canonical JSON, at most MaxSavedCheckBytes
+                        bytes.
+                      maxLength: 8192
+                      minLength: 1
+                      type: string
+                    digest:
+                      description: |-
+                        Digest is the body's digest, as the earlier release computed it:
+                        what its dry runs, confirmations, replays and reviews were recorded
+                        against.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    expect:
+                      description: |-
+                        Expect is fail for a check saved to show a defect: proposed for a fail
+                        verdict, its dry run and its confirmation red by assertion, reviewed
+                        with the red question. It is the check of the outcome as approved all
+                        the same, so it passes once the defect is fixed. Unset for a check
+                        saved green.
+                      enum:
+                      - fail
+                      type: string
+                    failedAssertion:
+                      description: |-
+                        FailedAssertion is, for a check saved red, which assertion of
+                        FailedStep failed (CheckRun.AssertionID). Until the check replays green
+                        once, only a run red by this same assertion reproduces its defect.
+                      maxLength: 512
+                      type: string
+                    failedStep:
+                      description: |-
+                        FailedStep is, for a check saved red, the step (1-based) at which its
+                        confirmation failed by assertion.
+                      format: int32
+                      maximum: 64
+                      minimum: 1
+                      type: integer
+                    form:
+                      description: Form is how the check runs.
+                      enum:
+                      - http
+                      - browser
+                      - exec
+                      - run
+                      type: string
+                    id:
+                      description: 'ID names the check: its outcome''s id with an
+                        optional .<name>.'
+                      pattern: ^[a-z][a-z0-9-]{0,31}(\.[a-z0-9][a-z0-9-]{0,31})?$
+                      type: string
+                    outcome:
+                      description: Outcome is the id of the outcome the check is bound
+                        to.
+                      pattern: ^[a-z][a-z0-9-]{0,31}$
+                      type: string
+                  required:
+                  - body
+                  - digest
+                  - form
+                  - id
+                  - outcome
+                  type: object
+                  x-kubernetes-validations:
+                  - message: a saved check's body is at most 8 KiB (MaxSavedCheckBytes)
+                    rule: size(bytes(self.body)) <= 8192
+                maxItems: 40
+                type: array
+                x-kubernetes-list-type: atomic
+              environment:
+                description: Environment is the evidence about each part of the slot.
+                items:
+                  description: |-
+                    PartFact is the environment evidence about one part of the slot while
+                    the verification ran, captured from the kubelet's container facts.
+                  properties:
+                    crashedDuring:
+                      description: |-
+                        CrashedDuring reports that the component's process exited (OOM
+                        included) during the tool pod's run: the application's failure.
+                      type: boolean
+                    disrupted:
+                      description: |-
+                        Disrupted reports that the cluster took the component's Pod away
+                        during the tool pod's run: maul's, never the application's.
+                      type: boolean
+                    evicted:
+                      description: Evicted reports that the part's pod was evicted.
+                      type: boolean
+                    lastTermination:
+                      description: LastTermination is the container's last termination.
+                      properties:
+                        exitCode:
+                          description: ExitCode of the container.
+                          format: int32
+                          type: integer
+                        reason:
+                          description: Reason the kubelet gave (OOMKilled, Error,
+                            Completed, ...).
+                          maxLength: 64
+                          pattern: ^[A-Za-z0-9]*$
+                          type: string
+                      required:
+                      - exitCode
+                      type: object
+                    logTail:
+                      description: |-
+                        LogTail is the end of the part's log since the verification started,
+                        redacted (slice 2). Untrusted and opaque.
+                      maxLength: 4096
+                      type: string
+                    name:
+                      description: Name of the part (a component's key, a service's
+                        name, tools, ...).
+                      maxLength: 20
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    ready:
+                      description: Ready reports whether the part's pod was Ready.
+                      type: boolean
+                    restarts:
+                      description: Restarts counts the part's container restarts.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    role:
+                      description: Role of the part.
+                      enum:
+                      - component
+                      - service
+                      - tester
+                      - command
+                      - seed
+                      - tools
+                      - build
+                      type: string
+                    unreachableForMs:
+                      description: |-
+                        UnreachableForMs is how long the tool pod tried, and failed, to
+                        connect to the component's Service before its first tool call (its
+                        whole readiness window); zero when reached.
+                      format: int32
+                      maximum: 120000
+                      minimum: 0
+                      type: integer
+                    unschedulable:
+                      description: Unschedulable reports that no node could take the
+                        part's pod.
+                      type: boolean
+                    waiting:
+                      description: |-
+                        Waiting is the container's waiting reason (CrashLoopBackOff,
+                        ImagePullBackOff, ErrImagePull, CreateContainerConfigError, ...).
+                      maxLength: 64
+                      pattern: ^[A-Za-z0-9]*$
+                      type: string
+                  required:
+                  - name
+                  - role
+                  type: object
+                maxItems: 12
+                type: array
+                x-kubernetes-list-type: atomic
+              ledger:
+                description: Ledger summarises the tools container's verified ledger.
+                properties:
+                  builds:
+                    description: Builds are an agents tool pod's tree builds, in ledger
+                      order.
+                    items:
+                      description: |-
+                        LedgerBuild is one tree's build in an agents tool pod, as its ledger
+                        entry recorded it.
+                      properties:
+                        durationMs:
+                          description: DurationMs is how long the build ran, in milliseconds.
+                          format: int32
+                          maximum: 3600000
+                          minimum: 0
+                          type: integer
+                        exitCode:
+                          description: ExitCode of the build's process; 0 when it
+                            built or never ran.
+                          format: int32
+                          type: integer
+                        result:
+                          description: Result of the build.
+                          enum:
+                          - built
+                          - failed
+                          - timeout
+                          - error
+                          type: string
+                        seq:
+                          description: Seq is the build's ledger entry.
+                          format: int32
+                          maximum: 512
+                          minimum: 1
+                          type: integer
+                        side:
+                          description: Side is the tree built.
+                          enum:
+                          - head
+                          - base
+                          type: string
+                      required:
+                      - result
+                      - seq
+                      - side
+                      type: object
+                    maxItems: 4
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  configMap:
+                    description: |-
+                      ConfigMap names the full ledger: <pv>-ledger, owned by the
+                      PreviewVerification, oldest outputs truncated with a marker past its
+                      size bound.
+                    maxLength: 253
+                    type: string
+                  count:
+                    description: Count is the number of entries.
+                    format: int32
+                    maximum: 512
+                    minimum: 0
+                    type: integer
+                  entries:
+                    description: Entries index every entry, in order; never truncated.
+                    items:
+                      description: LedgerIndexEntry is one ledger entry's facts, without
+                        its output.
+                      properties:
+                        artifacts:
+                          description: |-
+                            Artifacts are the hex sha256s of its artifacts (screenshots), in
+                            order.
+                          items:
+                            pattern: ^[0-9a-f]{64}$
+                            type: string
+                          maxItems: 8
+                          type: array
+                          x-kubernetes-list-type: atomic
+                        exit:
+                          description: Exit is the exit code of the process it ran;
+                            0 when it ran none.
+                          format: int32
+                          type: integer
+                        kind:
+                          description: Kind is who caused it.
+                          enum:
+                          - agent
+                          - runner
+                          - relay
+                          type: string
+                        noAnswer:
+                          description: |-
+                            NoAnswer reports one of the evaluator's calls that got nothing back
+                            from what it exercised: an http request that got no response (DNS,
+                            refused, timeout, TLS, reset), a run whose program did not compile
+                            and so never ran, or an exec or run whose program the sandbox could
+                            not start (its output is maul's "[maul: could not start ...]" alone,
+                            at exit 127 or 126). It showed nothing, so it is never evidence for an
+                            outcome. Unset on every other entry, and on an index written before
+                            the field.
+                          type: boolean
+                        ranNothing:
+                          description: |-
+                            RanNothing reports a refusal the relay made before the call reached
+                            anything that runs: a call without the per-evaluation key, or one past
+                            maxToolCalls. Nothing ran. Unset on every other entry, and on an index
+                            written before the field: a refusal that may have run something.
+                          type: boolean
+                        refused:
+                          description: |-
+                            Refused reports that the call was refused: what it asked for did not
+                            run as asked, and it is never evidence. A refusal may still come after
+                            the call was sent (the sandbox did not answer, or refused it part
+                            way), so it does not show that nothing ran; RanNothing does.
+                          type: boolean
+                        resultSHA256:
+                          description: ResultSHA256 is the hex sha256 of its full
+                            output.
+                          pattern: ^[0-9a-f]{64}$
+                          type: string
+                        seq:
+                          description: Seq is the entry's sequence number.
+                          format: int32
+                          maximum: 512
+                          minimum: 1
+                          type: integer
+                        side:
+                          description: |-
+                            Side is the tree an agents tool pod ran the call against: base for
+                            the merge base, unset for the head (and for every slot entry), the
+                            ledger's own encoding (toolwire.Side.Recorded). A base-side entry is
+                            context, never evidence for an outcome.
+                          enum:
+                          - head
+                          - base
+                          type: string
+                        verb:
+                          description: Verb is the tool it records.
+                          enum:
+                          - http
+                          - browser
+                          - exec
+                          - logs
+                          - events
+                          - check-run
+                          - check-results
+                          - confirm
+                          - finish
+                          - session
+                          - build
+                          - files
+                          - run
+                          type: string
+                      required:
+                      - kind
+                      - resultSHA256
+                      - seq
+                      - verb
+                      type: object
+                    maxItems: 512
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  evidence:
+                    description: |-
+                      Evidence names the cited screenshots, re-encoded: <pv>-evidence,
+                      owned by the PreviewVerification.
+                    maxLength: 253
+                    type: string
+                  sha256:
+                    description: SHA256 is the hex sha256 over the entry lines in
+                      order.
+                    pattern: ^[0-9a-f]{64}$
+                    type: string
+                required:
+                - count
+                - sha256
+                type: object
+              phase:
+                description: Phase of the attempt.
+                enum:
+                - Pending
+                - Running
+                - Observed
+                - EnvFailed
+                - Infra
+                - Stale
+                type: string
+              readiness:
+                description: |-
+                  Readiness is the tool pod's wait for each component's Service before
+                  its first tool call, in component-name order, as its verified ledger
+                  records it. A component never reached ends the attempt:
+                  EnvFailed component-unreachable (its fact's unreachableForMs), the
+                  application's. The tool pod dials each Service's ClusterIP and
+                  resolves no name.
+                items:
+                  description: |-
+                    TargetWait is how the tool pod waited, before its first tool call, for one
+                    component's Service to accept a TCP connection: how long, in how many
+                    attempts, and how the failed ones failed. Every attempt but a last
+                    successful one failed, so the Service was reached exactly when attempts
+                    is one more than the failures.
+                  properties:
+                    attempts:
+                      description: Attempts is how many connections were attempted.
+                      format: int32
+                      maximum: 256
+                      minimum: 1
+                      type: integer
+                    dns:
+                      description: DNS counts attempts whose Service name did not
+                        resolve.
+                      format: int32
+                      maximum: 256
+                      minimum: 0
+                      type: integer
+                    refused:
+                      description: Refused counts attempts refused.
+                      format: int32
+                      maximum: 256
+                      minimum: 0
+                      type: integer
+                    reset:
+                      description: Reset counts attempts that failed otherwise.
+                      format: int32
+                      maximum: 256
+                      minimum: 0
+                      type: integer
+                    target:
+                      description: Target is the component (its Project repository's
+                        key).
+                      maxLength: 16
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    timeout:
+                      description: Timeout counts attempts that timed out.
+                      format: int32
+                      maximum: 256
+                      minimum: 0
+                      type: integer
+                    waitMs:
+                      description: WaitMs is how long the wait took, in milliseconds.
+                      format: int32
+                      maximum: 120000
+                      minimum: 0
+                      type: integer
+                  required:
+                  - attempts
+                  - target
+                  - waitMs
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-type: atomic
+              reason:
+                description: Reason is the phase's reason, from a fixed vocabulary.
+                enum:
+                - ok
+                - stale-preview
+                - stale-workspace
+                - stale-approval
+                - stale-criteria
+                - rollout-unsettled
+                - quota-refused
+                - deadline-no-summary
+                - tools-output-invalid
+                - tester-output-invalid
+                - component-crashloop
+                - component-not-ready
+                - component-evicted
+                - component-image-pull
+                - component-oom
+                - preview-failed
+                - service-restarted
+                - component-unreachable
+                - component-crashed
+                - component-disrupted
+                - service-no-cluster-ip
+                - tools-unscheduled
+                - tools-image-pull
+                - tools-crashloop
+                - tools-not-ready
+                - evaluator-not-run
+                - ledger-mismatch
+                - evidence-mismatch
+                - tools-build-failed
+                - sandbox-unenforced
+                - sandbox-image-unavailable
+                - tree-unavailable
+                - tool-pods-saturated
+                - tools-evicted
+                - tools-deadline
+                - tools-refused
+                - replay-incomplete
+                - kept-copy-failed
+                type: string
+              replay:
+                description: |-
+                  Replay is each saved check's replay at the start of the round, in
+                  spec order. Retired with saved checks: the tool hosts no longer write
+                  it. Kept for a rollback; removed in the next release.
+                items:
+                  description: CheckRun is one run of one check, as the ledger recorded
+                    it.
+                  properties:
+                    assertionID:
+                      description: |-
+                        AssertionID names which assertion of that step failed, as that check
+                        runner recorded it: "json <pointer>", "header <name>", "bodyContains",
+                        "marker <id>" or "expect". Set with AssertionStep.
+                      maxLength: 512
+                      type: string
+                    assertionStep:
+                      description: |-
+                        AssertionStep is, for a failed run red by assertion, the step (1-based)
+                        at which both attempts failed, an assertion of a check that otherwise
+                        ran, as an earlier release's check runner recorded it: never a check
+                        error, a timeout or a locator that resolved to nothing. Unset
+                        otherwise.
+                      format: int32
+                      maximum: 64
+                      minimum: 1
+                      type: integer
+                    cause:
+                      description: |-
+                        Cause is, for an error run at the base of an agents verification,
+                        why it errored, when the error is the tree's (CheckRunCause); unset
+                        for every other run, and on every slot run.
+                      enum:
+                      - compile
+                      - vendored-tree
+                      - replace-outside-tree
+                      - no-module
+                      - base-unbuildable
+                      type: string
+                    checkDigest:
+                      description: CheckDigest is the check's digest.
+                      pattern: ^sha256:[0-9a-f]{64}$
+                      type: string
+                    dryRunSeq:
+                      description: |-
+                        DryRunSeq is the ledger entry of the dry run a confirmation required:
+                        green, or, for a check expected to fail (Expect), red by assertion;
+                        unset on a replay.
+                      format: int32
+                      maximum: 512
+                      minimum: 1
+                      type: integer
+                    expect:
+                      description: |-
+                        Expect is fail for a confirmation of a check the evaluator proposed
+                        to show a defect.
+                      enum:
+                      - fail
+                      type: string
+                    result:
+                      description: Result of the run.
+                      enum:
+                      - pass
+                      - fail
+                      - quarantined
+                      - error
+                      - refused
+                      type: string
+                    seq:
+                      description: Seq is the ledger entry of the run.
+                      format: int32
+                      maximum: 512
+                      minimum: 1
+                      type: integer
+                    token:
+                      description: |-
+                        Token is the fresh run token the run substituted for the check's
+                        run placeholder.
+                      maxLength: 40
+                      minLength: 1
+                      pattern: ^[A-Za-z0-9-]+$
+                      type: string
+                    tree:
+                      description: |-
+                        Tree is the tree the run ran against in an agents verification;
+                        unset is head (Side), and a slot verification never sets it.
+                      enum:
+                      - head
+                      - base
+                      type: string
+                  required:
+                  - checkDigest
+                  - result
+                  - seq
+                  - token
+                  type: object
+                maxItems: 40
+                type: array
+                x-kubernetes-list-type: atomic
+              startedAt:
+                description: |-
+                  StartedAt is when the tool pod's Job was created: the window environment
+                  evidence is read from.
+                format: date-time
+                type: string
+              tools:
+                description: |-
+                  Tools is the slot tool pod, once scheduled: where the evaluator
+                  reaches it (a hostAlias, since the evaluator has no DNS).
+                properties:
+                  podIP:
+                    description: PodIP is the tool pod's address.
+                    maxLength: 45
+                    minLength: 2
+                    pattern: ^[0-9a-fA-F:.]+$
+                    type: string
+                  port:
+                    description: Port is the tools container's listener.
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  ready:
+                    description: Ready reports whether the tools container was Ready.
+                    type: boolean
+                required:
+                - podIP
+                - port
+                type: object
+              toolsImageID:
+                description: |-
+                  ToolsImageID is the digest-bearing image ID the tool pod's tools
+                  container ran.
+                maxLength: 512
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: 'PreviewVerification names are at most 63 characters: they are
+            written into label values'
+          rule: size(self.metadata.name) <= 63
+    served: true
+    storage: true
+    subresources:
+      status: {}
