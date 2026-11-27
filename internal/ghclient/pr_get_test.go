@@ -5,6 +5,7 @@ package ghclient
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"slices"
 	"strconv"
@@ -132,5 +133,35 @@ func TestListPullRequestFilesLimits(t *testing.T) {
 	})
 	if _, err := c.ListPullRequestFiles(context.Background(), testRepo, 11, 50); !IsNotFound(err) {
 		t.Errorf("ListPullRequestFiles() error = %v, want a not-found API error", err)
+	}
+}
+
+// TestClosePullRequest: the close is one PATCH of the pull request's state
+// to closed, and nothing else in the body: no title, body or base is sent,
+// so a close can never rewrite what a human edited.
+func TestClosePullRequest(t *testing.T) {
+	mux, c := newFakeClient(t)
+	var got map[string]any
+	mux.HandleFunc("PATCH /repos/o/r/pulls/11", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode the close: %v", err)
+		}
+		writeJSON(t, w, `{"number":11,"state":"closed"}`)
+	})
+	if err := c.ClosePullRequest(context.Background(), testRepo, 11); err != nil {
+		t.Fatalf("ClosePullRequest() error = %v", err)
+	}
+	if len(got) != 1 || got["state"] != "closed" {
+		t.Errorf("ClosePullRequest sent %v, want only state closed", got)
+	}
+}
+
+func TestClosePullRequestError(t *testing.T) {
+	mux, c := newFakeClient(t)
+	mux.HandleFunc("PATCH /repos/o/r/pulls/11", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+	})
+	if err := c.ClosePullRequest(context.Background(), testRepo, 11); !IsNotFound(err) {
+		t.Errorf("ClosePullRequest() error = %v, want a not-found API error", err)
 	}
 }

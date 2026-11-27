@@ -945,6 +945,52 @@ func TestPullRequestIdentity(t *testing.T) {
 	}
 }
 
+// TestClosePullRequestOverREST: PATCH /pulls/{number} with state closed
+// closes an open pull request unmerged, its head where its branch points; a
+// second close and a close of a merged one change nothing; any other edit is
+// refused, since maul makes none.
+func TestClosePullRequestOverREST(t *testing.T) {
+	srv, c, _ := newFake(t)
+	ctx := context.Background()
+	const branch = "maul-intent/target-1"
+	sha, err := c.CreateCommit(ctx, target, ghclient.CommitRequest{
+		BaseSHA: fakegithub.BaseSHA, Message: "build",
+		Files: []ghclient.CommitFile{{Path: "VERSION", Mode: "100644", Content: []byte("0.1.0\n")}},
+	})
+	if err != nil {
+		t.Fatalf("CreateCommit() error = %v", err)
+	}
+	if err := c.CreateBranchRef(ctx, target, branch, sha); err != nil {
+		t.Fatalf("CreateBranchRef() error = %v", err)
+	}
+	pr, err := c.CreatePR(ctx, target, ghclient.PRRequest{Title: "target: v", Head: branch, Base: "main", Body: "x"})
+	if err != nil {
+		t.Fatalf("CreatePR() error = %v", err)
+	}
+	for range 2 {
+		if err := c.ClosePullRequest(ctx, target, pr.Number); err != nil {
+			t.Fatalf("ClosePullRequest() error = %v", err)
+		}
+		got, err := c.GetPullRequest(ctx, target, pr.Number)
+		if err != nil || got.State != "closed" || got.Merged || got.HeadSHA != sha {
+			t.Errorf("after close: %+v, %v, want closed unmerged at %s", got, err, sha)
+		}
+	}
+	if head, err := c.HeadSHA(ctx, target, branch); err != nil || head != sha {
+		t.Errorf("branch after close = %q, %v, want it left at %s", head, err, sha)
+	}
+	if err := c.ClosePullRequest(ctx, target, 999); !ghclient.IsNotFound(err) {
+		t.Errorf("close of a missing pull request = %v, want 404", err)
+	}
+	srv.MergePull(pr.Number+1, "maul-intent/target-2", "mergedsha")
+	if err := c.ClosePullRequest(ctx, target, pr.Number+1); err != nil {
+		t.Errorf("close of a merged pull request = %v, want a no-op", err)
+	}
+	if got, _ := srv.Pull(pr.Number + 1); got.State != "closed" || !got.Merged {
+		t.Errorf("merged pull request after close = %+v, want still merged", got)
+	}
+}
+
 // TestRefWriteLog: every ref create and update is recorded as asked and as
 // answered, so a test can prove a branch was created once and never forced
 // — and see the Finding push's forced move for what it is.

@@ -145,6 +145,7 @@ var tokenUses = map[string][]string{
 	"CreateCommit": {onAppRepository}, "CreateBranchRef": {onAppRepository},
 	"FastForwardRef": {onAppRepository}, "FindPullRequest": {onAppRepository},
 	"CreatePullRequest": {onAppRepository}, "GetPullRequest": {onAppRepository},
+	"ClosePullRequest": {onAppRepository},
 	// A plan's view of the other intents' open pull requests.
 	"ListPullRequestFiles":    {onAppRepository},
 	"ListPullRequestComments": {onAppRepository}, "GetPullRequestComment": {onAppRepository},
