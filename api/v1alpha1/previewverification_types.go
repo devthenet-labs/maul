@@ -178,18 +178,17 @@ const (
 	// existed. Its message is in intent-controller's
 	// log. Infra, never a verdict.
 	VerificationReasonToolsRefused PreviewVerificationReason = "tools-refused"
-	// VerificationReasonReplayIncomplete: a replay round's tool pod finished
-	// before the end of its replay (its wall clock, or its container told to
-	// stop), so a saved check may never have run at these heads (review
-	// VC-3). Infra, never a verdict.
+	// VerificationReasonReplayIncomplete: retired spelling: an earlier
+	// release's replay round whose tool pod finished before the end of its
+	// replay (review VC-3). Nothing writes it since replay rounds were
+	// retired; kept in the enum because stored records carry it.
 	VerificationReasonReplayIncomplete PreviewVerificationReason = "replay-incomplete"
 	// VerificationReasonKeptCopyFailed: retired spelling (evaluator
 	// observed, W9): an earlier release's agents tool pod whose sandbox
 	// could not keep the copy of its built tree every check run started
 	// from. Nothing writes it since the sandbox keeps no copy; an earlier
 	// release's relay finishing so is collected Infra evaluator-not-run or
-	// tools-not-ready. Kept in the enum for a rollback; removed in the next
-	// release.
+	// tools-not-ready. Kept in the enum because stored records carry it.
 	VerificationReasonKeptCopyFailed PreviewVerificationReason = "kept-copy-failed"
 )
 

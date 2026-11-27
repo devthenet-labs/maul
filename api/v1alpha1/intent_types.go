@@ -1004,8 +1004,10 @@ const (
 	// reached its deadline (tools-evicted, tools-deadline; and the retired
 	// kept-copy-failed of an earlier release's record).
 	SettleToolsLost SettleCause = "ToolsLost"
-	// SettleReplayIncomplete: the last attempt, a replay, finished before
-	// the end of its replay (replay-incomplete, review VC-3).
+	// SettleReplayIncomplete: retired spelling: an earlier release's replay
+	// attempt that finished before the end of its replay (replay-incomplete,
+	// review VC-3). Nothing writes it now; kept because stored records carry
+	// it.
 	SettleReplayIncomplete SettleCause = "ReplayIncomplete"
 )
 

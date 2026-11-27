@@ -701,7 +701,7 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   refuses on one) while the agents tool pod is on; collects only the `tools` log via
   `toolledger.Parse` (a log holding the key is `ledger-mismatch`), writes the ledger index (`toolledger.ApplyStatus`,
   a base call's entry `side: base`), the builds and the head build's `previewtools.BuildPart` (not built: Infra
-  `tools-build-failed`), and never `status.base`, `replay`, `confirmations` or `confirmed` (retired fields); tears down
+  `tools-build-failed`); tears down
   at settle, a finished Job after the 10-minute `linger` for the isolation probe, a running one at once, an orphan
   Secret with its settled PV; the `Sweeper` is always registered and, with the host off, deletes every `role: tools`
   Job: the rollback lever), `controller/preview` (fixed slot workload renderer,
@@ -968,11 +968,11 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   index, a base call's entry `side: base`, an evaluator call that got no answer `noAnswer`, a refusal the relay's gate
   made before sending the call anywhere, no key or past `maxToolCalls`, `ranNothing`), `Readiness`,
   `ConfigMapData` (oldest outputs dropped first) and `Key`; `ApplyStatus` (the one ledger-to-status write both hosts
-  make: the index and the summary the host names its ConfigMaps on; never the retired replay, confirmation, confirmed or
-  base fields), `OwnCalls` (which calls the comments and the status page label as the evaluator's own page script or
-  program, failing closed: a browser call unless its kept line shows a verb other than `eval`, every `run`, and an
-  `exec` other than an agents round's bare run of the built binary after nothing of the evaluator's ran at that side,
-  since `/work` is writable; a refused exec or run there counts as having run unless `ranNothing`),
+  make: the index and the summary the host names its ConfigMaps on), `OwnCalls` (which calls the comments and the status
+  page label as the evaluator's own page script or program, failing closed: a browser call unless its kept line shows a
+  verb other than `eval`, every `run`, and an `exec` other than an agents round's bare run of the built binary after
+  nothing of the evaluator's ran at that side, since `/work` is writable; a refused exec or run there counts as having
+  run unless `ranNothing`),
   `ReadStored` (a `<pv>-ledger` line, shown only where it is the index's call and its output re-hashes),
   `EvaluatorCalled` and `RoundReason` (a round with no evaluator call: `evaluator-not-run`, or `tools-not-ready` with no
   `status.tools`). Its trust root: a log that does not hold is Infra `ledger-mismatch`, never a verdict.

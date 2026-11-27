@@ -180,7 +180,7 @@ func startEvaluate(t *testing.T, o evalOptions) *evalEnv {
 		component = o.component
 	}
 	e.kubelet.serveComponent(t, appRepo, component)
-	e.kubelet.useAgentRunner(t, append([]string{"evaluate", "checkreview"}, o.agentRunner...)...)
+	e.kubelet.useAgentRunner(t, append([]string{"evaluate"}, o.agentRunner...)...)
 	outcomes := o.outcomes
 	switch {
 	case o.noOutcomes:

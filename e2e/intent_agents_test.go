@@ -134,7 +134,7 @@ func startAgents(t *testing.T, o agentsOptions) *evalEnv {
 	e.registry = registry
 	gh.SetDefaultComparePatch("diff --git a/main.go b/main.go\n+hello from tally\n")
 	e.kubelet.runWorkspaceTools(t)
-	e.kubelet.useAgentRunner(t, "evaluate", "checkreview")
+	e.kubelet.useAgentRunner(t, "evaluate")
 	e.kubelet.setAgentEnv("MAUL_FAKE_PLAN_ACCEPTANCE", o.outcomes)
 	path := o.buildPath
 	if path == "" {

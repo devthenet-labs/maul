@@ -86,9 +86,7 @@ the page's part; $nonePinned: %[1]s owns none. */}}
 {{- $nonePinned := "(size(%[1]s.top) == 0 && size(%[1]s.specPinned) == 0 && size(%[1]s.metaPinned) == 0 && size(%[1]s.annPinned) == 0)" }}
 {{- /*
 The editable keys at each level of the spec, from the page's table
-(projectsettings.Fields): the coverage test holds them to it. models and
-limits leave out the retired check reviewer, so its model and limits are
-pinned until the next release removes the fields.
+(projectsettings.Fields): the coverage test holds them to it.
 */}}
 {{- $models := list "plan" "build" "evaluate" }}
 {{- $stages := list "plan" "build" "revise" "evaluate" }}
