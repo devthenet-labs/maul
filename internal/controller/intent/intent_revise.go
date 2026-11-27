@@ -1032,15 +1032,16 @@ func maxRevisions(proj *v1alpha1.Project) int32 {
 // starts the count again: round numbers never repeat, so a round's runs all
 // record one plan revision.
 func (p *pass) revisionRounds() int32 {
-	return (&pass{runs: planRuns(p.runs, p.approvedRevision())}).leasedRevisionRounds()
+	return revisionRoundsIn(planRuns(p.runs, p.approvedRevision()))
 }
 
-// leasedRevisionRounds is revisionRounds over every run the pass holds.
-func (p *pass) leasedRevisionRounds() int32 {
+// revisionRoundsIn counts the leased review/command rounds among runs, as
+// revisionRounds does.
+func revisionRoundsIn(runs []*v1alpha1.IntentRun) int32 {
 	seen := map[int32]bool{}
-	for _, run := range p.runs {
+	for _, run := range runs {
 		if run.Spec.Stage == v1alpha1.IntentStageRevise && countsAsRevision(run.Spec.Trigger) {
-			if latest := p.round(v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository).latest(); latest != nil &&
+			if latest := roundIn(runs, v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository).latest(); latest != nil &&
 				latest.Status.Phase == v1alpha1.RunFailed && latest.Status.Outcome == OutcomeNoUsableFeedback {
 				continue
 			}

@@ -111,8 +111,13 @@ const anyRepository = ""
 // failures are its repository's own: each repository of a multi-repository
 // plan is built, retried and spent separately.
 func (p *pass) round(stage v1alpha1.IntentStage, round int32, repoURL string) roundRuns {
+	return roundIn(p.runs, stage, round, repoURL)
+}
+
+// roundIn is round over runs.
+func roundIn(runs []*v1alpha1.IntentRun, stage v1alpha1.IntentStage, round int32, repoURL string) roundRuns {
 	var rs roundRuns
-	for _, run := range p.runs {
+	for _, run := range runs {
 		if run.Spec.Stage == stage && run.Spec.Round == round &&
 			(repoURL == anyRepository || sameRepo(run.Spec.Repository.URL, repoURL)) {
 			rs = append(rs, run)
