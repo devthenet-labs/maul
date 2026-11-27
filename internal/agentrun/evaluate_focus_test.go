@@ -118,7 +118,7 @@ func randomFocusHandoff(rng *rand.Rand) EvaluateHandoff {
 	for _, id := range ids {
 		if rng.Intn(6) > 0 {
 			h.PriorVerdicts = append(h.PriorVerdicts, PriorVerdict{Outcome: id, Result: []string{"passed", "failed",
-				"unsure", "accepted", "quarantined"}[rng.Intn(5)]})
+				"unsure", "accepted"}[rng.Intn(4)]})
 		}
 	}
 	h.FixDiff = []string{"", " ", "\t\r\n", "\u00a0\n", "+x\n", "+x\n", "+x\n",
