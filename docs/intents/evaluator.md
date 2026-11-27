@@ -618,6 +618,11 @@ as long as its evaluate run, plus one tree's build, plus five minutes, at most 7
   `tools` container's log, the ledger, or the other side's files, but what it prints is its own. The built binary is the
   change's code, and an earlier `exec` can rewrite the tree, `HOME` or the build output that later calls at that side
   read: after one, a later run of the built binary at that side is labelled as the evaluator's own program.
+- **A replan in review starts the evaluation over, not its budget.** With
+  [replan in review](lifecycle.md#replanning-in-review) on, an approver's `/maul replan` in review drops the round in
+  flight and its verdict (each `maul/acceptance` becomes "superseded by a replan"), and the new plan is evaluated from
+  its first round. What the evaluator spent on the old plan still counts against the intent's evaluation ceiling, and
+  its `maxVerifications` start again for the new plan.
 - **The evaluation ceiling counts toward the hourly limit.** With the evaluator on, the default \$6 ceiling counts
   toward `RunBudgetOverHourlyLimit`: a broker `costPerHour` below \$12 keeps such a Project from Ready.
 
@@ -643,7 +648,9 @@ release no longer starts while such an intent is open under the evaluator (the c
 release you run, `/maul cancel` each open intent whose approved plan states criteria (a new issue starts over with
 outcomes) and delete each PreviewVerification that asks criteria. An intent whose Project comes to be verified only
 later, after the upgrade and while intent-controller runs, stops for a replan instead (its `maul/acceptance` the error
-"the approved plan states criteria, not outcomes: nothing is verified"); a change that verifies it through a restart is
+"the approved plan states criteria, not outcomes: nothing is verified"): with
+[replan in review](lifecycle.md#replanning-in-review) on, an approver's `/maul replan` replaces the plan with one
+stating outcomes; with it off, `/maul cancel` and a new issue start over. A change that verifies it through a restart is
 refused by the census (below). With the evaluator left off, nothing is verified.
 
 **The criteria fields are removed.** This release removes slice 1's fields from the CRDs (a PreviewVerification's
@@ -672,8 +679,9 @@ A closed or merged intent's record is never judged again and is not counted: it 
 still update) with its criteria pruned. Nor is an open intent of a Project the evaluator does not verify: a plan stating
 criteria there is recorded by its digest alone, which nothing runs and the pruning does not change. Should the evaluator
 come to verify that Project while intent-controller runs (the Project's `verification` turned on), the intent stops for
-a replan. Should it come to after a restart (turning the evaluator or previews on), the census counts the intent and
-refuses to start: `/maul cancel` such intents first, before the change.
+a replan (`/maul replan` with replan in review on, else `/maul cancel` and a new issue). Should it come to after a
+restart (turning the evaluator or previews on), the census counts the intent and refuses to start: `/maul cancel` such
+intents first, before the change.
 
 **Upgrade runbook.** Before upgrading from 0.13: list the PreviewVerifications that still ask criteria and delete them
 (`kubectl -n <namespace> get previewverifications -o json | jq -r '.items[] | select(.spec.criteria) | .metadata.name'`),

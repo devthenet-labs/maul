@@ -480,6 +480,11 @@ The genuinely shared settings stay global:
   bounds. A page-edited field that the maul-config values also state makes the next default `helm upgrade` of
   maul-config fail with a conflict: set each field from one place. See
   [Project settings](../../docs/configuration/status-server.md#project-settings-page).
+- `intentController.replanInReview.enabled` — replan in review (default `false`): an approver's `/maul replan`, or the
+  trigger label re-applied, while an intent's pull requests are open stops its round, closes them with a comment and
+  plans again from the issue; the new plan needs a new approval and builds on `maul-intent/<intent>-p<revision>`. Off,
+  such a replan is answered as not available. See
+  [Replan in review](../../docs/configuration/intent-controller.md#replan-in-review).
 - `agent.*` — the sandbox: namespace, service account, `jobDeadline`/`jobTTL`, and the two stages' limits:
   `modelAllowlist` (canonical, provider-qualified model ids), `investigate.*` (absolute), `remediate.*` (`auto.*` is
   what an unattended fix gets and the line past which an estimate needs approval, `manual.*` the most an approval can
