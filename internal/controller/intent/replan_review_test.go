@@ -35,12 +35,12 @@ func (e *env) notices(name, key string) []string {
 	return out
 }
 
-// prNotices are maul's comments on pull request n keyed key.
-func (e *env) prNotices(name string, n int64, key string) []string {
+// prNotices are maul's comments on pull request #1 keyed key.
+func (e *env) prNotices(name, key string) []string {
 	e.gh.mu.Lock()
 	defer e.gh.mu.Unlock()
 	var out []string
-	for _, c := range e.gh.prComments[n] {
+	for _, c := range e.gh.prComments[1] {
 		if markerOf(c.Body) == templates.NoticeMarker(testNS, name, key) {
 			out = append(out, c.Body)
 		}
@@ -98,7 +98,7 @@ func checkReplanned(t *testing.T, e *env, name string, id int64, in *v1alpha1.In
 	if got := e.gh.closedPRs; !slices.Equal(got, []int64{1}) {
 		t.Errorf("closed pull requests = %v, want #1 once", got)
 	}
-	if got := e.prNotices(name, 1, templates.ReplanClosedKey(key)); len(got) != 1 ||
+	if got := e.prNotices(name, templates.ReplanClosedKey(key)); len(got) != 1 ||
 		!strings.Contains(got[0], "`"+legacyBranch(name)+"` is left as it is") {
 		t.Errorf("pull request comments = %q, want one naming the branch left", got)
 	}
@@ -307,10 +307,10 @@ func TestReplanInReviewSurvivesFailures(t *testing.T) {
 			}
 			in := e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 			key := "comment-" + itoa(id)
-			if len(e.notices(name, key)) != 1 || len(e.prNotices(name, 1, templates.ReplanClosedKey(key))) != 1 ||
+			if len(e.notices(name, key)) != 1 || len(e.prNotices(name, templates.ReplanClosedKey(key))) != 1 ||
 				!slices.Equal(e.gh.closedPRs, []int64{1}) || e.gh.state() != "open" {
 				t.Errorf("replies %d, pull request comments %d, closes %v, issue %s",
-					len(e.notices(name, key)), len(e.prNotices(name, 1, templates.ReplanClosedKey(key))),
+					len(e.notices(name, key)), len(e.prNotices(name, templates.ReplanClosedKey(key))),
 					e.gh.closedPRs, e.gh.state())
 			}
 			if in.Status.Replan != nil || in.Status.Input.Revision != 2 {
@@ -403,5 +403,83 @@ func TestReplanOfferedInReview(t *testing.T) {
 		if got := p.availableVerbs(v1alpha1.IntentBlocked); slices.Contains(got, "replan") != on {
 			t.Errorf("flag %v, Blocked from review: commands %v", on, got)
 		}
+	}
+}
+
+// TestReplanInReviewDropsTheVerification: a replan of a verified intent
+// drops its verifications and leaves a final error maul/acceptance,
+// "superseded by a replan", where maul had posted one; the runs the spend is
+// summed from are kept, and the verification's round numbering carries on.
+func TestReplanInReviewDropsTheVerification(t *testing.T) {
+	e := newVerifyEnv(t, outcomesPlan)
+	e.evaluatorOn(0.4)
+	e.intent.Settings.ReplanInReview = true
+	name := e.reviewing()
+	e.readyPreview(name)
+	e.review(name, 8)
+	before := e.get(name)
+	head := before.Status.PullRequests[0].HeadSHA
+	if len(e.acceptanceStatuses(head)) == 0 || len(e.verifications(name)) == 0 {
+		t.Fatalf("statuses %d, verifications %d: want the intent verified before the replan",
+			len(e.acceptanceStatuses(head)), len(e.verifications(name)))
+	}
+	round := before.Status.Verification.Round
+	runs := len(e.runPtrs(name))
+	e.clock.Advance(time.Minute)
+	e.gh.comment(approver, "/maul replan")
+	in := e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
+	if got := e.verifications(name); len(got) != 0 {
+		t.Errorf("verifications after the replan = %d, want none", len(got))
+	}
+	if got := e.latestAcceptance(head); got.State != "error" || got.Description != "superseded by a replan" {
+		t.Errorf("maul/acceptance at the old head = %+v, want the final error", got)
+	}
+	if v := in.Status.Verification; v == nil || v.Round != round {
+		t.Errorf("verification after the replan = %+v, want its round numbering (%d) kept", v, round)
+	}
+	// Spend is summed from the runs, which a replan never deletes: the old
+	// plan's, evaluations included, keep counting.
+	if got := len(e.runPtrs(name)); got < runs+1 {
+		t.Errorf("runs after the replan = %d, want the %d before kept and the new plan's", got, runs)
+	}
+}
+
+// TestReplanInReviewSurvivesLostStatusWrites (crash injection): every other
+// status write of the replan fails, as a restart between a GitHub call and
+// its record would leave it; each step is found done by its marker, digest
+// or state and none is repeated (a commit status, latest-wins, may be).
+func TestReplanInReviewSurvivesLostStatusWrites(t *testing.T) {
+	e := replanEnv(t, testProject())
+	name := e.reviewing()
+	e.setStatus(name, func(in *v1alpha1.Intent) {
+		in.Status.PullRequests[0].AcceptanceStatusID = 77
+		in.Status.PullRequests[0].AcceptanceHead = in.Status.PullRequests[0].HeadSHA
+	})
+	e.clock.Advance(time.Minute)
+	id := e.gh.comment(approver, "/maul replan")
+	e.settleActions(name)
+	e.failEvery = 2
+	for range 20 {
+		_ = e.reconcileIntent(name)
+		e.runRuns()
+		e.clock.Advance(time.Minute)
+	}
+	e.failEvery = 0
+	in := e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
+	key := "comment-" + itoa(id)
+	if e.failed == 0 {
+		t.Fatal("no status write failed: the test injected nothing")
+	}
+	if len(e.notices(name, key)) != 1 || len(e.prNotices(name, templates.ReplanClosedKey(key))) != 1 ||
+		!slices.Equal(e.gh.closedPRs, []int64{1}) || e.gh.state() != "open" || in.Status.Input.Revision != 2 {
+		t.Errorf("replies %d, pull request comments %d, closes %v, issue %s, input r%d",
+			len(e.notices(name, key)), len(e.prNotices(name, templates.ReplanClosedKey(key))), e.gh.closedPRs,
+			e.gh.state(), in.Status.Input.Revision)
+	}
+	// A commit status is GitHub's latest-wins record: one posted again
+	// after its record was lost says the same, so only the latest is held.
+	if got := e.latestAcceptance(e.gh.prs[1].pr.HeadSHA); got.State != "error" ||
+		got.Description != "superseded by a replan" {
+		t.Errorf("latest maul/acceptance = %+v, want the final error", got)
 	}
 }
