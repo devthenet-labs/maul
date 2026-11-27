@@ -727,3 +727,29 @@ func TestAgentsSettingsRefused(t *testing.T) {
 		}
 	}
 }
+
+// TestReplanInReviewFlag: --intent-replan-in-review is off by default and
+// reaches the settings when turned on, from the environment as the chart
+// delivers it.
+func TestReplanInReviewFlag(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		data := componentData(t)
+		for key, value := range data {
+			t.Setenv(key, value)
+		}
+		if on {
+			t.Setenv("MAUL_INTENT_REPLAN_IN_REVIEW", "true")
+		}
+		opts, root, _ := command(t)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("execute: %v", err)
+		}
+		s, err := settings(opts, "maul", "maul-agents")
+		if err != nil {
+			t.Fatalf("settings: %v", err)
+		}
+		if s.ReplanInReview != on {
+			t.Errorf("MAUL_INTENT_REPLAN_IN_REVIEW set %v: ReplanInReview = %v", on, s.ReplanInReview)
+		}
+	}
+}

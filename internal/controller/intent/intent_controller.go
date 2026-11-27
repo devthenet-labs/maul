@@ -266,6 +266,10 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 	if terminal(p.in.Status.Phase) {
 		return p.ended(ctx)
 	}
+	if p.in.Status.Replan != nil {
+		// Before the poll: nothing of review may read maul's own closes.
+		return p.continueReplan(ctx)
+	}
 
 	if wait := p.pollWait(); wait <= 0 {
 		stop, err := p.poll(ctx)

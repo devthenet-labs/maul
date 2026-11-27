@@ -331,6 +331,12 @@ type Settings struct {
 	// (ReasonHarnessNotEnabled), and a codex run of its intents is not
 	// launched but waits Pending (harnessOff).
 	Codex RunHarness
+	// ReplanInReview is --intent-replan-in-review: an approver's replan
+	// (/maul replan, or the trigger label re-applied) while the intent is in
+	// review stops its round, closes its pull requests and plans again
+	// (replan_review.go). Off, such a replan is answered as not available,
+	// as before; a replan already recorded is finished either way.
+	ReplanInReview bool
 	// IgnoreDependencies is --intent-dependencies=false: an intent starts
 	// as soon as its trigger is accepted, whatever its issue is blocked by,
 	// and nothing is read or written for dependencies. The zero value

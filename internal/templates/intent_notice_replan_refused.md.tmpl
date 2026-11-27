@@ -1,0 +1,18 @@
+{{- /* The reply to a replan in review maul refused: what it would have
+replaced cannot be planned again. The pull requests are maul's own, linked on
+purpose. */ -}}
+{{ .Marker }}
+{{ if eq .Reason "merged" -}}
+{{ .Asked }} does nothing once a pull request of this intent has merged: what merged is already on its repository's default branch, and a new plan cannot replace it. Review the rest as it is, or {{ code "/maul cancel" }} and open a new issue.
+{{- with .Merged }}
+
+**Merged:**
+{{ range . }}
+- [{{ .Ref }}]({{ .URL }})
+{{- end }}
+{{- end }}
+{{- else if eq .Reason "cost" -}}
+{{ .Asked }} does nothing while this intent is at its cost ceiling: it has spent {{ code .Spent }} of the project's {{ code .Ceiling }}, and a new plan would be stopped by the same ceiling before it could be written. Raise {{ code "limits.maxCostMicroUSD" }}, then replan.
+{{- else -}}
+{{ .Asked }} does nothing: this intent has no plan revision left. {{ code "/maul cancel" }} and open a new issue.
+{{- end }}
