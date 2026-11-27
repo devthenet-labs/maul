@@ -87,7 +87,6 @@ func TestEvaluatorEgressMatrix(t *testing.T) {
 		want []string
 	}{
 		{v1alpha1.RoleEvaluator, []string{destBroker, destSlotTools}},
-		{v1alpha1.RoleCheckReview, []string{destBroker}},
 		{v1alpha1.PreviewRoleTools, nil},
 	}
 	for _, mode := range evaluatorEgressModes {

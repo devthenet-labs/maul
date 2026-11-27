@@ -355,8 +355,7 @@ evaluator, which itself runs in the agents namespace with no route to the applic
   tool pod admits its evaluator from. `--preview-max-evaluations` (`MAUL_PREVIEW_MAX_EVALUATIONS`, default `0`, meaning
   the slot count) bounds the tool pods running at once; a verification waiting past its own timeout for room is `Infra`
   (`tools-not-ready`).
-- **Re-checks.** Those above, plus: the outcomes must equal the Intent's approved outcomes under their digest. A request
-  an earlier release wrote naming saved checks still renders: the checks are ignored, and nothing replays.
+- **Re-checks.** Those above, plus: the outcomes must equal the Intent's approved outcomes under their digest.
 - **The pod.** A Job named `preview-<…>-vt-<hash>`, as slice 1's tester Jobs were (so the cleanup and the sweep cover
   it), whose main container `tools` runs the relay, with `browser` (only when the Project declares `surfaces.browser`)
   and `sandbox` as native sidecars. Each container runs as its own user, read-only, with no capability, no

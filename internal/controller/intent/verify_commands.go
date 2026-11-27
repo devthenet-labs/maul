@@ -22,7 +22,7 @@ import (
 	"github.com/devthenet-labs/maul/internal/untrusted"
 )
 
-// The acceptance commands, /maul verify [fix|stop|--reset|explore], /maul accept
+// The acceptance commands, /maul verify [fix|stop|--reset], /maul accept
 // <id>|all and /maul preview, settle here for both surfaces that offer them:
 // the intent issue (from
 // decide, on the poll's answer path) and each of the intent's pull requests
@@ -206,11 +206,6 @@ func (p *pass) applyVerifyCommand(ctx context.Context, c verifyCommand) (templat
 			n.Outcome = templates.VerifyUsage
 			return n, nil
 		}
-		// explore is retired with the cost ladder: every round is a model
-		// round, so /maul verify explore is a plain /maul verify, recorded
-		// and answered as one (status.verification.requested.explore is
-		// never set).
-		args.Explore = false
 		if args.Stop {
 			return p.stopAutoFix(ctx, c, n)
 		}
@@ -297,12 +292,11 @@ func (p *pass) previewHeld() (v1alpha1.HandoffMode, bool) {
 // requestVerification records /maul verify as status.verification.requested,
 // for the verification loop to run at its next opportunity, bypassing the
 // automatic interval. A request made while one waits joins it: the newest
-// comment stands for both, and neither's fix, reset or explore is lost.
+// comment stands for both, and neither's fix or reset is lost.
 // --reset also bumps the reset generation, which the Preview copies, unless
 // the last reset was under verifyResetInterval before it; fix also re-arms
 // automatic fixes from the current round (a human round after it, or a
-// human push, halts them again); explore is a plain request (retired with
-// the cost ladder). Once the approved plan revision has used the Project's
+// human push, halts them again). Once the approved plan revision has used the Project's
 // maxVerifications nothing is recorded and the reply says so. One made while
 // verification is off is answered before this (applyVerifyCommand).
 func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args command.VerifyArgs,
@@ -372,7 +366,7 @@ func (p *pass) requestVerification(ctx context.Context, c verifyCommand, args co
 
 // joinedRequest is the request c records with args, joining waiting (nil
 // for none): the newest comment stands for both, and neither's fix or reset
-// is lost. Explore is retired and never recorded.
+// is lost.
 func joinedRequest(c verifyCommand, args command.VerifyArgs, waiting *v1alpha1.VerifyRequest) v1alpha1.VerifyRequest {
 	req := v1alpha1.VerifyRequest{By: c.actor.Login, ByID: c.actor.ID, At: metav1.NewTime(c.at), CommentID: c.id,
 		Fix: args.Fix, Reset: args.Reset, PullRequest: c.requestSource()}
@@ -622,8 +616,8 @@ func (p *pass) acceptable() []string {
 }
 
 // acceptableOutcomes are the outcomes an approver can close by hand, in plan
-// order: the manual ones, and those the latest decision left failed, unsure
-// or quarantined (passed only on retry), or accepted earlier, which a new
+// order: the manual ones, and those the latest decision left failed or
+// unsure, or accepted earlier, which a new
 // acceptance rebinds to the current commits. One that passed, or that
 // nothing has decided yet, is not among them.
 func (p *pass) acceptableOutcomes() []string {
@@ -636,7 +630,7 @@ func (p *pass) acceptableOutcomes() []string {
 	var out []string
 	for _, o := range p.in.Status.Acceptance.Outcomes {
 		switch result[o.ID] {
-		case v1alpha1.OutcomeFailed, v1alpha1.OutcomeUnsure, v1alpha1.OutcomeQuarantined, v1alpha1.OutcomeAccepted:
+		case v1alpha1.OutcomeFailed, v1alpha1.OutcomeUnsure, v1alpha1.OutcomeAccepted:
 			out = append(out, o.ID)
 		case v1alpha1.OutcomePassed, "":
 			if o.Manual {

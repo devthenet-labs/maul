@@ -585,15 +585,6 @@ func TestCheckRunBudgets(t *testing.T) {
 			project: cost, edit: func(d *ProjectSettings) { d.Limits.MaxEvaluateCostMicroUSD = 1_000_000 },
 			want: []ProjectSettingsRefusal{{Field: FieldMaxEvaluateCost, Reason: RefusedRunBudgetUnderReserve,
 				Limit: 1_600_000, Value: "anthropic/claude-b"}}},
-		// The check reviewer is retired: no run of it is created, so the
-		// budget its retired limits name, however short, is never judged,
-		// as the controller no longer judges it.
-		{name: "reserve: the retired check reviewer's budget is not judged",
-			project: and(cost, func(p *v1alpha1.Project) {
-				p.Spec.Limits.CheckReview.MaxCostMicroUSD = 1
-				p.Spec.Verification.Enabled = false
-			}),
-			edit: func(d *ProjectSettings) { d.Verification.Enabled = true }},
 		{name: "hourly: the retired check reviewer's budget is not judged",
 			project: and(cost, func(p *v1alpha1.Project) {
 				p.Status.Admits.MaxRunCostMicroUSD = 5_000_000
@@ -656,8 +647,6 @@ func TestRunBudget(t *testing.T) {
 			"evaluate", 3_000_000},
 		{"evaluate: a maximum above the evaluation cost changes nothing", spec(20_000_000, 5_000_000, 0),
 			admits(9_000_000), "evaluate", 5_000_000},
-		{"the retired check reviewer is no stage", spec(20_000_000, 5_000_000, 4_000_000), admits(0),
-			"checkReview", 0},
 		{"no such stage", spec(20_000_000, 0, 0), nil, "deploy", 0},
 	} {
 		if got := RunBudget(tc.spec, tc.admits, tc.stage); got != tc.want {
@@ -872,9 +861,9 @@ func admitsHold(t *testing.T, p, out *v1alpha1.Project, was, is map[string]int64
 	}
 	pair := func(m *v1alpha1.ProjectModels) []string {
 		if m == nil {
-			return make([]string, 4)
+			return make([]string, 3)
 		}
-		return []string{m.Plan, m.Build, m.Evaluate, m.CheckReview}
+		return []string{m.Plan, m.Build, m.Evaluate}
 	}
 	before, after := pair(p.Spec.Models), pair(out.Spec.Models)
 	for i, m := range after {

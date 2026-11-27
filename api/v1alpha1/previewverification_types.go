@@ -57,13 +57,7 @@ const (
 // PreviewVerificationReason is the fixed vocabulary of a
 // PreviewVerification's status.reason: never free text, so nothing the slot
 // produced reaches a reader through it.
-//
-// Two values are retired spellings that nothing writes any more, kept in
-// the schema only because settled PreviewVerifications may still hold them
-// and a status write must not fail on a value it leaves unchanged:
-// stale-criteria (now stale-approval) and tester-output-invalid (now
-// tools-output-invalid).
-// +kubebuilder:validation:Enum=ok;stale-preview;stale-workspace;stale-approval;stale-criteria;rollout-unsettled;quota-refused;deadline-no-summary;tools-output-invalid;tester-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused;replay-incomplete;kept-copy-failed
+// +kubebuilder:validation:Enum=ok;stale-preview;stale-workspace;stale-approval;rollout-unsettled;quota-refused;deadline-no-summary;tools-output-invalid;component-crashloop;component-not-ready;component-evicted;component-image-pull;component-oom;preview-failed;service-restarted;component-unreachable;component-crashed;component-disrupted;service-no-cluster-ip;tools-unscheduled;tools-image-pull;tools-crashloop;tools-not-ready;evaluator-not-run;ledger-mismatch;evidence-mismatch;tools-build-failed;sandbox-unenforced;sandbox-image-unavailable;tree-unavailable;tool-pods-saturated;tools-evicted;tools-deadline;tools-refused
 type PreviewVerificationReason string
 
 // PreviewVerification reasons.
@@ -178,19 +172,6 @@ const (
 	// existed. Its message is in intent-controller's
 	// log. Infra, never a verdict.
 	VerificationReasonToolsRefused PreviewVerificationReason = "tools-refused"
-	// VerificationReasonReplayIncomplete: a replay round's tool pod finished
-	// before the end of its replay (its wall clock, or its container told to
-	// stop), so a saved check may never have run at these heads (review
-	// VC-3). Infra, never a verdict.
-	VerificationReasonReplayIncomplete PreviewVerificationReason = "replay-incomplete"
-	// VerificationReasonKeptCopyFailed: retired spelling (evaluator
-	// observed, W9): an earlier release's agents tool pod whose sandbox
-	// could not keep the copy of its built tree every check run started
-	// from. Nothing writes it since the sandbox keeps no copy; an earlier
-	// release's relay finishing so is collected Infra evaluator-not-run or
-	// tools-not-ready. Kept in the enum for a rollback; removed in the next
-	// release.
-	VerificationReasonKeptCopyFailed PreviewVerificationReason = "kept-copy-failed"
 )
 
 // VerificationPlacement is where an outcome verification's tool pod runs:
@@ -228,29 +209,9 @@ const (
 	// MaxAgentsVerificationTimeout bounds an agents verification's
 	// timeout: the evaluate timeout, the build timeout and a margin (O9).
 	MaxAgentsVerificationTimeout = 75 * time.Minute
-	// MaxBaseRuns bounds status.base.runs: a base run of every replayed and
-	// every confirmed check.
-	MaxBaseRuns = 80
 	// MaxLedgerBuilds bounds ledger.builds: one build of each tree, and one
 	// retry of each.
 	MaxLedgerBuilds = 4
-)
-
-// VerificationRung is how much of an evaluation a round runs: full (the
-// saved checks replayed, then the evaluator) or replay (the saved checks
-// only, no model: a round at the heads of a model round that raised
-// nothing, every outcome bound to a proven saved check; the round after a
-// dispute among them, SPEC Q17), as an earlier release's intent-controller
-// picked it. Retired with the cost ladder: the observed
-// evaluator writes full only, and replay is a retired spelling. Removed in
-// the next release.
-// +kubebuilder:validation:Enum=full;replay
-type VerificationRung string
-
-// Rungs.
-const (
-	RungFull   VerificationRung = "full"
-	RungReplay VerificationRung = "replay"
 )
 
 // The evaluator's tool bounds. The schema markers repeat them as literals;
@@ -297,7 +258,7 @@ type ToolsSpec struct {
 // PreviewVerificationSpec is one request to evaluate an Intent's approved
 // outcomes (the agent evaluator) against its Preview, or in the agents
 // namespace's workspace, at exactly the recorded heads: the outcomes with
-// their digest, the rung and the tool pod's tools. Slice 1's criteria are
+// their digest and the tool pod's tools. Slice 1's criteria are
 // removed: a request without outcomes is refused (a stored one, pruned of
 // its criteria, is answered Stale stale-approval and never run).
 // intent-controller writes it once, at creation, and it is immutable: a new
@@ -306,10 +267,7 @@ type ToolsSpec struct {
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="spec is immutable; create a new PreviewVerification for a new attempt"
 // +kubebuilder:validation:XValidation:rule="has(self.outcomes)",message="a verification evaluates outcomes: slice 1's criteria are removed"
 // +kubebuilder:validation:XValidation:rule="has(self.outcomes) == has(self.outcomesDigest)",message="outcomes and outcomesDigest are set together"
-// +kubebuilder:validation:XValidation:rule="has(self.outcomes) == has(self.rung) && has(self.outcomes) == has(self.tools)",message="an outcome verification, and only one, names its rung and its tools"
-// +kubebuilder:validation:XValidation:rule="!has(self.checks) || has(self.outcomes)",message="saved checks belong to an outcome verification"
-// +kubebuilder:validation:XValidation:rule="has(self.checks) == has(self.checksDigest)",message="checks and checksDigest are set together"
-// +kubebuilder:validation:XValidation:rule="!has(self.rung) || self.rung != 'replay' || has(self.checks)",message="a replay round replays saved checks: it needs at least one"
+// +kubebuilder:validation:XValidation:rule="has(self.outcomes) == has(self.tools)",message="an outcome verification, and only one, names its tools"
 // +kubebuilder:validation:XValidation:rule="has(self.intentRef.uid) && size(self.intentRef.uid) > 0",message="spec.intentRef.uid is required"
 // +kubebuilder:validation:XValidation:rule="(has(self.placement) && self.placement == 'agents') || (has(self.previewRef) && has(self.previewRef.uid) && size(self.previewRef.uid) > 0)",message="spec.previewRef.uid is required"
 // +kubebuilder:validation:XValidation:rule="(has(self.placement) && self.placement == 'agents') || (has(self.previewGeneration) && self.previewGeneration >= 1)",message="spec.previewGeneration must be at least 1 on a slot verification"
@@ -376,30 +334,6 @@ type PreviewVerificationSpec struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
 	OutcomesDigest string `json:"outcomesDigest,omitempty"`
-	// Checks are the Intent's saved checks, copied inline from its check
-	// store (status.acceptance.checks), which preview-controller copies
-	// into the slot tool pod's ConfigMap: it never reads the store, so it
-	// needs no read of the release namespace's ConfigMaps (SPEC Q1). Empty
-	// on a first round, before any check is saved. Retired with saved
-	// checks: the observed evaluator never writes it. Kept for a rollback;
-	// removed in the next release.
-	// +optional
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=40
-	// +listType=atomic
-	Checks []SavedCheck `json:"checks,omitempty"`
-	// ChecksDigest is the check store's digest
-	// (status.acceptance.checks.digest). Set with Checks, and only with it.
-	// Retired with saved checks, as Checks is.
-	// +optional
-	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
-	ChecksDigest string `json:"checksDigest,omitempty"`
-	// Rung is how much of an evaluation the round runs. Set on an outcome
-	// verification, and only on one. Retired with the cost ladder: the
-	// observed evaluator always writes full, which the schema's rules still
-	// require of an outcome verification. Removed in the next release.
-	// +optional
-	Rung VerificationRung `json:"rung,omitempty"`
 	// Tools is what the slot tool pod offers. Set on an outcome
 	// verification, and only on one.
 	// +optional
@@ -664,62 +598,10 @@ type PreviewVerificationStatus struct {
 	// Ledger summarises the tools container's verified ledger.
 	// +optional
 	Ledger *LedgerSummary `json:"ledger,omitempty"`
-	// Replay is each saved check's replay at the start of the round, in
-	// spec order. Retired with saved checks: the tool hosts no longer write
-	// it. Kept for a rollback; removed in the next release.
-	// +optional
-	// +kubebuilder:validation:MaxItems=40
-	// +listType=atomic
-	Replay []CheckRun `json:"replay,omitempty"`
-	// Confirmations is each proposed check's confirmation run, alone with
-	// a fresh run token, after the evaluator finished. Retired with saved
-	// checks, as Replay is.
-	// +optional
-	// +kubebuilder:validation:MaxItems=40
-	// +listType=atomic
-	Confirmations []CheckRun `json:"confirmations,omitempty"`
-	// Confirmed are the proposed checks that passed their confirmation,
-	// their bodies read from the verified ledger (never from the
-	// evaluator's report): what intent-controller may store once reviewed.
-	// Retired with saved checks, as Replay is.
-	// +optional
-	// +kubebuilder:validation:MaxItems=40
-	// +listType=atomic
-	Confirmed []SavedCheck `json:"confirmed,omitempty"`
 	// Capture summarises the component log tails and slot events captured
 	// for the evaluator.
 	// +optional
 	Capture *CaptureSummary `json:"capture,omitempty"`
-	// Base is an agents verification's base side: whether its outcomes need
-	// a base comparison, whether the base tree built, and each check's run
-	// at base. Unset on a slot verification. Retired with saved checks: the
-	// agents host no longer writes it (a base-side call is context, marked
-	// on its ledger index entry). Kept for a rollback; removed in the next
-	// release.
-	// +optional
-	Base *BaseStatus `json:"base,omitempty"`
-}
-
-// BaseStatus is an agents verification's base side (DESIGN 2.5, 7.10).
-type BaseStatus struct {
-	// Required reports that a change outcome's check must fail by assertion
-	// at base.
-	// +optional
-	Required bool `json:"required,omitempty"`
-	// Unbuildable reports that the base tree did not build: every base run
-	// is n/a and a pass rests on the other rules, labelled "no base
-	// comparison".
-	// +optional
-	Unbuildable bool `json:"unbuildable,omitempty"`
-	// Runs are the checks' runs at base, each with a fresh run token
-	// (CheckRun.tree base). Each names the base tree explicitly: an unset
-	// tree reads as head (CheckRun.Side), so a base run without it would
-	// stand for a head run.
-	// +optional
-	// +kubebuilder:validation:MaxItems=80
-	// +listType=atomic
-	// +kubebuilder:validation:XValidation:rule="self.all(r, has(r.tree) && r.tree == 'base')",message="every base run names the base tree"
-	Runs []CheckRun `json:"runs,omitempty"`
 }
 
 // ToolsStatus is the slot tool pod as preview-controller observed it.
@@ -894,109 +776,6 @@ type LedgerIndexEntry struct {
 	// the field.
 	// +optional
 	NoAnswer bool `json:"noAnswer,omitempty"`
-}
-
-// CheckRunResult is what one deterministic run of a saved or proposed
-// check showed. error is the check's own failure to run (an indeterminate
-// assertion included), refused a check the grammar refused.
-// +kubebuilder:validation:Enum=pass;fail;quarantined;error;refused
-type CheckRunResult string
-
-// Check run results.
-const (
-	CheckRunPass        CheckRunResult = "pass"
-	CheckRunFail        CheckRunResult = "fail"
-	CheckRunQuarantined CheckRunResult = "quarantined"
-	CheckRunError       CheckRunResult = "error"
-	CheckRunRefused     CheckRunResult = "refused"
-)
-
-// CheckRunCause is why an error run errored, recorded only when the error
-// is a property of the tree it ran against rather than a run cut short or
-// disturbed (SPEC-S2 S2-20): only these base errors leave a check with no
-// base comparison. A timeout, processes left behind, output cut, a bind or
-// connection error or a sandbox that refused or did not answer carries
-// none (httpstep.RunCause). Retired with saved checks, as CheckRun is.
-// +kubebuilder:validation:Enum=compile;vendored-tree;replace-outside-tree;no-module;base-unbuildable
-type CheckRunCause string
-
-// Check run causes.
-const (
-	// CheckRunCauseCompile: the run program did not compile against the
-	// tree (the compiler ran to its end and refused it).
-	CheckRunCauseCompile CheckRunCause = "compile"
-	// CheckRunCauseVendoredTree, CheckRunCauseReplaceOutsideTree and
-	// CheckRunCauseNoModule: a tree a run program cannot be built against.
-	CheckRunCauseVendoredTree       CheckRunCause = "vendored-tree"
-	CheckRunCauseReplaceOutsideTree CheckRunCause = "replace-outside-tree"
-	CheckRunCauseNoModule           CheckRunCause = "no-module"
-	// CheckRunCauseBaseUnbuildable: the base did not build.
-	CheckRunCauseBaseUnbuildable CheckRunCause = "base-unbuildable"
-)
-
-// CheckRun is one run of one check, as the ledger recorded it.
-type CheckRun struct {
-	// CheckDigest is the check's digest.
-	// +kubebuilder:validation:Pattern=`^sha256:[0-9a-f]{64}$`
-	CheckDigest string `json:"checkDigest"`
-	// Result of the run.
-	Result CheckRunResult `json:"result"`
-	// Token is the fresh run token the run substituted for the check's
-	// run placeholder.
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=40
-	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9-]+$`
-	Token string `json:"token"`
-	// Seq is the ledger entry of the run.
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=512
-	Seq int32 `json:"seq"`
-	// DryRunSeq is the ledger entry of the dry run a confirmation required:
-	// green, or, for a check expected to fail (Expect), red by assertion;
-	// unset on a replay.
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=512
-	DryRunSeq int32 `json:"dryRunSeq,omitempty"`
-	// Expect is fail for a confirmation of a check the evaluator proposed
-	// to show a defect.
-	// +optional
-	Expect CheckExpectation `json:"expect,omitempty"`
-	// AssertionStep is, for a failed run red by assertion, the step (1-based)
-	// at which both attempts failed, an assertion of a check that otherwise
-	// ran, as an earlier release's check runner recorded it: never a check
-	// error, a timeout or a locator that resolved to nothing. Unset
-	// otherwise.
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=64
-	AssertionStep int32 `json:"assertionStep,omitempty"`
-	// AssertionID names which assertion of that step failed, as that check
-	// runner recorded it: "json <pointer>", "header <name>", "bodyContains",
-	// "marker <id>" or "expect". Set with AssertionStep.
-	// +optional
-	// +kubebuilder:validation:MaxLength=512
-	AssertionID string `json:"assertionID,omitempty"`
-	// Tree is the tree the run ran against in an agents verification;
-	// unset is head (Side), and a slot verification never sets it.
-	// +optional
-	Tree TreeSide `json:"tree,omitempty"`
-	// Cause is, for an error run at the base of an agents verification,
-	// why it errored, when the error is the tree's (CheckRunCause); unset
-	// for every other run, and on every slot run.
-	// +optional
-	Cause CheckRunCause `json:"cause,omitempty"`
-}
-
-// RedByAssertion reports a run red by assertion (AssertionStep).
-func (r CheckRun) RedByAssertion() bool { return r.Result == CheckRunFail && r.AssertionStep > 0 }
-
-// Side is the tree the run ran against: head when unset.
-func (r CheckRun) Side() TreeSide {
-	if r.Tree == "" {
-		return TreeHead
-	}
-	return r.Tree
 }
 
 // CaptureSummary is what was captured from the slot for the evaluator: per

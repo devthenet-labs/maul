@@ -23,21 +23,19 @@ import (
 
 // Outcome results as a comment shows them (status.verification.outcomes).
 const (
-	OutcomeResultPassed      = "passed"
-	OutcomeResultFailed      = "failed"
-	OutcomeResultUnsure      = "unsure"
-	OutcomeResultQuarantined = "quarantined"
-	OutcomeResultAccepted    = "accepted"
+	OutcomeResultPassed   = "passed"
+	OutcomeResultFailed   = "failed"
+	OutcomeResultUnsure   = "unsure"
+	OutcomeResultAccepted = "accepted"
 )
 
 // outcomeResultWords are the results in maul's words; one not listed shows
 // as unknown, never as the text it carried.
 var outcomeResultWords = map[string]string{
-	OutcomeResultPassed:      "confirmed",
-	OutcomeResultFailed:      "failed",
-	OutcomeResultUnsure:      "unsure: maul couldn't confirm it",
-	OutcomeResultQuarantined: "quarantined: its check passed only on retry",
-	OutcomeResultAccepted:    "accepted by a human, not re-checked",
+	OutcomeResultPassed:   "confirmed",
+	OutcomeResultFailed:   "failed",
+	OutcomeResultUnsure:   "unsure: maul couldn't confirm it",
+	OutcomeResultAccepted: "accepted by a human, not re-checked",
 }
 
 // observedResultWords are the results of an observed round (acceptance.Judge)

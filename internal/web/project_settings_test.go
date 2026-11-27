@@ -69,9 +69,8 @@ func settingsProject() *v1alpha1.Project {
 			Approvers:        v1alpha1.ProjectApprovers{Logins: []string{"octo", "wil"}},
 			Repositories: []v1alpha1.ProjectRepository{{Name: "app", URL: "https://github.com/acme/app",
 				AgentResourceClass: "small"}},
-			Limits: v1alpha1.ProjectLimits{MaxRevisions: &mr, MaxCostMicroUSD: 10_000_000,
-				CheckReview: v1alpha1.StageLimits{MaxTurns: 4}},
-			Models:       &v1alpha1.ProjectModels{Plan: "anthropic/claude-a", CheckReview: "anthropic/claude-b"},
+			Limits:       v1alpha1.ProjectLimits{MaxRevisions: &mr, MaxCostMicroUSD: 10_000_000},
+			Models:       &v1alpha1.ProjectModels{Plan: "anthropic/claude-a"},
 			Verification: &v1alpha1.ProjectVerification{Enabled: true},
 		},
 		Status: v1alpha1.ProjectStatus{

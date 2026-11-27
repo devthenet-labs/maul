@@ -5,8 +5,6 @@ package preview
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -67,31 +65,13 @@ func outcomesDigest(t *testing.T, outcomes []v1alpha1.AcceptanceOutcome) string 
 	return acceptance.OutcomesDigest(plan)
 }
 
-// savedCheck is a saved check of body as an earlier release stored it, for
-// the tests that hold a host to ignoring one: its id, outcome and form read
-// from body, which is kept as given (in the canonical spelling the retired
-// check grammar wrote), and body's sha256 as its digest.
-func savedCheck(t *testing.T, body string) v1alpha1.SavedCheck {
-	t.Helper()
-	var head struct{ ID, Outcome, Form string }
-	if err := json.Unmarshal([]byte(body), &head); err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256([]byte(body))
-	return v1alpha1.SavedCheck{ID: head.ID, Outcome: head.Outcome, Form: v1alpha1.CheckForm(head.Form), Body: body,
-		Digest: "sha256:" + hex.EncodeToString(sum[:])}
-}
-
 // toolVerification is testVerification as an outcome verification with
-// both sidecars and one saved check.
+// both sidecars.
 func toolVerification(t *testing.T, p *v1alpha1.Preview) *v1alpha1.PreviewVerification {
 	t.Helper()
 	pv := testVerification(p)
 	pv.Spec.Outcomes = testOutcomes()
 	pv.Spec.OutcomesDigest = outcomesDigest(t, pv.Spec.Outcomes)
-	pv.Spec.Checks = []v1alpha1.SavedCheck{savedCheck(t, testCheckBody)}
-	pv.Spec.ChecksDigest = "sha256:" + strings.Repeat("c", 64)
-	pv.Spec.Rung = v1alpha1.RungFull
 	pv.Spec.Tools = &v1alpha1.ToolsSpec{Browser: true, Sandbox: true, MaxToolCalls: 120}
 	pv.Spec.Timeout = metav1.Duration{Duration: 20 * time.Minute}
 	return pv
@@ -386,11 +366,8 @@ func TestToolConfig(t *testing.T) {
 	}
 }
 
-// TestToolConfigCarriesNoChecks: the relay replays nothing, so a
-// verification that still carries saved checks (written before the
-// evaluator stopped saving them), a replay rung among them, renders a
-// relay config with no checks and no replay; one whose check is forged
-// is configured all the same, since nothing runs it.
+// TestToolConfigCarriesNoChecks: the relay replays nothing, so an outcome
+// verification renders a relay config with no checks and no replay.
 func TestToolConfigCarriesNoChecks(t *testing.T) {
 	_, p := verifyPreview(t, time.Now())
 	s := verifySettings()
@@ -399,17 +376,10 @@ func TestToolConfigCarriesNoChecks(t *testing.T) {
 		name string
 		mut  func(*v1alpha1.PreviewVerification)
 	}{
-		{"a full round with a saved check", func(*v1alpha1.PreviewVerification) {}},
-		{"a replay round", func(pv *v1alpha1.PreviewVerification) { pv.Spec.Rung = v1alpha1.RungReplay }},
-		{"a forged check", func(pv *v1alpha1.PreviewVerification) {
-			pv.Spec.Checks[0].Digest = "sha256:" + strings.Repeat("0", 64)
-		}},
+		{"an outcome verification", func(*v1alpha1.PreviewVerification) {}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			pv := toolVerification(t, p)
-			if len(pv.Spec.Checks) == 0 {
-				t.Fatal("the fixture carries no saved check")
-			}
 			tc.mut(pv)
 			cfg, err := s.toolConfig(p, pv, targets, 20*time.Minute)
 			if err != nil {

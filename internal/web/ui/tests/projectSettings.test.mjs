@@ -548,13 +548,13 @@ test("managerNotes say what each operation's next apply does", () => {
 
 // ---- rows ---------------------------------------------------------------------------------
 
-test("the stage table and the models card never show the check reviewer", () => {
-  const stageFields = ["plan", "build", "revise", "evaluate", "checkReview"].flatMap((s) =>
+test("the stage table and the models card show the server's stages, in its order", () => {
+  const stageFields = ["plan", "build", "revise", "evaluate"].flatMap((s) =>
     ["maxTurns", "tokenBudget", "maxCostMicroUSD", "timeout"].map((leaf) =>
       field(`limits.${s}.${leaf}`, "count", { group: "stages" }),
     ),
   );
-  const models = ["plan", "build", "evaluate", "checkReview"].map((s) => field(`models.${s}`, "model", { group: "models" }));
+  const models = ["plan", "build", "evaluate"].map((s) => field(`models.${s}`, "model", { group: "models" }));
   assert.deepEqual(stageRows(stageFields), ["plan", "build", "revise", "evaluate"]);
   assert.deepEqual(modelRows(models), ["plan", "build", "evaluate"]);
   // The demo view is the server's shape.

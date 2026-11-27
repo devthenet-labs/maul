@@ -670,68 +670,29 @@ no preview a check counted only if it also told the head from the base. All of t
 check: each verdict counts when it cites calls of the round's own verified ledger
 ([What makes a pass](#what-makes-a-pass)), and the base is for exploration only.
 
-**What changed for the operator.**
+**What is removed.**
 
-- intent-controller's `--intent-checkreview-model` and `--intent-checkreview-max-turns`
-  (`MAUL_INTENT_CHECKREVIEW_MODEL`, `MAUL_INTENT_CHECKREVIEW_MAX_TURNS`) are accepted and ignored for one release, and
-  each one set logs a warning naming this section. Drop them; the next release removes them.
-  `--intent-checkreview-model` no longer admits its model: a Project that chose it for another stage, and not through
-  `--intent-model-allowlist`, is not Ready (`ModelNotAllowed`) until the allowlist names it or the Project drops it.
-- The chart no longer renders them: `intentController.verification.checkReviewModel` and `checkReviewMaxTurns` are
-  removed, and either one set, whatever its value, fails the render naming it. Drop them from your values. An upgrade
-  with `helm upgrade --reuse-values` carries the previous chart's defaults, both keys among them, so it fails too:
-  upgrade with your values files, or with `--reset-then-reuse-values`.
-- A Project's `spec.models.checkReview` and `spec.limits.checkReview` are kept in the schema for one release and read by
-  nothing: whatever they hold, they never keep the Project from Ready. Drop them.
-- `/maul verify explore`, which asked for a round with the model where saved checks alone could have settled it, is now
-  a plain `/maul verify`: every round is a full evaluation.
-- The schema keeps every field the saved checks wrote for one release, marked retired and never read, so a rollback
-  finds them as it left them: an Intent's `status.acceptance.checks`, `reviews`, `redCleared` and `narrowed`, and a
-  `PreviewVerification`'s `spec.checks` and `spec.rung` (always written as `full`). Beside them this release adds
-  fields, and drops only the check reviewer's entries of a Project's `status.admits` (`defaultModels.checkReview`,
-  `stages.checkReview`, `runBudgetFloors[].checkReviewMicroUSD`), which intent-controller alone writes: a round's
-  verdicts are judged under the marker `status.verification.judge: observed/1`, each outcome's counted calls are in
-  `status.verification.outcomes[].cites`, and an agents ledger entry at the base carries `side: base`.
-- The tool images and agent-runner come from the same chart release as the controllers. Mixed during a roll, they fail
-  safe: an older tools image's ledger does not hold (`Infra`, retried), and an older evaluator's report carrying the
-  retired keys (`disputes`, `proposed`, `retire`, `contrary`) is refused and claims nothing. Neither ever passes an
-  outcome.
-
-**At the upgrade.** On its first pass over each open intent of a Project the evaluator verifies whose verification an
-earlier release wrote (no `status.verification.judge`), intent-controller withdraws the old result once and starts one
-fresh evaluation:
-
-- a round in flight is dropped (its unsettled `PreviewVerification` deleted, its evaluate run cancelled), and a
-  checkreview run an earlier release left is stopped, its Job deleted; what it spent still counts toward the evaluation
-  ceiling;
-- the old results, rung, escalation, disputes, suspected and quarantined outcomes and anomalies are cleared; the round
-  number, a waiting `/maul verify`, a released hand-off, the automatic-fix state (an approver's `/maul verify stop`
-  included), the counters of rounds, fixes and evaluation spend, and `status.acceptance` (accepted outcomes and the
-  retired check records) are kept;
-- the Intent carries the condition `VerificationSuperseded` (reason `VerificationRulesChanged`), its status comment adds
-  "An earlier result was withdrawn because maul's rules for judging the approved outcomes changed; it is not shown.",
-  and `maul/acceptance` reads pending, until the fresh round is judged;
-- the fresh round counts toward neither `maxVerifications` nor the spacing between automatic rounds, but is held to the
-  evaluation ceiling: an intent whose ceiling is spent settles "maul can't call this ready: it spent its evaluation
-  budget", and an approver can raise the limit and comment `/maul verify`;
-- an old result is not withdrawn while its Project cannot run an evaluation (no outcome maul evaluates, or a codex
-  Project without `--intent-evaluate-codex`): it stays as it is until the Project can.
-
-An intent that had already ended (merged, closed, cancelled) is never superseded: its result stands as the earlier rules
-reached it, and its comments keep that release's words for it ("Ready: maul checked the approved outcomes.", "maul
-couldn't confirm this: …"), which are true of it, so the upgrade edits none of them for wording alone.
-
-The gauge `maul.intent.verification_superseded` counts the intents superseded since intent-controller started. The
-upgrade spends one evaluation per open verifying intent, unasked, each as soon as its intent's gate opens, within its
-evaluation ceiling. Do not pause agents (`agent.paused`) to hold it back: the pause holds the evaluate run's Job, not
-the round, so the round's tool pod runs with no evaluator, its attempts end as maul's own failure, and the intent is
-left "maul can't call this ready" until an approver comments `/maul verify`. This runbook has not yet been run against a
-live install.
+- The CRD fields the saved checks wrote: an Intent's `status.acceptance.checks`, `reviews`, `redCleared` and `narrowed`;
+  its `status.verification.quarantined`, `quarantinedIDs`, `suspected`, `disputed`, `rung`, `modelRound` and
+  `escalation`, an outcome result's `basis`, `line` and `objected`, and a request's `explore`; a `PreviewVerification`'s
+  `spec.checks`, `spec.checksDigest`, `spec.rung` and `status.replay`, `confirmations`, `confirmed` and `base`; an
+  IntentRun's `spec.evaluation.rung`; a Project's `spec.models.checkReview` and `spec.limits.checkReview`. The API
+  server prunes them from every stored object.
+- The spellings only they wrote: the IntentRun stage `checkreview`, the outcome result `quarantined`, the verification
+  reasons `replay-incomplete`, `kept-copy-failed`, `stale-criteria` and `tester-output-invalid`, and the settle cause
+  `ReplayIncomplete`. The schema no longer admits them: delete any object that still holds one.
+- intent-controller's `--intent-checkreview-model` and `--intent-checkreview-max-turns` are no longer flags: drop them.
+  The chart's `intentController.verification.checkReviewModel` and `checkReviewMaxTurns` are no longer in its values
+  schema, so either one set fails the render; an upgrade with `helm upgrade --reuse-values` from a release that still
+  had them fails too: upgrade with your values files, or with `--reset-then-reuse-values`.
+- A Project manifest, or a maul-config values file, that still states `spec.models.checkReview` or
+  `spec.limits.checkReview`: maul-config's schema refuses it, and the API server prunes the field with a warning, or
+  refuses it under strict field validation (`kubectl apply --validate=strict`, a server-side apply). Remove both.
+- `/maul verify explore` is no longer understood: maul answers it with the commands' help.
 
 **The leftover check stores.** Each intent's saved checks are in immutable ConfigMaps `<intent>-checks-<n>` it owns.
-Nothing reads them now, and intent-controller cannot delete them: they go with their Intent. Leave them until the next
-release while a rollback is possible (a rolled-back controller numbers its next store from them). To remove them sooner,
-match the name against each ConfigMap's own intent label, since other ConfigMaps of an intent carry that label too:
+Nothing reads them, and intent-controller cannot delete them: they go with their Intent. To remove them sooner, match
+the name against each ConfigMap's own intent label, since other ConfigMaps of an intent carry that label too:
 
 ```sh
 kubectl -n <namespace> get configmaps -l maul.run/intent \
@@ -739,15 +700,3 @@ kubectl -n <namespace> get configmaps -l maul.run/intent \
   | awk '$1 ~ ("^" $2 "-checks-[0-9]+$") {print "configmap/" $1}' \
   | xargs -r kubectl -n <namespace> delete
 ```
-
-**Rolling back.** `helm rollback` to the previous release re-applies its CRDs, so the fields this release added
-(`judge`, `cites`, `side`, `noAnswer`, `ranNothing`) are pruned, and every object this release wrote still meets the
-previous schema; the previous controller publishes the check reviewer's `status.admits` entries again. A round under way
-at the rollback whose ledger records a `run` whose program did not compile (`notRun`) does not verify under the previous
-release, which settles that round as maul's own trouble (`ledger-mismatch`). The previous controller then starts its
-rounds with the model (a round with no model needs a record this release never writes), reads this release's evaluator
-reports (they hold a subset of its keys, except an anomaly's `outcome`: a report naming an outcome in an anomaly is
-refused whole by the previous controller and claims nothing), and numbers its next check store after the ones it left.
-Its comments, though, count the results this release judged as "outcomes confirmed": after a rollback, have an approver
-comment `/maul verify` on each open verifying intent, which judges it again under that release's rules. Rolling forward
-again withdraws those results once more (the marker was pruned), at the cost of one more evaluation each.

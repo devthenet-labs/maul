@@ -64,15 +64,15 @@ one Project's trigger label per issue.
 
 ### Commands
 
-| Command                                                             | Effect                                                                                            | Works while the intent is             |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `/maul approve`                                                     | Approves the posted plan and starts the build                                                     | `AwaitingApproval`                    |
-| `/maul replan [note]`                                               | Plans again, using the note and the approvers' comments since the last plan                       | `AwaitingApproval`                    |
-| `/maul start`                                                       | Starts the intent now, without waiting for the issues it is [blocked by](intents/dependencies.md) | `Pending`, waiting on its blockers    |
-| `/maul verify`, alone or with `fix`, `stop`, `--reset` or `explore` | Checks the change against the plan's outcomes now                                                 | `InReview` or `Revising`              |
-| `/maul accept <id>` or `/maul accept all`                           | Accepts an outcome, or every outcome that can be accepted, at the current commits                 | `InReview` or `Revising`              |
-| `/maul preview`                                                     | Shows the preview link now, before maul has finished checking the change                          | `InReview` or `Revising`              |
-| `/maul cancel`                                                      | Stops work on the intent and closes its issue. Open pull requests are left to you                 | Any phase before the intent has ended |
+| Command                                                  | Effect                                                                                            | Works while the intent is             |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| `/maul approve`                                          | Approves the posted plan and starts the build                                                     | `AwaitingApproval`                    |
+| `/maul replan [note]`                                    | Plans again, using the note and the approvers' comments since the last plan                       | `AwaitingApproval`                    |
+| `/maul start`                                            | Starts the intent now, without waiting for the issues it is [blocked by](intents/dependencies.md) | `Pending`, waiting on its blockers    |
+| `/maul verify`, alone or with `fix`, `stop` or `--reset` | Checks the change against the plan's outcomes now                                                 | `InReview` or `Revising`              |
+| `/maul accept <id>` or `/maul accept all`                | Accepts an outcome, or every outcome that can be accepted, at the current commits                 | `InReview` or `Revising`              |
+| `/maul preview`                                          | Shows the preview link now, before maul has finished checking the change                          | `InReview` or `Revising`              |
+| `/maul cancel`                                           | Stops work on the intent and closes its issue. Open pull requests are left to you                 | Any phase before the intent has ended |
 
 With per-user model credentials enforced, `/maul approve` (or the approve label) also works on an intent that is
 `Blocked` with `CredentialRequired`: an approver who holds a valid credential re-approves the same plan.
@@ -105,14 +105,14 @@ is not an approver closes the intent before it plans.
 
 Once maul has opened the pull request, these commands go on the pull request itself.
 
-| Command or action                                                   | Effect                                                                                                 |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| A review that **requests changes**                                  | Starts a revision round from the review. The event form of `/maul revise`                              |
-| `/maul revise [note]`                                               | Starts a revision round from your review feedback and the note                                         |
-| `/maul retry`                                                       | Retries the round that failed. It does nothing unless a round on this pull request's repository failed |
-| `/maul verify`, alone or with `fix`, `stop`, `--reset` or `explore` | Checks the change against the plan's outcomes now                                                      |
-| `/maul accept <id>` or `/maul accept all`                           | Accepts an outcome, or every outcome that can be accepted, at the current commits                      |
-| `/maul preview`                                                     | Shows the preview link now, before maul has finished checking the change                               |
+| Command or action                                        | Effect                                                                                                 |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| A review that **requests changes**                       | Starts a revision round from the review. The event form of `/maul revise`                              |
+| `/maul revise [note]`                                    | Starts a revision round from your review feedback and the note                                         |
+| `/maul retry`                                            | Retries the round that failed. It does nothing unless a round on this pull request's repository failed |
+| `/maul verify`, alone or with `fix`, `stop` or `--reset` | Checks the change against the plan's outcomes now                                                      |
+| `/maul accept <id>` or `/maul accept all`                | Accepts an outcome, or every outcome that can be accepted, at the current commits                      |
+| `/maul preview`                                          | Shows the preview link now, before maul has finished checking the change                               |
 
 A _round_ is one more agent run on the pull request; [Revision rounds](intents/lifecycle.md#revision-rounds) explains
 it. There are no label commands on a pull request.
@@ -132,7 +132,6 @@ because an intent has one combined change and one preview. They are for approver
 | `/maul verify fix`     | As `/maul verify`, and lets maul fix failures on its own again after it had stopped                                                   |
 | `/maul verify stop`    | Stops maul fixing failures on its own. It verifies nothing and starts nothing                                                         |
 | `/maul verify --reset` | Restarts the preview's pods first, which drops their data, then verifies                                                              |
-| `/maul verify explore` | The same as `/maul verify`, kept for older comments: every round is a full evaluation                                                 |
 | `/maul accept <id>`    | Accepts one outcome: a manual one, or one maul's evaluator did not see hold or saw not hold. `<id>` is the outcome's id from the plan |
 | `/maul accept all`     | Accepts every outcome that can be accepted now                                                                                        |
 | `/maul preview`        | Shows a held preview link now. Nothing else changes                                                                                   |

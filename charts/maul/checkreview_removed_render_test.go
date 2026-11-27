@@ -10,17 +10,14 @@ import (
 	"testing"
 )
 
-// checkReviewMigration is the doc section the removed check-reviewer keys
-// name when they fail the render.
-const checkReviewMigration = "docs/intents/evaluator.md#migrating-from-saved-checks"
-
-// TestCheckReviewKeysFailTheRender ("evaluator observed"): the check
-// reviewer is retired, so intentController.verification.checkReviewModel
-// and checkReviewMaxTurns are removed. Either one set fails the render,
-// whatever its value (the old default, zero, empty) and whatever else is
-// set (the evaluator on previews or on the agents tool pod, the evaluator
-// off, intent-controller off), naming the key and the migration section,
-// as preview.verification.testerImage did (S4).
+// TestCheckReviewKeysFailTheRender: the check reviewer's settings,
+// intentController.verification.checkReviewModel and checkReviewMaxTurns,
+// are removed (0.14.18 refused them with a named render failure; this
+// release drops them from values.schema.json). Either one set still fails
+// the render, whatever its value (the old default, zero, empty) and
+// whatever else is set (the evaluator on previews or on the agents tool
+// pod, the evaluator off, intent-controller off): the schema admits no
+// other key there, and the failure names the key.
 func TestCheckReviewKeysFailTheRender(t *testing.T) {
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not on PATH")
@@ -45,11 +42,8 @@ func TestCheckReviewKeysFailTheRender(t *testing.T) {
 				t.Errorf("%s, %s: the render passed, want it refused", base, key.set)
 				continue
 			}
-			for _, want := range []string{"intentController.verification." + key.name + " is removed",
-				checkReviewMigration} {
-				if !strings.Contains(string(out), want) {
-					t.Errorf("%s, %s: the render failed without naming %q:\n%s", base, key.set, want, out)
-				}
+			if !strings.Contains(string(out), key.name) {
+				t.Errorf("%s, %s: the render failed without naming %q:\n%s", base, key.set, key.name, out)
 			}
 		}
 	}

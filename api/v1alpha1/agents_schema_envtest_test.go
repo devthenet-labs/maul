@@ -162,8 +162,7 @@ func testAgentsVerificationSchema(ctx context.Context, t *testing.T, c client.Cl
 		}, true},
 		{"agents: a preview generation", func(v *maulv1.PreviewVerification) { v.Spec.PreviewGeneration = 3 }, true},
 		{"agents: no outcomes", func(v *maulv1.PreviewVerification) {
-			v.Spec.Outcomes, v.Spec.OutcomesDigest, v.Spec.Checks, v.Spec.ChecksDigest = nil, "", nil, ""
-			v.Spec.Rung, v.Spec.Tools = "", nil
+			v.Spec.Outcomes, v.Spec.OutcomesDigest, v.Spec.Tools = nil, "", nil
 		}, true},
 		{"agents: a browser", func(v *maulv1.PreviewVerification) { v.Spec.Tools.Browser = true }, true},
 		{"agents: a look-around", func(v *maulv1.PreviewVerification) { v.Spec.Tools.LookAroundRoutes = 1 }, true},
@@ -241,7 +240,6 @@ func testAgentsVerificationSchema(ctx context.Context, t *testing.T, c client.Cl
 func fullAgentsStatus() maulv1.PreviewVerificationStatus {
 	s := fullEvaluatorStatus()
 	sha := strings.Repeat("a", 64)
-	check := "sha256:" + strings.Repeat("1", 64)
 	s.Ledger.Entries = append(s.Ledger.Entries,
 		maulv1.LedgerIndexEntry{Seq: 3, Kind: maulv1.LedgerKindRelay, Verb: maulv1.LedgerVerbBuild, ResultSHA256: sha},
 		maulv1.LedgerIndexEntry{Seq: 4, Kind: maulv1.LedgerKindAgent, Verb: maulv1.LedgerVerbFiles, ResultSHA256: sha},
@@ -252,13 +250,6 @@ func fullAgentsStatus() maulv1.PreviewVerificationStatus {
 		{Side: maulv1.TreeHead, Result: maulv1.BuildBuilt, Seq: 3, DurationMs: 42000},
 		{Side: maulv1.TreeBase, Result: maulv1.BuildFailed, Seq: 6, ExitCode: 1, DurationMs: 1200},
 	}
-	s.Replay[0].Tree = maulv1.TreeHead
-	// A confirmed run-form check (S2-01b): the status enum admits it.
-	s.Confirmed = append(s.Confirmed, schemaSavedChecks()[3])
-	s.Base = &maulv1.BaseStatus{Required: true, Unbuildable: true, Runs: []maulv1.CheckRun{
-		{CheckDigest: check, Result: maulv1.CheckRunFail, Token: "b-0a1b2c", Seq: 7, Tree: maulv1.TreeBase,
-			AssertionStep: 1, AssertionID: "expect"},
-	}}
 	s.Environment = append(s.Environment, maulv1.PartFact{Name: "build-head", Role: maulv1.PreviewRoleBuild})
 	return s
 }
@@ -286,7 +277,7 @@ func testAgentsStatusSchema(ctx context.Context, t *testing.T, c client.Client) 
 			maulv1.VerificationReasonToolsBuildFailed, maulv1.VerificationReasonSandboxUnenforced,
 			maulv1.VerificationReasonSandboxImageUnavailable, maulv1.VerificationReasonTreeUnavailable,
 			maulv1.VerificationReasonToolPodsSaturated, maulv1.VerificationReasonToolsEvicted,
-			maulv1.VerificationReasonToolsDeadline, maulv1.VerificationReasonKeptCopyFailed,
+			maulv1.VerificationReasonToolsDeadline,
 			maulv1.VerificationReasonStaleWorkspace,
 		} {
 			v := &maulv1.PreviewVerification{}
@@ -303,23 +294,12 @@ func testAgentsStatusSchema(ctx context.Context, t *testing.T, c client.Client) 
 		name   string
 		mutate func(*maulv1.PreviewVerificationStatus)
 	}{
-		{"an unknown tree", func(s *maulv1.PreviewVerificationStatus) { s.Base.Runs[0].Tree = "merge" }},
-		// A base run read as head would let a base result stand for head.
-		{"a base run with no tree", func(s *maulv1.PreviewVerificationStatus) { s.Base.Runs[0].Tree = "" }},
-		{"a base run on the head tree", func(s *maulv1.PreviewVerificationStatus) {
-			s.Base.Runs[0].Tree = maulv1.TreeHead
-		}},
 		{"an unknown build side", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Builds[0].Side = "both" }},
 		{"an unknown build result", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Builds[0].Result = "ok" }},
 		{"a build at seq 0", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Builds[0].Seq = 0 }},
 		{"five builds", func(s *maulv1.PreviewVerificationStatus) {
 			for len(s.Ledger.Builds) < 5 {
 				s.Ledger.Builds = append(s.Ledger.Builds, s.Ledger.Builds[0])
-			}
-		}},
-		{"81 base runs", func(s *maulv1.PreviewVerificationStatus) {
-			for len(s.Base.Runs) < 81 {
-				s.Base.Runs = append(s.Base.Runs, s.Base.Runs[0])
 			}
 		}},
 		{"an unknown verb", func(s *maulv1.PreviewVerificationStatus) { s.Ledger.Entries[2].Verb = "shell" }},

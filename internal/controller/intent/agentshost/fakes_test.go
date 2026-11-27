@@ -6,8 +6,6 @@ package agentshost
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"slices"
@@ -54,8 +52,6 @@ const (
 	buildRun   = "render-7-bld-r1-a1"
 	pvUID      = types.UID("pv-uid-1")
 	intentUID  = types.UID("intent-uid-1")
-	checkBody  = `{"id":"steps.count","outcome":"steps","form":"exec","exec":{"argv":["{{bin}}","--count"],` +
-		`"expect":{"exit":0,"stdoutContains":"16 steps"}}}`
 )
 
 var t0 = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
@@ -174,7 +170,6 @@ func newWorld(t *testing.T) *world {
 			Round:         1, Attempt: 1, Run: "r4nd0m",
 			Outcomes:       outcomes(),
 			OutcomesDigest: outcomesDigest(t),
-			Rung:           v1alpha1.RungFull,
 			Tools:          &v1alpha1.ToolsSpec{Sandbox: true, MaxToolCalls: 80},
 			Timeout:        metav1.Duration{Duration: 45 * time.Minute},
 		},
@@ -416,19 +411,4 @@ func terminated(pod *corev1.Pod, msg string) *corev1.Pod {
 	pod.Status.ContainerStatuses[0].State = corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
 		Reason: "Completed", Message: msg}}
 	return pod
-}
-
-// savedCheck is a saved check of body as an earlier release stored it, for
-// the tests that hold a host to ignoring one: its id, outcome and form read
-// from body, which is kept as given (in the canonical spelling the retired
-// check grammar wrote), and body's sha256 as its digest.
-func savedCheck(t *testing.T, body string) v1alpha1.SavedCheck {
-	t.Helper()
-	var head struct{ ID, Outcome, Form string }
-	if err := json.Unmarshal([]byte(body), &head); err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256([]byte(body))
-	return v1alpha1.SavedCheck{ID: head.ID, Outcome: head.Outcome, Form: v1alpha1.CheckForm(head.Form), Body: body,
-		Digest: "sha256:" + hex.EncodeToString(sum[:])}
 }

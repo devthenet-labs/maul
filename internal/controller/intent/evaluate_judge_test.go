@@ -99,9 +99,6 @@ func TestEvaluationConfirmsAndHandsOver(t *testing.T) {
 	e, name := newEvaluatorEnv(t, 0.4)
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
-	if len(pv.Spec.Checks) != 0 || pv.Spec.ChecksDigest != "" || pv.Spec.Rung != v1alpha1.RungFull {
-		t.Fatalf("verification checks = %+v, rung %s; want none, full", pv.Spec.Checks, pv.Spec.Rung)
-	}
 	if body := e.statusBody(); strings.Contains(body, previewHostOf(name)) {
 		t.Errorf("the link is shown while held:\n%s", body)
 	}

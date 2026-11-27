@@ -146,7 +146,6 @@ func TestAgentsToolPodEgressMatrix(t *testing.T) {
 		{"tool pod, profile npm", toolsPodLabels("npm"), []string{destArtifact, destProxy(8091)}},
 		{"evaluator", agentPod("claude", v1alpha1.RoleEvaluator), []string{destBroker, destSlotTools,
 			destAgentsTools}},
-		{"check reviewer", agentPod("claude", v1alpha1.RoleCheckReview), []string{destBroker}},
 	}
 	for _, mode := range evaluatorEgressModes {
 		t.Run(mode.name, func(t *testing.T) {
@@ -164,7 +163,7 @@ func TestAgentsToolPodEgressMatrix(t *testing.T) {
 				t.Errorf("tool pod ingress = %q, want only %q", got, srcEvaluator)
 			}
 			for _, pod := range []labels.Set{agentPod("claude", v1alpha1.RoleEvaluator),
-				agentPod("claude", v1alpha1.RoleCheckReview), agentPod("claude", "")} {
+				agentPod("claude", "")} {
 				if got := ingressOf(t, policies, pod); len(got) != 0 {
 					t.Errorf("agent pod %v gains ingress %q", pod, got)
 				}

@@ -429,7 +429,7 @@ func testProjectBounds(ctx context.Context, t *testing.T, c client.Client) {
 		{"harness not in the enum", func(p *maulv1.Project) { p.Spec.Harness = "copilot" }, true},
 		{"every stage's model", func(p *maulv1.Project) {
 			p.Spec.Models = &maulv1.ProjectModels{Plan: "anthropic/claude-opus-5", Build: "anthropic/claude-sonnet-5",
-				Evaluate: "anthropic/claude-haiku-4-5", CheckReview: "openai/gpt-5.3-codex"}
+				Evaluate: "anthropic/claude-haiku-4-5"}
 		}, false},
 		{"an empty models block", func(p *maulv1.Project) { p.Spec.Models = &maulv1.ProjectModels{} }, false},
 		{"a model with no provider", func(p *maulv1.Project) {
@@ -510,24 +510,17 @@ func testProjectBounds(ctx context.Context, t *testing.T, c client.Client) {
 			p.Spec.Limits.MaxCostMicroUSD, p.Spec.Limits.Build.MaxCostMicroUSD = 1000000000, 1000000001
 		}, true},
 		{"negative stage cost", func(p *maulv1.Project) { p.Spec.Limits.Build.MaxCostMicroUSD = -1 }, true},
-		// The evaluate and check review stages are bounded like the others.
+		// The evaluate stage is bounded like the others.
 		{"evaluate limits", func(p *maulv1.Project) {
 			p.Spec.Limits.Evaluate = maulv1.StageLimits{MaxTurns: 80, TokenBudget: 400000,
 				MaxCostMicroUSD: maulv1.DefaultMaxCostMicroUSD, Timeout: &metav1.Duration{Duration: time.Hour}}
 		}, false},
-		{"check review limits", func(p *maulv1.Project) {
-			p.Spec.Limits.CheckReview = maulv1.StageLimits{MaxTurns: 20, TokenBudget: 100000,
-				MaxCostMicroUSD: maulv1.DefaultMaxCostMicroUSD, Timeout: &metav1.Duration{Duration: time.Minute}}
-		}, false},
 		{"evaluate cost past the intent ceiling", func(p *maulv1.Project) {
 			p.Spec.Limits.Evaluate.MaxCostMicroUSD = maulv1.DefaultMaxCostMicroUSD + 1
 		}, true},
-		{"check review cost past the intent ceiling", func(p *maulv1.Project) {
-			p.Spec.Limits.CheckReview.MaxCostMicroUSD = maulv1.DefaultMaxCostMicroUSD + 1
-		}, true},
 		{"evaluate turns past the bound", func(p *maulv1.Project) { p.Spec.Limits.Evaluate.MaxTurns = 1001 }, true},
-		{"check review timeout over four hours", func(p *maulv1.Project) {
-			p.Spec.Limits.CheckReview.Timeout = &metav1.Duration{Duration: 4*time.Hour + time.Second}
+		{"evaluate timeout over four hours", func(p *maulv1.Project) {
+			p.Spec.Limits.Evaluate.Timeout = &metav1.Duration{Duration: 4*time.Hour + time.Second}
 		}, true},
 		{"stage timeout of a minute", func(p *maulv1.Project) {
 			p.Spec.Limits.Plan.Timeout = &metav1.Duration{Duration: time.Minute}
@@ -998,8 +991,7 @@ func fullIntentStatus() maulv1.IntentStatus {
 			State: maulv1.VerificationFailing, Round: 2, Attempt: 1,
 			Ref:           &maulv1.ObjectReference{Name: "target-1-v2-a1", UID: "u-pv"},
 			HeadSetDigest: schemaDigest, Heads: schemaHeads(),
-			Passed: 1, Failed: 1, Quarantined: 1, ManualOpen: 1, ManualAccepted: 1, NotRun: 1,
-			QuarantinedIDs: []string{"kick-onsets"},
+			Passed: 1, Failed: 1, ManualOpen: 1, ManualAccepted: 1, NotRun: 1,
 			AutoFix: maulv1.AutoFix{State: maulv1.AutoFixHalted, Reason: maulv1.AutoFixHumanReview,
 				Since: schemaNow.DeepCopy(),
 				Rearm: &maulv1.Rearm{By: "octocat", ByID: 583231, At: schemaNow, Round: 2}},
@@ -1382,8 +1374,6 @@ func schemaIntentRun(name string, stage maulv1.IntentStage) *maulv1.IntentRun {
 	case maulv1.IntentStageEvaluate:
 		r.Spec.Inputs.PlanRevision, r.Spec.Inputs.PlanDigest = 1, schemaDigest
 		r.Spec.Evaluation = schemaRunEvaluation()
-	case maulv1.IntentStageCheckReview:
-		r.Spec.Inputs.PlanRevision, r.Spec.Inputs.PlanDigest = 1, schemaDigest
 	}
 	return r
 }
@@ -1391,8 +1381,7 @@ func schemaIntentRun(name string, stage maulv1.IntentStage) *maulv1.IntentRun {
 // schemaRunEvaluation is an evaluate run's record of the verification it
 // judges.
 func schemaRunEvaluation() *maulv1.IntentRunEvaluation {
-	return &maulv1.IntentRunEvaluation{Verification: "target-1-v1-a1", UID: "u-pv", ToolIP: "10.42.0.17",
-		Rung: maulv1.RungFull}
+	return &maulv1.IntentRunEvaluation{Verification: "target-1-v1-a1", UID: "u-pv", ToolIP: "10.42.0.17"}
 }
 
 // testIntentRunSchema exercises the IntentRun schema: spec immutability, the
@@ -1623,9 +1612,6 @@ func testIntentRunSchema(ctx context.Context, t *testing.T, c client.Client) {
 			s.Grant.Subagents = true
 		}, true},
 		{"an evaluate run granted subagents", maulv1.IntentStageEvaluate, func(s *maulv1.IntentRunSpec) {
-			s.Grant.Subagents = true
-		}, true},
-		{"a checkreview run granted subagents", maulv1.IntentStageCheckReview, func(s *maulv1.IntentRunSpec) {
 			s.Grant.Subagents = true
 		}, true},
 		{"a codex build run granted subagents", maulv1.IntentStageBuild, func(s *maulv1.IntentRunSpec) {

@@ -23,17 +23,13 @@ import (
 // schema admits, and none of them reaches its default branch for one: a
 // stage added to v1alpha1.IntentStages fails here until every site decides
 // what it means, so no site silently treats it as a plan or a build. The
-// default branch itself fails closed, which an unknown stage pins. A
-// retired stage (the check reviewer's, retiredStage) has a row too, and its
-// site may answer what the default branch answers, the fail-closed answer:
-// none of its runs is created or launched.
+// default branch itself fails closed, which an unknown stage pins.
 
 const (
-	sPlan        = v1alpha1.IntentStagePlan
-	sBuild       = v1alpha1.IntentStageBuild
-	sRevise      = v1alpha1.IntentStageRevise
-	sEvaluate    = v1alpha1.IntentStageEvaluate
-	sCheckReview = v1alpha1.IntentStageCheckReview
+	sPlan     = v1alpha1.IntentStagePlan
+	sBuild    = v1alpha1.IntentStageBuild
+	sRevise   = v1alpha1.IntentStageRevise
+	sEvaluate = v1alpha1.IntentStageEvaluate
 	// sUnknown is a stage no site knows: every site's default branch.
 	sUnknown = v1alpha1.IntentStage("unknown")
 )
@@ -54,8 +50,6 @@ func errClass(err error) string {
 		return "not enabled"
 	case errors.Is(err, errUnknownStage):
 		return "unknown"
-	case errors.Is(err, errStageRetired):
-		return "retired"
 	}
 	return "other: " + err.Error()
 }
@@ -69,8 +63,7 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 	lim := func(n int32) v1alpha1.StageLimits { return v1alpha1.StageLimits{MaxTurns: n} }
 	proj := &v1alpha1.Project{Spec: v1alpha1.ProjectSpec{
 		Approvers: v1alpha1.ProjectApprovers{Logins: []string{"alice"}},
-		Limits: v1alpha1.ProjectLimits{Plan: lim(1), Build: lim(2), Revise: lim(3), Evaluate: lim(4),
-			CheckReview: lim(5)},
+		Limits:    v1alpha1.ProjectLimits{Plan: lim(1), Build: lim(2), Revise: lim(3), Evaluate: lim(4)},
 	}}
 	attributing := &pass{proj: proj, in: &v1alpha1.Intent{Status: v1alpha1.IntentStatus{
 		Input:    &v1alpha1.IntentInput{Trigger: &v1alpha1.IntentAction{Login: "alice", UserID: 7}},
@@ -94,28 +87,25 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 			v, ok := stagePriority[s]
 			return lookup{v, ok}
 		}, map[v1alpha1.IntentStage]any{sPlan: lookup{int32(1), true}, sBuild: lookup{int32(2), true},
-			sRevise: lookup{int32(3), true}, sEvaluate: lookup{int32(4), true},
-			sCheckReview: lookup{int32(5), true}}, lookup{int32(0), false}},
+			sRevise: lookup{int32(3), true}, sEvaluate: lookup{int32(4), true}}, lookup{int32(0), false}},
 		{"run_controller jobPhase", func(s v1alpha1.IntentStage) any {
 			v, ok := jobPhase[s]
 			return lookup{v, ok}
 		}, map[v1alpha1.IntentStage]any{sPlan: lookup{"plan", true}, sBuild: lookup{"build", true},
-			sRevise: lookup{"build", true}, sEvaluate: lookup{"evaluate", true},
-			sCheckReview: lookup{"", false}}, lookup{"", false}},
+			sRevise: lookup{"build", true}, sEvaluate: lookup{"evaluate", true}}, lookup{"", false}},
 		{"names ceiling", func(s v1alpha1.IntentStage) any { return set.ceiling(s) },
-			map[v1alpha1.IntentStage]any{sPlan: ceil(1), sBuild: ceil(2), sRevise: ceil(3), sEvaluate: ceil(4),
-				sCheckReview: StageCeiling{}}, StageCeiling{}},
+			map[v1alpha1.IntentStage]any{sPlan: ceil(1), sBuild: ceil(2), sRevise: ceil(3), sEvaluate: ceil(4)},
+			StageCeiling{}},
 		{"names stageLimits", func(s v1alpha1.IntentStage) any { return stageLimits(proj, s) },
-			map[v1alpha1.IntentStage]any{sPlan: lim(1), sBuild: lim(2), sRevise: lim(3), sEvaluate: lim(4),
-				sCheckReview: v1alpha1.StageLimits{}}, v1alpha1.StageLimits{}},
+			map[v1alpha1.IntentStage]any{sPlan: lim(1), sBuild: lim(2), sRevise: lim(3), sEvaluate: lim(4)},
+			v1alpha1.StageLimits{}},
 		{"jobs stageEnv", func(s v1alpha1.IntentStage) any {
 			env, err := stageEnv(s, set, v1alpha1.IntentRunGrant{})
 			if err != nil {
 				return errClass(err)
 			}
 			return env["MAUL_INVESTIGATE_MAX_TURNS"] + "/" + env["MAUL_REMEDIATE_MANUAL_MAX_TURNS"]
-		}, map[v1alpha1.IntentStage]any{sPlan: "1/0", sBuild: "/2", sRevise: "/3", sEvaluate: "4/",
-			sCheckReview: "retired"}, "unknown"},
+		}, map[v1alpha1.IntentStage]any{sPlan: "1/0", sBuild: "/2", sRevise: "/3", sEvaluate: "4/"}, "unknown"},
 		{"jobs stageTimeoutKey", func(s v1alpha1.IntentStage) any {
 			key, err := stageTimeoutKey(s)
 			if err != nil {
@@ -123,27 +113,23 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 			}
 			return key
 		}, map[v1alpha1.IntentStage]any{sPlan: "MAUL_INVESTIGATE_TIMEOUT", sBuild: "MAUL_REMEDIATE_TIMEOUT",
-			sRevise: "MAUL_REMEDIATE_TIMEOUT", sEvaluate: "MAUL_INVESTIGATE_TIMEOUT",
-			sCheckReview: "retired"}, "unknown"},
+			sRevise: "MAUL_REMEDIATE_TIMEOUT", sEvaluate: "MAUL_INVESTIGATE_TIMEOUT"}, "unknown"},
 		{"run_controller launchEnabled", func(s v1alpha1.IntentStage) any { return errClass(launchEnabled(s)) },
-			map[v1alpha1.IntentStage]any{sPlan: "ok", sBuild: "ok", sRevise: "ok", sEvaluate: "ok",
-				sCheckReview: "retired"}, "unknown"},
+			map[v1alpha1.IntentStage]any{sPlan: "ok", sBuild: "ok", sRevise: "ok", sEvaluate: "ok"}, "unknown"},
 		{"run_controller stageEnabled, evaluator off", func(s v1alpha1.IntentStage) any {
 			return errClass(set.stageEnabled(s))
-		}, map[v1alpha1.IntentStage]any{sPlan: "ok", sBuild: "ok", sRevise: "ok", sEvaluate: "not enabled",
-			sCheckReview: "retired"}, "unknown"},
+		}, map[v1alpha1.IntentStage]any{sPlan: "ok", sBuild: "ok", sRevise: "ok", sEvaluate: "not enabled"}, "unknown"},
 		{"run_controller stageEnabled, evaluator on", func(s v1alpha1.IntentStage) any {
 			on := set
 			on.Evaluator = true
 			return errClass(on.stageEnabled(s))
-		}, map[v1alpha1.IntentStage]any{sPlan: "ok", sBuild: "ok", sRevise: "ok", sEvaluate: "ok",
-			sCheckReview: "retired"}, "unknown"},
+		}, map[v1alpha1.IntentStage]any{sPlan: "ok", sBuild: "ok", sRevise: "ok", sEvaluate: "ok"}, "unknown"},
 		{"attribute attributeRun", func(s v1alpha1.IntentStage) any { return attributing.attributeRun(s) },
 			map[v1alpha1.IntentStage]any{sPlan: requester, sBuild: approverOf, sRevise: approverOf,
-				sEvaluate: approverOf, sCheckReview: attribution.Org()}, attribution.Org()},
+				sEvaluate: approverOf}, attribution.Org()},
 		{"resources stageNoun", func(s v1alpha1.IntentStage) any { return stageNoun(stageRunOf(s)) },
 			map[v1alpha1.IntentStage]any{sPlan: "plan", sBuild: "build", sRevise: "revise round",
-				sEvaluate: "evaluation round", sCheckReview: "check review"}, `"unknown" run`},
+				sEvaluate: "evaluation round"}, `"unknown" run`},
 		{"run_controller stageSpec", func(s v1alpha1.IntentStage) any {
 			_, refusal := runs.stageSpec(stageRunOf(s), &jobs.Spec{}, &corev1.ConfigMap{}, proj,
 				&v1alpha1.Repository{})
@@ -154,15 +140,12 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 				return "not enabled: " + refusal.outcome
 			case strings.Contains(refusal.detail, errUnknownStage.Error()):
 				return "unknown: " + refusal.outcome
-			case strings.Contains(refusal.detail, errStageRetired.Error()):
-				return "retired: " + refusal.outcome
 			}
 			// A known stage's own checks refuse the empty fixture.
 			return "checked: " + refusal.outcome
 		}, map[v1alpha1.IntentStage]any{sPlan: "checked: " + OutcomeAborted, sBuild: "checked: " + OutcomeAborted,
-			sRevise:      "checked: " + OutcomeAborted,
-			sEvaluate:    "checked: " + OutcomeAborted,
-			sCheckReview: "retired: " + OutcomeAborted}, "unknown: " + OutcomeAborted},
+			sRevise:   "checked: " + OutcomeAborted,
+			sEvaluate: "checked: " + OutcomeAborted}, "unknown: " + OutcomeAborted},
 	}
 	stages := v1alpha1.IntentStages()
 	for _, site := range sites {
@@ -179,7 +162,7 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 				continue
 			}
 			got := site.got(s)
-			if reflect.DeepEqual(got, site.def) && !retiredStage(s) {
+			if reflect.DeepEqual(got, site.def) {
 				t.Errorf("%s(%q) reached the default branch (%#v)", site.name, s, got)
 			}
 			if !reflect.DeepEqual(got, want) {
@@ -190,15 +173,15 @@ func TestStageSwitchesExhaustive(t *testing.T) {
 }
 
 // No evaluate run is created while the agent evaluator is off, nor ever a
-// run of the retired check reviewer's stage: createRun refuses it before it
-// reads or writes anything.
+// run of an unknown stage: createRun refuses it before it reads or writes
+// anything.
 func TestCreateRunRefusesStagesNotEnabled(t *testing.T) {
-	for _, s := range []v1alpha1.IntentStage{sEvaluate, sCheckReview, sUnknown} {
+	for _, s := range []v1alpha1.IntentStage{sEvaluate, sUnknown} {
 		run, err := (&pass{}).createRun(t.Context(), s, v1alpha1.ProjectRepository{Name: "app"}, 1, 1, nil)
 		if run != nil || err == nil {
 			t.Fatalf("createRun(%q) = %v, %v; want a refusal", s, run, err)
 		}
-		if want := map[v1alpha1.IntentStage]string{sEvaluate: "not enabled", sCheckReview: "retired",
+		if want := map[v1alpha1.IntentStage]string{sEvaluate: "not enabled",
 			sUnknown: "unknown"}[s]; errClass(err) != want {
 			t.Errorf("createRun(%q) error %v is %q, want %q", s, err, errClass(err), want)
 		}
@@ -207,8 +190,7 @@ func TestCreateRunRefusesStagesNotEnabled(t *testing.T) {
 
 // A granted run of a stage not enabled (one made by hand, or left from
 // before the evaluator was switched off) launches no Job: it ends
-// launch_refused, saying why. (A run of the retired check reviewer's stage
-// is stopped before it is launched: TestRetiredStageNeverLaunched.)
+// launch_refused, saying why.
 func TestLaunchRefusesStagesNotEnabled(t *testing.T) {
 	for _, s := range []v1alpha1.IntentStage{sEvaluate} {
 		t.Run(string(s), func(t *testing.T) {

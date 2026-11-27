@@ -141,7 +141,7 @@ func TestEvaluatorCreatedAfterToolsStatus(t *testing.T) {
 	e.review(name, 3)
 	pv := e.onlyVerification(name)
 	if len(pv.Spec.Outcomes) != 3 || pv.Spec.OutcomesDigest == "" ||
-		pv.Spec.Rung != v1alpha1.RungFull || pv.Spec.Tools == nil || pv.Spec.Tools.MaxToolCalls != 300 ||
+		pv.Spec.Tools == nil || pv.Spec.Tools.MaxToolCalls != 300 ||
 		pv.Spec.Tools.Browser || !pv.Spec.Tools.Sandbox || pv.Spec.Timeout.Duration != 25*time.Minute {
 		t.Fatalf("verification spec = %+v", pv.Spec)
 	}
@@ -185,7 +185,7 @@ func (e *env) checkEvaluateRun(name string, pv *v1alpha1.PreviewVerification) {
 	}
 	run := runs[0]
 	if ev := run.Spec.Evaluation; ev == nil || ev.UID != pv.UID || ev.ToolIP != toolPodIP ||
-		ev.Verification != pv.Name || ev.Rung != v1alpha1.RungFull {
+		ev.Verification != pv.Name {
 		t.Fatalf("run evaluation = %+v", run.Spec.Evaluation)
 	}
 	if run.Name != v1alpha1.IntentRunName(name, v1alpha1.IntentStageEvaluate, 1, "", 1) ||
@@ -285,13 +285,6 @@ func TestEvaluationRoundCollects(t *testing.T) {
 	}
 	if v.EvaluationCostMicroUSD != 400000 {
 		t.Errorf("evaluation cost = %d, want the evaluate run's 400000", v.EvaluationCostMicroUSD)
-	}
-	if v.Escalation != nil || v.ModelRound != nil || v.Rung != "" {
-		t.Errorf("escalation %+v, model round %+v, rung %q: the retired ladder written", v.Escalation,
-			v.ModelRound, v.Rung)
-	}
-	if n := len(e.runsOf(name, v1alpha1.IntentStageCheckReview)); n != 0 {
-		t.Errorf("%d check review runs, want none", n)
 	}
 	e.review(name, 3)
 	if n := len(e.verifications(name)); n != 1 {

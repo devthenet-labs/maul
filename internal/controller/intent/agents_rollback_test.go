@@ -532,23 +532,20 @@ func TestAgentsOffDropsAReasonRecordedAtOtherHeads(t *testing.T) {
 	}
 }
 
-// agentsSuspectedRound is judgedAgentsRound Failing with a suspected
-// defect in version-shown, recorded an hour ago and not yet confirmed.
+// agentsSuspectedRound is judgedAgentsRound Failing in version-shown.
 func agentsSuspectedRound(t *testing.T) (*env, string) {
 	t.Helper()
-	e, name, pv := judgedAgentsRound(t, v1alpha1.VerificationFailing)
+	e, name, _ := judgedAgentsRound(t, v1alpha1.VerificationFailing)
 	e.setStatus(name, func(in *v1alpha1.Intent) {
 		v := in.Status.Verification
 		v.Outcomes = []v1alpha1.OutcomeResult{{ID: "version-shown", Result: v1alpha1.OutcomeFailed}}
-		v.Suspected = &v1alpha1.SuspectedDefect{Verification: pv.Name, HeadSetDigest: v.HeadSetDigest,
-			RecordedAt: metav1.NewTime(e.clock.Now().Add(-time.Hour)), Outcomes: []string{"version-shown"}}
 	})
 	return e, name
 }
 
 // TestAgentsOffVerifyFixConfirmsNothing (review of S2-LEFTOVERS): with the
 // agents host switched off no fix round can start, so an approver's
-// /maul verify fix on a suspected defect kept at its heads is answered
+// /maul verify fix on a failure kept at its heads is answered
 // that it did not run, and why, and confirms nothing: never "maul starts a
 // fix round" for a round that never starts.
 func TestAgentsOffVerifyFixConfirmsNothing(t *testing.T) {
@@ -563,9 +560,8 @@ func TestAgentsOffVerifyFixConfirmsNothing(t *testing.T) {
 		"did not run: the tool pod that checks a project with no preview is not enabled") {
 		t.Errorf("/maul verify fix with the host off = %s", reply)
 	}
-	if v := e.verification(name); v.Suspected == nil || v.Suspected.Confirmed != nil ||
-		v.AutoFix.Rearm != nil {
-		t.Errorf("verification = %+v, want the suspected defect unconfirmed and fixes not re-armed", v)
+	if v := e.verification(name); v.AutoFix.Rearm != nil {
+		t.Errorf("verification = %+v, want fixes not re-armed", v)
 	}
 	if runs := e.runsOf(name, v1alpha1.IntentStageRevise); len(runs) != 0 {
 		t.Errorf("revise runs = %d, want none", len(runs))

@@ -88,10 +88,8 @@ the Project stops being Ready after the save, and the page shows that.
 
 Not on the page, and never changed by it: the intent repository, the labels, a repository's name, URL and preview, the
 number and order of repositories, the harness, previews, surfaces, `suspend`, `requireRepositoryImage`,
-`verification.manualGatesStatus`, `verification.postLogs` and `verification.timeout`. Nor are `models.checkReview` and
-`limits.checkReview`, which are retired: nothing reads them, and they are removed in the next release
-([Migrating from saved checks](evaluator.md#migrating-from-saved-checks)). The "Set by the operator" card shows the ones
-a person may need to know.
+`verification.manualGatesStatus`, `verification.postLogs` and `verification.timeout`. The "Set by the operator" card
+shows the ones a person may need to know.
 
 ## Delegation
 

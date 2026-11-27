@@ -75,16 +75,13 @@ func (e *env) acceptManual(name string) {
 	})
 }
 
-// request has an approver comment body on surface ("issue" or "pull
-// request") and settles it; it returns maul's replies to it.
-func (e *env) request(name, surface, body string) []string {
+// request has an approver comment body on the intent issue and settles
+// it; it returns maul's replies to it.
+func (e *env) request(name, body string) []string {
 	e.t.Helper()
 	e.clock.Advance(verifyInterval)
-	id := e.commandOn(name, surface, body)
+	id := e.commandOn(name, "issue", body)
 	e.settleActions(name)
-	if surface != "issue" {
-		return e.prReplies(e.get(name).Status.PullRequests[0].Number, id)
-	}
 	var out []string
 	for _, c := range e.gh.ownComments() {
 		if strings.Contains(markerOf(c.Body), "comment-"+itoa(id)) {

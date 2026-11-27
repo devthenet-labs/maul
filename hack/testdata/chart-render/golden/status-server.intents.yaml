@@ -348,7 +348,7 @@ rules:
 # the server serves one only when it carries the intent's label and a
 # controller reference to its very owner. An evaluate run's evidence view
 # gets its one PreviewVerification by name through the uncached reader (get
-# only, never cached: its spec carries the saved checks), and that
+# only, never cached), and that
 # verification's ledger and evidence ConfigMaps the same guarded way.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role

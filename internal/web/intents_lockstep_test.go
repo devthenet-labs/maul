@@ -108,8 +108,7 @@ func TestIntentWireTypesMatchTypeScript(t *testing.T) {
 }
 
 // TestIntentStagesMatchTypeScript: the SPA's IntentStage names every stage
-// the API does, the retired checkreview included, which an earlier
-// release's runs still carry and their rows still show.
+// the API does.
 func TestIntentStagesMatchTypeScript(t *testing.T) {
 	src, err := os.ReadFile("ui/src/types.ts")
 	if err != nil {
@@ -124,9 +123,11 @@ func TestIntentStagesMatchTypeScript(t *testing.T) {
 	for _, s := range stages {
 		got = append(got, s[1])
 	}
-	want := []string{string(v1alpha1.IntentStagePlan), string(v1alpha1.IntentStageBuild),
-		string(v1alpha1.IntentStageRevise), string(v1alpha1.IntentStageEvaluate),
-		string(v1alpha1.IntentStageCheckReview)}
+	all := v1alpha1.IntentStages()
+	want := make([]string, 0, len(all))
+	for _, s := range all {
+		want = append(want, string(s))
+	}
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {

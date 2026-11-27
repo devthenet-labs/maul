@@ -168,7 +168,7 @@ func TestHeldFailIsAcceptedByCommand(t *testing.T) {
 				acceptance.ReasonHeldFinding {
 				t.Fatalf("round 2 = %+v, want held (the case's premise)", v.Outcomes[0])
 			}
-			replies := e.request(name, "issue", cmd)
+			replies := e.request(name, cmd)
 			if len(replies) != 1 || !strings.Contains(replies[0], "is done") {
 				t.Errorf("%s replies %q, want it accepted", cmd, replies)
 			}

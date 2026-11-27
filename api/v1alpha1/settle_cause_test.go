@@ -42,8 +42,7 @@ func enumOf(t *testing.T, file, typeName string) []string {
 }
 
 // TestCauseOfEveryReason: every PreviewVerificationReason the schema
-// admits, the retired spellings included, maps to exactly one SettleCause
-// the Intent's schema admits (SettleNone is the field left empty), and
+// admits maps to exactly one SettleCause the Intent's schema admits (SettleNone is the field left empty), and
 // only the reasons a cause names map to one: the rest are SettleNone.
 func TestCauseOfEveryReason(t *testing.T) {
 	named := map[PreviewVerificationReason]SettleCause{
@@ -53,8 +52,6 @@ func TestCauseOfEveryReason(t *testing.T) {
 		VerificationReasonSandboxUnenforced:       SettleSandboxUnenforced,
 		VerificationReasonToolsEvicted:            SettleToolsLost,
 		VerificationReasonToolsDeadline:           SettleToolsLost,
-		VerificationReasonKeptCopyFailed:          SettleToolsLost,
-		VerificationReasonReplayIncomplete:        SettleReplayIncomplete,
 	}
 	reasons := enumOf(t, "previewverification_types.go", "PreviewVerificationReason")
 	for r := range named {

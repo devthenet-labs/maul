@@ -56,12 +56,6 @@ const (
 	HandoffWhySandboxImage = "sandbox-image"
 	HandoffWhyTree         = "tree"
 
-	// HandoffWhyReplay: a replay round's tool pod finished before the end
-	// of its replay (review VC-3): the words of a cause an earlier
-	// release's record may still carry (SettleReplayIncomplete, a retired
-	// spelling); no round of this release replays.
-	HandoffWhyReplay = "replay"
-
 	// HandoffWhyInfra: the environment failed for maul's own reasons (its
 	// tools, the cluster), never the change's (review H3); the change's
 	// own failure is HandoffWhyEnvironment.
@@ -86,7 +80,6 @@ var handoffWhyWords = map[string]string{
 	HandoffWhySandboxImage: "the repository has no accepted runner image to build the pull request in",
 	HandoffWhyTree:         "it could not fetch the source of the pull request or of its base",
 	// Review VC-3.
-	HandoffWhyReplay: "it could not re-run every check it saved",
 }
 
 // workspaceWhyWords are the reasons whose words differ on a Project with

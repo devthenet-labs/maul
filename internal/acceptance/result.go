@@ -33,8 +33,7 @@ const (
 // controller's, layered on top.
 type Result string
 
-// Results. An earlier release also recorded quarantined, a retired
-// spelling (v1alpha1.OutcomeQuarantined) Judge never gives.
+// Results.
 const (
 	ResultPassed Result = "passed"
 	ResultFailed Result = "failed"

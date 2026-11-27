@@ -481,7 +481,7 @@ type Spec struct {
 	// on every Finding Job, keeps the Config's.
 	Deadline time.Duration
 	// Role is an intent run's agents-namespace role: v1alpha1.RoleEvaluator
-	// or v1alpha1.RoleCheckReview (evaluator.go). Empty, as on every other
+	// (evaluator.go). Empty, as on every other
 	// Job, leaves the Job exactly as before roles existed. A role Job reads
 	// no tree, fetches no artifact, runs maul's runner image with no network
 	// profile, has no resolver whatever Config.DNS says, works in /work, and
@@ -978,7 +978,7 @@ func findingTokenTTL(deadline time.Duration) int64 {
 func (c *Client) initContainer(runner Runner, spec Spec, res corev1.ResourceRequirements,
 	inject bool) corev1.Container {
 	if spec.Role != "" {
-		return c.rolePrepareContainer(runner, spec, res)
+		return c.rolePrepareContainer(runner, res)
 	}
 	return c.prepareContainer(runner, spec, res, inject)
 }

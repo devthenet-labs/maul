@@ -8,7 +8,7 @@
 # WHY THIS EXISTS
 #
 # The evaluator's network reach is keyed on labels: the chart's egress
-# policies for maul.run/role evaluator and checkreview, and the per-Preview
+# policy for maul.run/role evaluator, and the per-Preview
 # ingress policy on a slot tool pod, which admits exactly the agents-namespace
 # pod labelled {maul.run/role: evaluator, maul.run/preview-verification: <the
 # Preview's UID>}. Anyone who could set those labels could step out of the
@@ -17,8 +17,8 @@
 # evaluator's traffic. So, as attribution-policy.yaml does for its
 # annotation:
 #
-# - a Job in the agents namespace may carry maul.run/role (evaluator, tools
-#   or checkreview) or maul.run/preview-verification only when intent-controller
+# - a Job in the agents namespace may carry maul.run/role (evaluator or
+#   tools) or maul.run/preview-verification only when intent-controller
 #   creates it; a Job in a preview slot may carry maul.run/preview-role tools
 #   or maul.run/preview-verification only when preview-controller creates it. Each on
 #   the Job and its pod template alike, and never maul.run/role in a slot nor
@@ -101,12 +101,12 @@ spec:
               oldObject != null || !variables.fenced || (
                 variables.role == variables.podRole && variables.eval == variables.podEval &&
                 variables.tools == variables.podTools && (variables.inAgents
-                  ? (!variables.tools && variables.role.orValue('') in ['evaluator', 'tools', 'checkreview'])
+                  ? (!variables.tools && variables.role.orValue('') in ['evaluator', 'tools'])
                   : (!variables.role.hasValue() && variables.tools))
               )
           messageExpression: >-
               "job " + object.metadata.name + " must carry its evaluator labels on the Job and its pod template " +
-              "alike: in the agents namespace {{ $role }} evaluator, tools or checkreview, in a preview slot " +
+              "alike: in the agents namespace {{ $role }} evaluator or tools, in a preview slot " +
               "{{ $prole }} tools, each with an optional {{ $eval }}"
           reason: Forbidden
         - expression: >-

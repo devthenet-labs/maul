@@ -64,6 +64,13 @@ const reasonCriteriaUnreadable = "CriteriaUnreadable"
 // approved (DESIGN 7.6).
 const reasonCriteriaReplan = "CriteriaReplan"
 
+// newVerification is a verification record as intent-controller starts
+// one: marked as judged under the observed evaluator's rules
+// (v1alpha1.JudgeObserved) from the start.
+func newVerification() *v1alpha1.IntentVerification {
+	return &v1alpha1.IntentVerification{Judge: v1alpha1.JudgeObserved}
+}
+
 // syncVerification is the per-pass part of the loop: steps 1 to 5 above.
 // It reports whether it wrote the Intent's status, which ends the pass.
 // Failures to read what it judges from are logged and verify nothing this
@@ -122,9 +129,6 @@ func (p *pass) syncAcceptance(ctx context.Context) (bool, error) {
 			meta.RemoveStatusCondition(&cur.Status.Conditions, v1alpha1.ConditionVerifyFailing)
 		}
 		cur.Status.Acceptance = rec
-		// A new revision starts afresh: nothing of an earlier result is
-		// withdrawn from it.
-		clearSuperseded(cur)
 		next := newVerification()
 		if prev := cur.Status.Verification; prev != nil {
 			next.Round, next.Reset, next.Requested, next.CancelRun = prev.Round, prev.Reset, prev.Requested,
@@ -446,8 +450,7 @@ func (p *pass) rearmedAfter(ctx context.Context, pushed []v1alpha1.VerificationH
 
 // clearJudgement drops a verification's judged result.
 func clearJudgement(v *v1alpha1.IntentVerification) {
-	v.Passed, v.Failed, v.Quarantined, v.NotRun = 0, 0, 0, 0
-	v.QuarantinedIDs = nil
+	v.Passed, v.Failed, v.NotRun = 0, 0, 0
 }
 
 // countManual counts the manual outcomes accepted at v's head set and those
@@ -587,7 +590,7 @@ func previewNotLive(v *v1alpha1.IntentVerification) bool {
 // records it in state (Evaluating, for the evaluator's outcomes): a retry is
 // its round's next attempt, anything else a new round's first; only the
 // loop's automatic round counts against maxVerifications. Every round
-// writes the judge marker (verify_migrate.go). fill completes the spec with where it runs (the
+// writes the judge marker (newVerification). fill completes the spec with where it runs (the
 // Preview it pins, or an agents workspace), what it runs and its timeout;
 // an error from it creates nothing. One that already exists under the name
 // (a status write lost after its create) is adopted when it is this
@@ -595,13 +598,12 @@ func previewNotLive(v *v1alpha1.IntentVerification) bool {
 func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headSet,
 	state v1alpha1.IntentVerificationState, fill func(*v1alpha1.PreviewVerificationSpec) error) error {
 	v := p.in.Status.Verification
-	superseding := kind == verifySupersede
 	round, attempt := v.Round+1, int32(1)
 	if kind == verifyRetry {
 		round, attempt = v.Round, v.Attempt+1
 	}
 	if round > v1alpha1.MaxIntentRound || attempt > v1alpha1.MaxVerificationAttempts {
-		return p.roundsSpent(ctx, superseding)
+		return p.roundsSpent(ctx)
 	}
 	run, err := newRunToken()
 	if err != nil {
@@ -636,16 +638,13 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 		}
 	}
 	p.pruneVerifications(ctx)
-	err = p.update(ctx, func(cur *v1alpha1.Intent) error {
+	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
-		// Every round this release starts is judged under its rules: the
-		// marker ends a supersede in the write that starts its round.
+		// Every round this release starts is judged under its rules.
 		nv.Judge = v1alpha1.JudgeObserved
 		nv.State, nv.Cause = state, ""
 		nv.Round, nv.Attempt = pv.Spec.Round, pv.Spec.Attempt
 		nv.Ref, nv.RetryOwed = &v1alpha1.ObjectReference{Name: pv.Name, UID: pv.UID}, false
-		// The retired cost ladder's records (status.verification.rung,
-		// modelRound, escalation) are never written: every round is full.
 		clearJudgement(nv)
 		countManual(nv, cur.Status.Acceptance)
 		if kind != verifyRetry {
@@ -660,32 +659,23 @@ func (p *pass) createVerification(ctx context.Context, kind verifyKind, hs headS
 			p.startHandoff(nv)
 		}
 		if kind != verifyAutomatic {
-			// A retry, and a supersede's fresh round, serve a waiting
-			// request too.
+			// A retry serves a waiting request too.
 			nv.Requested = nil
 		}
 		return nil
 	})
-	if err == nil && superseding {
-		verificationsSuperseded.add(p.in)
-	}
-	return err
 }
 
 // roundsSpent records a verification that can start no round, the round or
 // attempt numbering spent: Unavailable, any request consumed, the judge
-// marker written (ending a supersede, which is then counted).
-func (p *pass) roundsSpent(ctx context.Context, superseding bool) error {
-	err := p.update(ctx, func(cur *v1alpha1.Intent) error {
+// marker written.
+func (p *pass) roundsSpent(ctx context.Context) error {
+	return p.update(ctx, func(cur *v1alpha1.Intent) error {
 		nv := cur.Status.Verification
 		nv.State, nv.Cause, nv.Requested, nv.RetryOwed = v1alpha1.VerificationUnavailable, "", nil, false
 		nv.Judge = v1alpha1.JudgeObserved
 		return nil
 	})
-	if err == nil && superseding {
-		verificationsSuperseded.add(p.in)
-	}
-	return err
 }
 
 // verificationTrigger is the trigger annotation a round of kind carries.
@@ -693,8 +683,6 @@ func verificationTrigger(kind verifyKind) string {
 	switch kind {
 	case verifyRequest:
 		return verificationByRequest
-	case verifySupersede:
-		return verificationBySupersede
 	case verifyNotDue, verifyAutomatic, verifyRetry, verifyRequestRefused:
 	}
 	return verificationByAutomatic

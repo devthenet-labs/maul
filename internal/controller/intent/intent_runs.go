@@ -237,11 +237,10 @@ func (p *pass) atCeiling() bool {
 	return p.sharedSpend() >= maxCostMicroUSD(p.proj)
 }
 
-// evaluationSpend is what the Intent's evaluate runs (and the checkreview
-// runs an earlier release left) have spent, in micro-USD, summed as syncUsage sums every run's: what the
-// evaluation ceiling (evaluationCeiling) is held to, and never the shared
-// ceiling, so evaluation can never use up the budget fix rounds need
-// (DESIGN 5).
+// evaluationSpend is what the Intent's evaluate runs have spent, in
+// micro-USD, summed as syncUsage sums every run's: what the evaluation
+// ceiling (evaluationCeiling) is held to, and never the shared ceiling, so
+// evaluation can never use up the budget fix rounds need (DESIGN 5).
 func (p *pass) evaluationSpend() int64 {
 	var sum int64
 	for _, run := range p.runs {

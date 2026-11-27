@@ -275,7 +275,7 @@ func TestPreviewToolsRenderRefusals(t *testing.T) {
 			"evaluateMaxTurns"},
 		refusal{"the removed check-review turns", with("--set",
 			"intentController.verification.checkReviewMaxTurns=0"),
-			"intentController.verification.checkReviewMaxTurns is removed"},
+			"additional properties 'checkReviewMaxTurns' not allowed"},
 		refusal{"an unknown hand-off", with("--set", "intentController.verification.defaultHandoff=never"),
 			"defaultHandoff"},
 		refusal{"no evaluation budget", with("--set", "intentController.verification.maxEvaluateCostUSD=0"),

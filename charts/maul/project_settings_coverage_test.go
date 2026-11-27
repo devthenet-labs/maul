@@ -109,8 +109,7 @@ func expectedLevels(t *testing.T) map[string][]string {
 // TestProjectSettingsPolicyCoversEveryProjectSpecField: the policy's
 // editable lists are exactly the table's, at every level, and every field
 // of ProjectSpec is either an editable field of the table or pinned by the
-// policy; the two fields the page no longer offers (owner decision 8) are
-// pinned.
+// policy.
 func TestProjectSettingsPolicyCoversEveryProjectSpecField(t *testing.T) {
 	needHelm(t)
 	vars, exprs := policyVariables(t)
@@ -184,12 +183,6 @@ func checkSpecAccounted(t *testing.T, want map[string][]string) {
 	for id := range editable {
 		if !seen[id] {
 			t.Errorf("the table edits %s, which is no field of ProjectSpec", id)
-		}
-	}
-	for _, pinned := range []string{"models.checkReview", "limits.checkReview"} {
-		level, key := splitLevel(pinned)
-		if slices.Contains(want[level], key) || !seen[pinned] {
-			t.Errorf("spec.%s must be a ProjectSpec field the policy pins", pinned)
 		}
 	}
 }

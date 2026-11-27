@@ -53,7 +53,6 @@ func TestWorkspaceHandoffGoldens(t *testing.T) {
 			&VerifyProgress{State: VerifyUnconfirmed, Verification: 1, MaxFixes: 2, Total: 2, Outcomes: true})},
 		{"intent_status_workspace_sandbox_image.md", status(unconfirmed(HandoffWhySandboxImage), nil)},
 		{"intent_status_workspace_tree.md", status(unconfirmed(HandoffWhyTree), nil)},
-		{"intent_status_workspace_replay.md", status(unconfirmed(HandoffWhyReplay), nil)},
 		// Review H2: every outcome confirmed, the round's environment not
 		// clean: the line names that, never a preview.
 		{"intent_status_workspace_environment.md", status(unconfirmed(HandoffWhyEnvironment),
@@ -175,8 +174,6 @@ func TestHandoffWhyOfVerification(t *testing.T) {
 		{v1alpha1.VerificationReasonSandboxUnenforced, HandoffWhySandbox},
 		{v1alpha1.VerificationReasonToolsEvicted, HandoffWhyUnavailable},
 		{v1alpha1.VerificationReasonToolsDeadline, HandoffWhyUnavailable},
-		{v1alpha1.VerificationReasonReplayIncomplete, HandoffWhyReplay},
-		{v1alpha1.VerificationReasonKeptCopyFailed, HandoffWhyUnavailable},
 		{v1alpha1.VerificationReasonToolPodsSaturated, ""},
 		{v1alpha1.VerificationReasonStaleWorkspace, ""},
 		{v1alpha1.VerificationReasonOK, ""},

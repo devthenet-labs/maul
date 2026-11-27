@@ -134,7 +134,7 @@ func startAgents(t *testing.T, o agentsOptions) *evalEnv {
 	e.registry = registry
 	gh.SetDefaultComparePatch("diff --git a/main.go b/main.go\n+hello from tally\n")
 	e.kubelet.runWorkspaceTools(t)
-	e.kubelet.useAgentRunner(t, "evaluate", "checkreview")
+	e.kubelet.useAgentRunner(t, "evaluate")
 	e.kubelet.setAgentEnv("MAUL_FAKE_PLAN_ACCEPTANCE", o.outcomes)
 	path := o.buildPath
 	if path == "" {
@@ -272,9 +272,6 @@ func TestIntentAgentsCLIPasses(t *testing.T) {
 		t.Errorf("the ledger records %d key refusals, want the two foreign calls:\n%s", got, tool.Stdout)
 	}
 	checkNotPreviewControllers(t, &pv)
-	if acc := in.Status.Acceptance; (acc.Checks != nil && acc.Checks.Count > 0) || len(acc.Reviews) != 0 {
-		t.Errorf("acceptance checks %+v reviews %+v; want nothing stored or reviewed", acc.Checks, acc.Reviews)
-	}
 	checkSeenAtHead(t, e.agentsVerification(t, name), in.Status.Verification, pr.HeadSHA)
 	e.waitStatus(t, pr.HeadSHA, "success", "1/1 outcomes seen to hold")
 	e.waitStatusComment(t, name, number, "the status comment to say ready with no link", func(body string) bool {
@@ -336,9 +333,6 @@ func checkSeenAtHead(t *testing.T, pv v1alpha1.PreviewVerification, v *v1alpha1.
 	t.Helper()
 	if ws := pv.Spec.Workspace; ws == nil || ws.HeadSHA != head || ws.BaseSHA == head {
 		t.Errorf("workspace %+v, want the head %s and its merge base", ws, head)
-	}
-	if len(pv.Status.Confirmed) != 0 {
-		t.Errorf("confirmed %d checks, want none", len(pv.Status.Confirmed))
 	}
 	if len(v.Outcomes) != 1 || v.Outcomes[0].Reason != "seen-to-hold" || len(v.Outcomes[0].Cites) == 0 {
 		t.Fatalf("outcomes %+v, want one seen to hold on a cited call", v.Outcomes)

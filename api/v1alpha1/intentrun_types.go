@@ -17,13 +17,12 @@ import (
 //   - build:  <intent>-bld-r<round>-<repoKey>-a<attempt>
 //   - revise: <intent>-rev<round>-<repoKey>-a<attempt>
 //   - evaluate: <intent>-ev-r<round>-a<attempt>
-//   - checkreview: <intent>-cr-r<round>-a<attempt>
 //
 // repoKey is the Project repository's key; a plan run plans from the first
-// repository and its name carries none, and neither does an evaluate or check
-// review run, which judges the Intent's whole preview rather than one
-// repository. Within one Intent, distinct (stage,
-// round, attempt, and for build and revise runs repoKey) give distinct names,
+// repository and its name carries none, and neither does an evaluate run,
+// which judges the Intent's whole preview rather than one repository.
+// Within one Intent, distinct (stage, round, attempt, and for build and
+// revise runs repoKey) give distinct names,
 // and inside the name budget
 // every name is at most 63 characters, a valid label value. A name can still
 // equal a run name of a different Intent: one whose project name happens to
@@ -42,8 +41,6 @@ func IntentRunName(intent string, stage IntentStage, round int32, repoKey string
 		return fmt.Sprintf("%s-rev%d-%s-a%d", intent, round, repoKey, attempt)
 	case IntentStageEvaluate:
 		return fmt.Sprintf("%s-ev-r%d-a%d", intent, round, attempt)
-	case IntentStageCheckReview:
-		return fmt.Sprintf("%s-cr-r%d-a%d", intent, round, attempt)
 	default:
 		return ""
 	}
@@ -58,12 +55,11 @@ func IntentStages() []IntentStage {
 		IntentStageBuild,
 		IntentStageRevise,
 		IntentStageEvaluate,
-		IntentStageCheckReview,
 	}
 }
 
 // IntentStage is the agent stage one IntentRun executes.
-// +kubebuilder:validation:Enum=plan;build;revise;evaluate;checkreview
+// +kubebuilder:validation:Enum=plan;build;revise;evaluate
 type IntentStage string
 
 // Intent stages.
@@ -83,12 +79,6 @@ const (
 	// approved plan's outcomes against the live preview through its slot
 	// tool pod and changes nothing in any repository.
 	IntentStageEvaluate IntentStage = "evaluate"
-	// IntentStageCheckReview: the check reviewer's round, which judges
-	// whether each new saved check tests the outcome it claims; it reads
-	// quoted checks only and changes nothing. A retired spelling: the
-	// observed evaluator launches none, but a stored run's stage still
-	// reads (and its spend still counts). Removed in the next release.
-	IntentStageCheckReview IntentStage = "checkreview"
 )
 
 // IntentRunTrigger names what started a revise round (slice 1b).
@@ -443,7 +433,7 @@ type IntentRunSpec struct {
 	Harness ProjectHarness `json:"harness,omitempty"`
 	// Model is the canonical model the run launches on, copied at creation
 	// from its Project's spec.models choice for the stage (a revise run's is
-	// the build choice; a codex evaluate or checkreview run's, unless the
+	// the build choice; a codex evaluate run's, unless the
 	// Project chooses its own, too). Unset when the Project chooses none, as
 	// on every run created before Projects chose: the run then runs
 	// intent-controller's stage flag. A recorded model intent-controller no
@@ -477,10 +467,6 @@ type IntentRunEvaluation struct {
 	// +kubebuilder:validation:MaxLength=45
 	// +kubebuilder:validation:Pattern=`^[0-9a-fA-F:.]+$`
 	ToolIP string `json:"toolIP"`
-	// Rung is the verification's rung. Retired with the cost ladder: the
-	// observed evaluator always writes full (the field is required).
-	// Removed in the next release.
-	Rung VerificationRung `json:"rung"`
 }
 
 // IntentRunStatus records how the run ran. Written only by

@@ -355,9 +355,6 @@ func TestIntentEvaluateStop(t *testing.T) {
 	e.waitEval(t, name, "the requested round to fail", func(v *v1alpha1.IntentVerification) bool {
 		return v.State == v1alpha1.VerificationFailing && v.Round == 2
 	})
-	if r := e.round(t, name, 2); r.Spec.Rung != v1alpha1.RungFull {
-		t.Errorf("round 2 = %s, want a full round", r.Spec.Rung)
-	}
 	e.waitStatus(t, pr.HeadSHA, "failure", "automatic fixes halted")
 	consistently(t, "no fix round while stopped", func() bool {
 		in := e.intent(t, name)

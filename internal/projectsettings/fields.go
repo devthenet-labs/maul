@@ -142,8 +142,7 @@ func Fields() []Field {
 }
 
 // StageNames are the stages that have limits, in spec.limits' spelling:
-// every stage the controller runs. The retired check reviewer's is none of
-// them (limits.checkReview stays in the schema for one release, pinned).
+// every stage the controller runs.
 func StageNames() []string {
 	out := make([]string, 0, len(stages))
 	for _, s := range stages {
@@ -359,9 +358,6 @@ func delegation(s *v1alpha1.ProjectSpec) *v1alpha1.ProjectDelegation {
 type stage struct {
 	name string
 	// limits and doc are the stage's limits in a spec and in a document.
-	// The retired check reviewer's limits (limits.checkReview) are no stage:
-	// the controller runs none, so they count toward no run budget, and the
-	// admission policy pins them until the next release removes the field.
 	limits func(*v1alpha1.ProjectLimits) *v1alpha1.StageLimits
 	doc    func(*ProjectSettingsStages) *ProjectSettingsStage
 	// ceiling is the controller's ceiling for the stage.

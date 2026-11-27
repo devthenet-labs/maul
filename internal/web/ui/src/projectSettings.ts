@@ -60,11 +60,6 @@ const SCHEMA_DEFAULTED = new Set([
 // rounds), so unset is null.
 const NULLABLE = new Set(["limits.maxRevisions", "limits.maxCheckFixes", "limits.maxVerifyFixes"]);
 
-// RETIRED_STAGES are stages whose limits and model the page never offers
-// (the retired check reviewer), whatever a server sends: an older server
-// during an upgrade still might.
-const RETIRED_STAGES = new Set(["checkReview"]);
-
 // ---- document slots -----------------------------------------------------------
 
 // fieldKey names one input: the field id, and the repository for the
@@ -466,22 +461,22 @@ export function loginManagerNote(managers: ProjectSettingsManager[], change: "re
 // ---- rows -----------------------------------------------------------------------------------
 
 // stageRows are the stages the stage table shows, in the server's order,
-// from the fields it sends: never the check reviewer.
+// from the fields it sends.
 export function stageRows(fields: ProjectSettingsField[]): string[] {
   const out: string[] = [];
   for (const f of fields) {
     const m = /^limits\.([A-Za-z]+)\.[A-Za-z]+$/.exec(f.id);
-    if (f.group === "stages" && m && !RETIRED_STAGES.has(m[1]) && !out.includes(m[1])) out.push(m[1]);
+    if (f.group === "stages" && m && !out.includes(m[1])) out.push(m[1]);
   }
   return out;
 }
 
-// modelRows are the stages the models card shows: never the check reviewer.
+// modelRows are the stages the models card shows, from the fields the
+// server sends.
 export function modelRows(fields: ProjectSettingsField[]): string[] {
   return fields
     .filter((f) => f.group === "models" && f.id.startsWith("models."))
-    .map((f) => f.id.slice("models.".length))
-    .filter((s) => !RETIRED_STAGES.has(s));
+    .map((f) => f.id.slice("models.".length));
 }
 
 // ---- wording -----------------------------------------------------------------------------------

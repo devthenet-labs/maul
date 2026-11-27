@@ -179,15 +179,6 @@ spec:
                   pinned by UID, with its tool pod's address. Set on every evaluate run
                   and on no other (CEL-enforced); immutable with the rest of the spec.
                 properties:
-                  rung:
-                    description: |-
-                      Rung is the verification's rung. Retired with the cost ladder: the
-                      observed evaluator always writes full (the field is required).
-                      Removed in the next release.
-                    enum:
-                    - full
-                    - replay
-                    type: string
                   toolIP:
                     description: ToolIP is the tool pod's address (status.tools.podIP).
                     maxLength: 45
@@ -205,7 +196,6 @@ spec:
                     minLength: 1
                     type: string
                 required:
-                - rung
                 - toolIP
                 - uid
                 - verification
@@ -437,7 +427,7 @@ spec:
                 description: |-
                   Model is the canonical model the run launches on, copied at creation
                   from its Project's spec.models choice for the stage (a revise run's is
-                  the build choice; a codex evaluate or checkreview run's, unless the
+                  the build choice; a codex evaluate run's, unless the
                   Project chooses its own, too). Unset when the Project chooses none, as
                   on every run created before Projects chose: the run then runs
                   intent-controller's stage flag. A recorded model intent-controller no
@@ -533,7 +523,6 @@ spec:
                 - build
                 - revise
                 - evaluate
-                - checkreview
                 type: string
               trees:
                 description: |-
