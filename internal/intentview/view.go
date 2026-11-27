@@ -302,12 +302,15 @@ var blockText = map[string]map[string]string{
 }
 
 // RevisionRounds is how many review and command revise rounds of an
-// Intent's runs count against the Project's maxRevisions: every round
+// Intent's runs of plan revision planRevision (the approved one:
+// ApprovedPlanRevision) count against the Project's maxRevisions: every round
 // started, a failed one included, except a round whose latest attempt failed
-// for want of usable feedback. It is the count intent-controller enforces
-// the limit with, which status.revisions (completed rounds only) is not; a
-// test in internal/controller/intent pins the two counts together.
-func RevisionRounds(runs []*v1alpha1.IntentRun) int32 {
+// for want of usable feedback. A plan a replan in review made starts the
+// count again. It is the count intent-controller enforces the limit with,
+// which status.revisions (completed rounds only) is not; a test in
+// internal/controller/intent pins the two counts together.
+func RevisionRounds(runs []*v1alpha1.IntentRun, planRevision int32) int32 {
+	runs = planRuns(runs, planRevision)
 	latest := map[int32]*v1alpha1.IntentRun{}
 	for _, run := range runs {
 		if run.Spec.Stage != v1alpha1.IntentStageRevise {
@@ -331,18 +334,38 @@ func RevisionRounds(runs []*v1alpha1.IntentRun) int32 {
 	return int32(len(seen))
 }
 
-// CheckFixRounds is how many check-fix rounds of an Intent's runs count
-// against the Project's maxCheckFixes: every one started, failed ones
-// included, as intent-controller counts them (status.checkFixes counts
-// completed ones only); pinned like RevisionRounds.
-func CheckFixRounds(runs []*v1alpha1.IntentRun) int32 {
+// CheckFixRounds is how many check-fix rounds of an Intent's runs of plan
+// revision planRevision count against the Project's maxCheckFixes: every
+// one started, failed ones included, as intent-controller counts them
+// (status.checkFixes counts completed ones only); pinned like RevisionRounds.
+func CheckFixRounds(runs []*v1alpha1.IntentRun, planRevision int32) int32 {
 	seen := map[int32]bool{}
-	for _, run := range runs {
+	for _, run := range planRuns(runs, planRevision) {
 		if run.Spec.Stage == v1alpha1.IntentStageRevise && countsAsCheckFix(run.Spec.Trigger) {
 			seen[run.Spec.Round] = true
 		}
 	}
 	return int32(len(seen))
+}
+
+// ApprovedPlanRevision is the revision of in's approved plan, 0 while none
+// is: the plan whose rounds RevisionRounds and CheckFixRounds count.
+func ApprovedPlanRevision(in *v1alpha1.Intent) int32 {
+	if ap := in.Status.Approval; ap != nil {
+		return ap.PlanRevision
+	}
+	return 0
+}
+
+// planRuns are the runs among runs of plan revision rev.
+func planRuns(runs []*v1alpha1.IntentRun, rev int32) []*v1alpha1.IntentRun {
+	var out []*v1alpha1.IntentRun
+	for _, run := range runs {
+		if run.Spec.Inputs.PlanRevision == rev {
+			out = append(out, run)
+		}
+	}
+	return out
 }
 
 // countsAsRevision reports a round held against maxRevisions: an approver's
@@ -394,10 +417,12 @@ func blockReason(in *v1alpha1.Intent, l Limits, runs []*v1alpha1.IntentRun, c *m
 		return fmt.Sprintf("spent %s of the %s cost ceiling", FormatUSD(in.Status.Usage.CostMicroUSD),
 			FormatUSD(l.MaxCostMicroUSD))
 	case v1alpha1.ConditionRevisionLimitReached:
-		return fmt.Sprintf("the revision limit is reached (%d of %d)", RevisionRounds(runs), l.MaxRevisions)
+		return fmt.Sprintf("the revision limit is reached (%d of %d)", RevisionRounds(runs, ApprovedPlanRevision(in)),
+			l.MaxRevisions)
 	case v1alpha1.ConditionChecksFailing:
 		if c.Reason == "MaxCheckFixes" {
-			return fmt.Sprintf("the check-fix limit is reached (%d of %d)", CheckFixRounds(runs), l.MaxCheckFixes)
+			return fmt.Sprintf("the check-fix limit is reached (%d of %d)",
+				CheckFixRounds(runs, ApprovedPlanRevision(in)), l.MaxCheckFixes)
 		}
 	}
 	texts := blockText[c.Type]

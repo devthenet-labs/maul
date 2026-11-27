@@ -89,11 +89,11 @@ func TestTriggerSitesExhaustive(t *testing.T) {
 			tCommand: label{"Revision round", false}, tChecks: label{"", true},
 			tVerify: label{"Acceptance fix round", false}}},
 		{"revisionRounds", func(tr v1alpha1.IntentRunTrigger) any {
-			return (&pass{runs: []*v1alpha1.IntentRun{reviseRunOf(tr)}}).revisionRounds()
+			return (&pass{in: approved, runs: []*v1alpha1.IntentRun{reviseRunOf(tr)}}).revisionRounds()
 		}, map[v1alpha1.IntentRunTrigger]any{tReview: int32(1), tCommand: int32(1), tChecks: int32(0),
 			tVerify: int32(0)}},
 		{"checkFixRounds", func(tr v1alpha1.IntentRunTrigger) any {
-			return (&pass{runs: []*v1alpha1.IntentRun{reviseRunOf(tr)}}).checkFixRounds()
+			return (&pass{in: approved, runs: []*v1alpha1.IntentRun{reviseRunOf(tr)}}).checkFixRounds()
 		}, map[v1alpha1.IntentRunTrigger]any{tReview: int32(0), tCommand: int32(0), tChecks: int32(1),
 			tVerify: int32(0)}},
 		{"verifyFixRounds", func(tr v1alpha1.IntentRunTrigger) any {
@@ -125,11 +125,11 @@ func TestTriggerSitesExhaustive(t *testing.T) {
 			return legacyEmptyHandoffPossible(tr)
 		}, map[v1alpha1.IntentRunTrigger]any{tReview: true, tCommand: false, tChecks: false, tVerify: false}},
 		{"intentview RevisionRounds", func(tr v1alpha1.IntentRunTrigger) any {
-			return intentview.RevisionRounds([]*v1alpha1.IntentRun{reviseRunOf(tr)})
+			return intentview.RevisionRounds([]*v1alpha1.IntentRun{reviseRunOf(tr)}, 1)
 		}, map[v1alpha1.IntentRunTrigger]any{tReview: int32(1), tCommand: int32(1), tChecks: int32(0),
 			tVerify: int32(0)}},
 		{"intentview CheckFixRounds", func(tr v1alpha1.IntentRunTrigger) any {
-			return intentview.CheckFixRounds([]*v1alpha1.IntentRun{reviseRunOf(tr)})
+			return intentview.CheckFixRounds([]*v1alpha1.IntentRun{reviseRunOf(tr)}, 1)
 		}, map[v1alpha1.IntentRunTrigger]any{tReview: int32(0), tCommand: int32(0), tChecks: int32(1),
 			tVerify: int32(0)}},
 		{"usagerollup IntentRunKind", func(tr v1alpha1.IntentRunTrigger) any {

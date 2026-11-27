@@ -118,12 +118,13 @@ func (p *pass) checksObserved(pr *v1alpha1.IntentPullRequest) bool {
 }
 
 // startCheckFix starts the check-fix round of pr's repository, unless a
-// fix there already failed the same way (RepeatedFailure) or the Intent's
-// check-fix rounds are spent. Both blocks hold the whole Intent, and name the
-// repository whose checks failed.
+// fix there of the approved plan already failed the same way
+// (RepeatedFailure) or the plan's check-fix rounds are spent. Both blocks
+// hold the whole Intent, and name the repository whose checks failed. A plan
+// a replan in review made is held to neither by the plan it replaced.
 func (p *pass) startCheckFix(ctx context.Context, pr *v1alpha1.IntentPullRequest,
 	failed failedChecks, signature string) (bool, error) {
-	for _, prior := range p.runs {
+	for _, prior := range planRuns(p.runs, p.approvedRevision()) {
 		if !isCheckFix(prior.Spec.Trigger) || prior.Status.Phase != v1alpha1.RunComplete ||
 			!sameRepo(prior.Spec.Repository.URL, pr.Repository) {
 			continue
@@ -449,9 +450,16 @@ func (p *pass) checksConsumed(repoURL string, f failedChecks) bool {
 	return false
 }
 
+// checkFixRounds counts the approved plan revision's check-fix rounds, held
+// against maxCheckFixes; a plan a replan in review made starts again.
 func (p *pass) checkFixRounds() int32 {
+	return checkFixRoundsIn(planRuns(p.runs, p.approvedRevision()))
+}
+
+// checkFixRoundsIn counts the check-fix rounds among runs.
+func checkFixRoundsIn(runs []*v1alpha1.IntentRun) int32 {
 	seen := map[int32]bool{}
-	for _, run := range p.runs {
+	for _, run := range runs {
 		if run.Spec.Stage == v1alpha1.IntentStageRevise && isCheckFix(run.Spec.Trigger) {
 			seen[run.Spec.Round] = true
 		}

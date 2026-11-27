@@ -1024,11 +1024,19 @@ func maxRevisions(proj *v1alpha1.Project) int32 {
 	return v1alpha1.DefaultMaxRevisions
 }
 
-// revisionRounds counts leased review/command rounds, including agent failures.
-// A round refused before launch for lack of usable feedback does not spend
-// this allowance; the independent MaxIntentRound still bounds such rounds.
-// Check-fix and acceptance-fix rounds count against their own limits.
+// revisionRounds counts the approved plan revision's leased review/command
+// rounds, including agent failures. A round refused before launch for lack
+// of usable feedback does not spend this allowance; the independent
+// MaxIntentRound still bounds such rounds. Check-fix and acceptance-fix
+// rounds count against their own limits. A plan a replan in review made
+// starts the count again: round numbers never repeat, so a round's runs all
+// record one plan revision.
 func (p *pass) revisionRounds() int32 {
+	return (&pass{runs: planRuns(p.runs, p.approvedRevision())}).leasedRevisionRounds()
+}
+
+// leasedRevisionRounds is revisionRounds over every run the pass holds.
+func (p *pass) leasedRevisionRounds() int32 {
 	seen := map[int32]bool{}
 	for _, run := range p.runs {
 		if run.Spec.Stage == v1alpha1.IntentStageRevise && countsAsRevision(run.Spec.Trigger) {

@@ -122,6 +122,26 @@ func (p *pass) round(stage v1alpha1.IntentStage, round int32, repoURL string) ro
 	return rs
 }
 
+// approvedRevision is the approved plan's revision, 0 while none is.
+func (p *pass) approvedRevision() int32 {
+	if p.in != nil && p.in.Status.Approval != nil {
+		return p.in.Status.Approval.PlanRevision
+	}
+	return 0
+}
+
+// planRuns are the runs among runs of plan revision rev: what a plan's own
+// limits count, so a plan a replan in review made starts them again.
+func planRuns(runs []*v1alpha1.IntentRun, rev int32) []*v1alpha1.IntentRun {
+	var out []*v1alpha1.IntentRun
+	for _, run := range runs {
+		if run.Spec.Inputs.PlanRevision == rev {
+			out = append(out, run)
+		}
+	}
+	return out
+}
+
 func (rs roundRuns) latest() *v1alpha1.IntentRun {
 	if len(rs) == 0 {
 		return nil
