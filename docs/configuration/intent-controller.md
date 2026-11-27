@@ -675,10 +675,10 @@ human's. Each step is idempotent:
 3. Each open pull request is read live, gets one comment and is closed. One a human merged meanwhile stays merged and is
    named in the reply. The branches are left as they are: nothing deletes branches. If a human merged every pull request
    meanwhile, the replan ends there: the reply says nothing is planned again, and the intent ends `Merged` as a merge in
-   review ends it. Each closed pull request's preview comment says a replan closed it and no longer links the preview,
-   whose host goes on to serve the new plan. One maul could not close (GitHub refused, or its repository left the
-   Project) is named in the reply as left open and is no longer followed: the new plan tracks only its own pull
-   requests.
+   review ends it. Each pull request's preview comment says a replan replaced its plan and no longer links the preview,
+   whose host goes on to serve the new plan (best effort: a write GitHub fails then is not retried). One maul could not
+   close (GitHub refused, or its repository left the Project) is named in the reply as left open and is no longer
+   followed: the new plan tracks only its own pull requests.
 4. The issue gets one reply, and the intent plans again from the issue at the next input revision, with the replan as
    its trigger (its runs are attributed to the replanner). Its context file adds the replaced plan's pull requests
    (link, state, head), the approvers' review threads on them and the verification's results, each escaped, fenced and

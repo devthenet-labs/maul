@@ -237,7 +237,8 @@ func TestReplanInReviewEndsWhenEveryPullRequestMerges(t *testing.T) {
 			e.gh.state(), e.gh.closedPRs)
 	}
 	st := in.Status
-	if st.Replan != nil || st.Input.Revision != 1 || len(st.PullRequests) != 1 || st.PullRequests[0].State != prMerged {
+	if st.Replan != nil || st.Input.Revision != 1 || len(st.PullRequests) != 1 || st.PullRequests[0].State != prMerged ||
+		st.PullRequests[0].MergeCommitSHA == "" {
 		t.Errorf("status = replan %+v, input r%d, pull requests %+v: want the merge recorded and no new plan",
 			st.Replan, st.Input.Revision, st.PullRequests)
 	}
@@ -249,8 +250,8 @@ func TestReplanInReviewEndsWhenEveryPullRequestMerges(t *testing.T) {
 }
 
 // TestReplanInReviewRetiresPreviewComments: the preview comment of a pull
-// request a replan closes says so and no longer links the preview, whose
-// host goes on to serve the new plan.
+// request whose plan a replan replaces says so and no longer links the
+// preview, whose host goes on to serve the new plan.
 func TestReplanInReviewRetiresPreviewComments(t *testing.T) {
 	e := newOnePreviewEnv(t)
 	e.intent.Settings.ReplanInReview = true
@@ -264,7 +265,8 @@ func TestReplanInReviewRetiresPreviewComments(t *testing.T) {
 	e.gh.comment(approver, "/maul replan")
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 	c := e.onePreviewComment(name, n)
-	if !strings.Contains(c.Body, "A replan closed this pull request") || strings.Contains(c.Body, "https://") {
+	if !strings.Contains(c.Body, "A replan replaced the plan this pull request was built for") ||
+		strings.Contains(c.Body, "https://") {
 		t.Errorf("preview comment of the closed pull request:\n%s", c.Body)
 	}
 }

@@ -38,9 +38,11 @@ const (
 	// pull request's comment says this; the status comment just drops the
 	// line.
 	PreviewRemoved = "removed"
-	// PreviewReplaced: a replan in review closed the pull request, and the
-	// intent's preview goes on to serve the new plan. Only a pull request's
-	// comment says this, and is not linked: the host is the new plan's.
+	// PreviewReplaced: a replan in review replaced the plan the pull request
+	// was built for (closing it, unless it merged or could not be closed),
+	// and the intent's preview goes on to serve the new plan. Only a pull
+	// request's comment says this, and is not linked: the host is the new
+	// plan's.
 	PreviewReplaced = "replaced"
 )
 
@@ -303,8 +305,8 @@ func RenderIntentPreviewComment(c IntentPreviewComment) (string, error) {
 	case PreviewRemoved:
 		s = "The intent has ended, and its preview was removed."
 	case PreviewReplaced:
-		s = "A replan closed this pull request: the intent's preview no longer serves it, and goes on to serve " +
-			"the new plan's pull requests."
+		s = "A replan replaced the plan this pull request was built for: the intent's preview no longer serves " +
+			"it, and goes on to serve the new plan's pull requests."
 	default:
 		s = "There is no preview of this pull request now."
 		if clause := unavailableClause(reason, c.Resource, "is deployed"); clause != "" {
@@ -346,7 +348,7 @@ func renderEvaluationComment(c IntentPreviewComment) (string, error) {
 	if v.Removed {
 		v.Sentence = "The intent has ended, and maul no longer checks this pull request."
 		if c.State == PreviewReplaced {
-			v.Sentence = "A replan closed this pull request, and maul no longer checks it."
+			v.Sentence = "A replan replaced the plan this pull request was built for, and maul no longer checks it."
 		}
 		return render("intent_preview.md.tmpl", v)
 	}

@@ -41,8 +41,9 @@ import (
 //     (closeForReplan), recording each one's state;
 //  4. if a human merged every pull request meanwhile, post the one reply
 //     and end the intent Merged as review does (mergedDuringReplan);
-//     otherwise say on each closed pull request's preview comment that a
-//     replan closed it (PreviewReplaced: its host is the new plan's);
+//     otherwise say on each pull request's preview comment that a replan
+//     replaced its plan (PreviewReplaced: its host is the new plan's),
+//     best effort: a write that fails is not retried;
 //  5. post the one reply on the issue, then plan again (startPlanning, the
 //     replan the trigger: the new plan's runs are attributed to the
 //     replanner), with the plan, its pull requests, the approvers' review
@@ -317,7 +318,7 @@ func (p *pass) closeLive(ctx context.Context, pr *v1alpha1.IntentPullRequest, rp
 		return false, fmt.Errorf("read pull request %s#%d: %w", repoSlug(pr.Repository), pr.Number, err)
 	case live.Merged:
 		at := metav1.NewTime(live.MergedAt)
-		pr.State, pr.MergedAt = prMerged, &at
+		pr.State, pr.MergedAt, pr.MergeCommitSHA = prMerged, &at, live.MergeCommitSHA
 	case live.State == prOpen:
 		if err := p.closeOne(ctx, *pr, rp); err != nil {
 			return false, err
