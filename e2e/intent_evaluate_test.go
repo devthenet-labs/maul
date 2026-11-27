@@ -670,7 +670,7 @@ func checkReproduction(t *testing.T, repro string) {
 // the change-focused round: only the round after the fix (the one handed
 // its diff and the round before it, whole) is told what the diff changes
 // and that an untouched outcome that passed needs one look; round 1 and
-// round 2 (at unmoved heads: no diff) are first-round prompts.
+// round 2 (at unmoved heads: no diff) are not focused.
 func checkFocusedPrompts(t *testing.T, evals []agentRun) {
 	t.Helper()
 	const heading = "### What this round covers"

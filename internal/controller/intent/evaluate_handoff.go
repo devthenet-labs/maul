@@ -203,10 +203,10 @@ func (p *pass) browserEntry(browser bool) string {
 }
 
 // previousRound fills h, pv's handoff, with what the controller stores of
-// the last judged round before pv (SPEC Q15), on a round after one: maul's
-// results of the approved outcomes (status.verification.outcomes, which
-// only a judgement writes) and the diff since the heads it evaluated
-// (fixDiff). Each string is bounded
+// the last judged round before pv (SPEC Q15), on a round after one: the
+// diff since the heads it evaluated (fixDiff) and maul's results of the
+// approved outcomes (status.verification.outcomes, which only a judgement
+// writes), the latter only when resultsAreOf holds. Each string is bounded
 // and made visible. A previous round's PreviewVerification already pruned
 // leaves the verdicts alone.
 func (p *pass) previousRound(ctx context.Context, pv *v1alpha1.PreviewVerification,

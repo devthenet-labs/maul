@@ -5,7 +5,10 @@ package agentrun
 
 import (
 	"math/rand"
+	"slices"
+	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/devthenet-labs/maul/internal/acceptance"
 	"github.com/devthenet-labs/maul/internal/templates"
@@ -29,9 +32,10 @@ func focusedHandoff() EvaluateHandoff {
 
 // TestChangeFocusedEachConditionAlone: a round is change-focused only when
 // the handoff carries a diff, a previous round and a result for every
-// outcome, and the diff is not one maul could not read or the forge cut.
-// A diff the prompt's own bound cut, or one with files not shown in full,
-// is still focused (the prompt then says every outcome is affected).
+// outcome, and the diff is the whole fix: none of it unavailable, cut by
+// the forge, cut by the prompt's own bound, or a file not shown in full.
+// The light look at an untouched outcome is for a diff the evaluator has
+// read whole, so a cut diff is never focused.
 func TestChangeFocusedEachConditionAlone(t *testing.T) {
 	tests := []struct {
 		name string
@@ -52,11 +56,23 @@ func TestChangeFocusedEachConditionAlone(t *testing.T) {
 		{"a diff the forge cut", func(h *EvaluateHandoff) {
 			h.FixDiffCut = &FixDiffCut{ForgeCut: []string{"acme/api"}}
 		}, false},
-		{"a diff the prompt bound cut", func(h *EvaluateHandoff) {
+		{"a diff the controller's bound cut", func(h *EvaluateHandoff) {
 			h.FixDiffCut = &FixDiffCut{ShownBytes: 10, ReadBytes: 40000}
+		}, false},
+		{"a diff over the prompt's bound", func(h *EvaluateHandoff) {
+			h.FixDiff = strings.Repeat("+k := 32\n", templates.FixDiffMaxBytes/9+1)
+		}, false},
+		{"a diff just within the prompt's bound", func(h *EvaluateHandoff) {
+			h.FixDiff = strings.Repeat("+", templates.FixDiffMaxBytes-1) + "\n"
 		}, true},
 		{"files not shown in full", func(h *EvaluateHandoff) {
-			h.FixDiffCut = &FixDiffCut{Files: []string{"vendor/big.go"}, MoreFiles: 2}
+			h.FixDiffCut = &FixDiffCut{Files: []string{"vendor/big.go"}}
+		}, false},
+		{"more files not shown in full", func(h *EvaluateHandoff) {
+			h.FixDiffCut = &FixDiffCut{MoreFiles: 2}
+		}, false},
+		{"a cut that leaves nothing out", func(h *EvaluateHandoff) {
+			h.FixDiffCut = &FixDiffCut{ShownBytes: 40, ReadBytes: 40}
 		}, true},
 	}
 	for _, tt := range tests {
@@ -72,32 +88,24 @@ func TestChangeFocusedEachConditionAlone(t *testing.T) {
 }
 
 // TestChangeFocusedMatchesItsOracle is a seeded property over random
-// handoffs: a round is change-focused exactly when an independent oracle
-// agrees, and a focused round always has a non-blank diff, a result for
-// every outcome and a diff nothing of which was unavailable or forge-cut.
+// handoffs, blank diffs of every kind of white space, diffs either side of
+// the prompt's bound and every way a cut can leave something out included:
+// a round is change-focused exactly when an oracle written from the rule's
+// words (not from changeFocused's code) agrees.
 func TestChangeFocusedMatchesItsOracle(t *testing.T) {
 	rng := rand.New(rand.NewSource(focusSeed))
-	for i := range 2000 {
+	seen := map[bool]int{}
+	for i := range 4000 {
 		h := randomFocusHandoff(rng)
 		want := oracleFocused(h)
+		seen[want]++
 		if got := h.changeFocused(); got != want {
-			t.Fatalf("case %d: changeFocused = %v, oracle %v, for %+v", i, got, want, h)
+			t.Fatalf("case %d: changeFocused = %v, oracle %v, for a %d-byte diff, cut %+v, round %d, results %+v",
+				i, got, want, len(h.FixDiff), h.FixDiffCut, h.PriorRound, h.PriorVerdicts)
 		}
-		if !want {
-			continue
-		}
-		have := map[string]bool{}
-		for _, v := range h.PriorVerdicts {
-			have[v.Outcome] = true
-		}
-		for _, o := range h.Outcomes {
-			if !have[o.ID] {
-				t.Fatalf("case %d: focused with no result for %s", i, o.ID)
-			}
-		}
-		if h.FixDiffCut != nil && (len(h.FixDiffCut.Unavailable) > 0 || len(h.FixDiffCut.ForgeCut) > 0) {
-			t.Fatalf("case %d: focused on a diff %+v that is not whole of what was read", i, h.FixDiffCut)
-		}
+	}
+	if seen[true] < 100 || seen[false] < 100 {
+		t.Fatalf("the generator is lopsided: %v", seen)
 	}
 }
 
@@ -108,50 +116,48 @@ func randomFocusHandoff(rng *rand.Rand) EvaluateHandoff {
 		h.Outcomes = append(h.Outcomes, acceptance.PlanOutcome{ID: id})
 	}
 	for _, id := range ids {
-		if rng.Intn(4) > 0 {
+		if rng.Intn(6) > 0 {
 			h.PriorVerdicts = append(h.PriorVerdicts, PriorVerdict{Outcome: id, Result: []string{"passed", "failed",
-				"unsure"}[rng.Intn(3)]})
+				"unsure", "accepted", "quarantined"}[rng.Intn(5)]})
 		}
 	}
-	h.FixDiff = []string{"", " ", "+x\n"}[rng.Intn(3)]
-	h.PriorRound = rng.Intn(2) * 3
+	h.FixDiff = []string{"", " ", "\t\r\n", "\u00a0\n", "+x\n", "+x\n", "+x\n",
+		strings.Repeat("+", templates.FixDiffMaxBytes), strings.Repeat("+", templates.FixDiffMaxBytes+1)}[rng.Intn(9)]
+	h.PriorRound = []int{0, 1, 3}[rng.Intn(3)]
 	if rng.Intn(2) == 0 {
-		h.FixDiffCut = &FixDiffCut{ReadBytes: rng.Intn(3)}
-		if rng.Intn(3) == 0 {
+		read := rng.Intn(3)
+		h.FixDiffCut = &FixDiffCut{ReadBytes: read, ShownBytes: read - rng.Intn(2)}
+		if rng.Intn(4) == 0 {
 			h.FixDiffCut.Unavailable = []string{"x"}
 		}
-		if rng.Intn(3) == 0 {
+		if rng.Intn(4) == 0 {
 			h.FixDiffCut.ForgeCut = []string{"y"}
 		}
-		if rng.Intn(3) == 0 {
+		if rng.Intn(4) == 0 {
 			h.FixDiffCut.Files = []string{"f"}
+		}
+		if rng.Intn(4) == 0 {
+			h.FixDiffCut.MoreFiles = 1
 		}
 	}
 	return h
 }
 
+// oracleFocused is the rule as the brief states it: a previous round, a
+// diff with something in it that the evaluator is shown whole, and a
+// result for every outcome. The generator's diffs are ASCII or a no-break
+// space, so their length is what the prompt measures against its bound.
 func oracleFocused(h EvaluateHandoff) bool {
-	if len(h.FixDiff) == 0 || h.PriorRound == 0 {
+	hasContent := strings.IndexFunc(h.FixDiff, func(r rune) bool { return !unicode.IsSpace(r) }) >= 0
+	if h.PriorRound == 0 || !hasContent || len(h.FixDiff) > templates.FixDiffMaxBytes {
 		return false
 	}
-	blank := true
-	for _, r := range h.FixDiff {
-		if r != ' ' && r != '\n' {
-			blank = false
-		}
-	}
-	if blank {
-		return false
-	}
-	if c := h.FixDiffCut; c != nil && (len(c.Unavailable) > 0 || len(c.ForgeCut) > 0) {
+	if c := h.FixDiffCut; c != nil && (c.ShownBytes < c.ReadBytes || len(c.Unavailable)+len(c.ForgeCut)+
+		len(c.Files)+c.MoreFiles > 0) {
 		return false
 	}
 	for _, o := range h.Outcomes {
-		found := false
-		for _, v := range h.PriorVerdicts {
-			found = found || v.Outcome == o.ID
-		}
-		if !found {
+		if !slices.ContainsFunc(h.PriorVerdicts, func(v PriorVerdict) bool { return v.Outcome == o.ID }) {
 			return false
 		}
 	}

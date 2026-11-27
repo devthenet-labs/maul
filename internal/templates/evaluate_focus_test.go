@@ -61,10 +61,10 @@ func TestFocusedRoundSection(t *testing.T) {
 }
 
 // TestFocusedRoundSafetyWording holds the safety rules the section states:
-// the single look is only for an outcome that passed before, everything
-// else (a result other than a pass, an outcome the diff can affect, a cut
-// or shared-code diff) is judged in full, and no verdict rests on the
-// previous round.
+// the single look is only for an outcome judged `passed` before, everything
+// else (any other result, accepted among them, an outcome
+// the diff can affect, a shared-code diff) is judged in full, and no
+// verdict rests on the previous round.
 func TestFocusedRoundSafetyWording(t *testing.T) {
 	for _, ws := range []bool{false, true} {
 		got, err := RenderEvaluatePrompt(focusedPrompt(ws, true))
@@ -73,7 +73,9 @@ func TestFocusedRoundSafetyWording(t *testing.T) {
 		}
 		flat := strings.Join(strings.Fields(got), " ")
 		for _, want := range []string{
-			"did not pass there", "as fully as in a first round", "passed there and that the diff cannot affect",
+			"not judged `passed` there", "judged anything else, `accepted` included, or not listed",
+			"An outcome an approver accepted was never seen to hold.",
+			"as fully as in a first round", "judged `passed` there and that the diff cannot affect",
 			"one direct look", "the diff is cut", "a router, a schema, a shared component, a dependency",
 			"treat every outcome as affected", "is never evidence here", "an outcome you did not look at in this run is unsure",
 		} {

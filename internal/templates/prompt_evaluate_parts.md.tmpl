@@ -73,11 +73,11 @@ The code changed since round {{.PriorRound}}, and the approved outcomes did not.
 outcomes, and which parts of the application, it can affect. Then judge each outcome by how the previous round
 judged it:
 
-- An outcome that did not pass there (it failed, was unsure or is not listed), and every outcome the diff can affect,
-  is judged as fully as in a first round: with inputs of your own beyond each example, and its rule tried beyond the
-  example.
-- An outcome that passed there and that the diff cannot affect needs one direct look that it still holds: the call a
-  person would make to see it, with data of your own.
+- An outcome not judged `passed` there (judged anything else, `accepted` included, or not listed), and every outcome
+  the diff can affect, is judged as fully as in a first round: with inputs of your own beyond each example, and its
+  rule tried beyond the example. An outcome an approver accepted was never seen to hold.
+- An outcome judged `passed` there and that the diff cannot affect needs one direct look that it still holds: the call
+  a person would make to see it, with data of your own.
 - Where you cannot tell what the diff affects (the diff is cut, or it touches code many paths share: a router, a
   schema, a shared component, a dependency, configuration), treat every outcome as affected.
 

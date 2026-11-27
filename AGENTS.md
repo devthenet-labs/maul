@@ -1117,11 +1117,11 @@ completions/        GENERATED shell completions, committed and shipped in the ma
   tree; `report.Evaluation` is its report (verdicts and anomalies only, decoded strictly, so a report carrying the
   retired `disputes`, `proposed`, `retire` or `contrary` keys is refused and repaired like any other), and the plan
   report gains `acceptance` outcomes. `MAUL_PHASE=checkreview` is a configuration error. A change-focused round
-  (`evaluate_focus.go`, `EvaluateHandoff.changeFocused`: a diff, the previous round and a result for every outcome,
-  none of the diff unavailable or forge-cut) is derived in agent-runner from the handoff alone and changes the
+  (`evaluate_focus.go`, `EvaluateHandoff.changeFocused`: a diff the prompt quotes whole, `templates.FixDiffWhole`, the
+  previous round and a result for every outcome) is derived in agent-runner from the handoff alone and changes the
   prompt's words only (`templates.EvaluatePrompt.Focused`); intent-controller sends the results only when they are
-  the clean judgement of the diff's own round (`resultsAreOf`). On an
-  agents round the evaluate handoff names the surface (`EvaluateTools.Workspace{Surface, Binary, Language, Build}`) and
+  the clean judgement of the diff's own round (`resultsAreOf`). On an agents round the evaluate handoff names the
+  surface (`EvaluateTools.Workspace{Surface, Binary, Language, Build}`) and
   carries `Tools.Key`, which agent-runner writes to `input/tools-key` (0400, `maultool.KeyFile`) before the model runs,
   adds to the scrubber, and sends with its own `finish` (a key on a slot round is refused). Whether the REAL model
   writes that report as the decoder demands, and observes as the judge counts, is `TestEvaluatorReportProbe`
