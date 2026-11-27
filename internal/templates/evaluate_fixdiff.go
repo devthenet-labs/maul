@@ -58,6 +58,16 @@ func fixDiffView(diff string, cut FixDiffCut) (block, note, files string) {
 	return block, fixDiffNote(cut, block != "", files != ""), files
 }
 
+// FixDiffWhole reports whether the prompt quotes diff as the whole fix:
+// nothing of it is left out by cut, and the prompt's own bound
+// (FixDiffMaxBytes) does not cut it either, so no note of what is missing
+// is rendered. A change-focused round needs a whole diff, since its light
+// look at an outcome rests on reading everything the fix changed.
+func FixDiffWhole(diff string, cut FixDiffCut) bool {
+	_, note, _ := fixDiffView(diff, cut)
+	return note == ""
+}
+
 // fixDiffFiles lists files one per line, each made visible within
 // FixDiffPathMaxBytes, at most FixDiffFilesMaxBytes in all; more counts
 // the files left out.

@@ -90,8 +90,8 @@ Every tool call takes one of these turns, and a run that reaches any of these li
 budget for your report:
 
 - Write your report as soon as every outcome has a verdict: a pass or a fail citing the calls that showed it, or
-  unsure. Then use the turns left{{if .Tools.LookAroundRoutes}} to look around and{{end}} to try what you have not
-  tried yet, and rewrite it with what you found.
+  unsure.{{if .Focused}} Then use the turns left on what the diff can affect, and rewrite it with what you found.{{else}} Then use the turns left{{if .Tools.LookAroundRoutes}} to look around and{{end}} to try what you have not
+  tried yet, and rewrite it with what you found.{{end}}
 - Write it by turn {{.ReportBy}} at the latest{{with .ReportByTime}}, or once `maul-tool` shows {{.}} or less left{{end}},
   whatever is left; keep the turns after that for it. An outcome you have not seen by then is unsure.
 - Spend your turns on the outcomes first. Budget about {{.OutcomeTurns}} turns for each outcome a person does not judge;
@@ -140,8 +140,9 @@ whatever you believe caused it.**
 
 ## Look around
 
-After the outcomes, look at what the change touches the way a person trying it would. From the changed paths, work
-out the {{if .Tools.Browser}}pages{{else}}endpoints{{end}} they affect, and visit at most {{.Tools.LookAroundRoutes}} of them, in at most {{.LookAroundCalls}} tool calls.
+After the outcomes, look at what the change touches the way a person trying it would. {{if .Focused}}From the diff since round {{.PriorRound}}, work
+out the {{if .Tools.Browser}}pages{{else}}endpoints{{end}} it changes{{else}}From the changed paths, work
+out the {{if .Tools.Browser}}pages{{else}}endpoints{{end}} they affect{{end}}, and visit at most {{.Tools.LookAroundRoutes}} of them, in at most {{.LookAroundCalls}} tool calls.
 {{- if .Tools.Browser}}
 On each, take a snapshot, a screenshot and the console, and ask:
 

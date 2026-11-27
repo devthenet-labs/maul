@@ -126,8 +126,8 @@ Every tool call takes one of these turns, and a run that reaches any of these li
 budget for your report:
 
 - Write your report as soon as every outcome has a verdict: a pass or a fail citing the calls at the head that
-  showed it, or unsure. Then use the turns left to try what you have not tried yet, and rewrite it with what you
-  found.
+  showed it, or unsure.{{if .Focused}} Then use the turns left on what the diff can affect, and rewrite it with what you found.{{else}} Then use the turns left to try what you have not tried yet, and rewrite it with what you
+  found.{{end}}
 - Write it by turn {{.ReportBy}} at the latest{{with .ReportByTime}}, or once `maul-tool` shows {{.}} or less left{{end}},
   whatever is left; keep the turns after that for it. An outcome you have not seen by then is unsure.
 - Spend your turns on the outcomes first. Budget about {{.OutcomeTurns}} turns for each outcome a person does not judge;

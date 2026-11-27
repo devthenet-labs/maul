@@ -66,8 +66,8 @@ verdict cites. Output separates what maul measured (`[observed]`) from the bytes
    policy that admits exactly this round's evaluator, and writes the pod's address to `status.tools` once `tools` is
    ready. Only then is the evaluator created: its pod reaches the tool pod by a host entry fixed when the pod starts.
 4. **Explore (the model).** The evaluator reads the issue, the outcomes, the changed paths, the previous round's results
-   and, after a fix, the fix's diff, then uses its tools, looks at screenshots, and writes a report. Its prompt sets the
-   rules it judges by:
+   (when they are the clean judgement of the round the diff is since, below) and, after a fix, the fix's diff, then uses
+   its tools, looks at screenshots, and writes a report. Its prompt sets the rules it judges by:
    - `pass` is "I saw it hold, as worded", `fail` "I saw it not hold, as worded", `unsure` "I could not tell". If any
      call it made showed the outcome not hold, the verdict is `fail`, citing that call, or `unsure`: never `pass`,
      whatever its other calls showed. A failure that was there before the change is still a failure of the outcome.
@@ -84,6 +84,26 @@ verdict cites. Output separates what maul measured (`[observed]`) from the bytes
      own; it uses one to read what a person could see or the API answers, never to set up the state it then judges.
    - It spends its turns on the outcomes first, within a turn budget per outcome, and writes its report as soon as every
      outcome has a verdict.
+
+   **After a change: a change-focused round.** A round that follows a judged one at moved heads (an agent's fix or a
+   person's push) is handed the diff since that round and, when they are the clean judgement of that round on the same
+   components, its results. Otherwise the round gets no results: an earlier release did send them after a round that
+   found the environment failing, one judged by an earlier rule, or one on other components. When the evaluator is shown
+   the whole diff (maul could read every repository's compare, the forge cut none of them, and neither maul's bound nor
+   the prompt's left any of it or any file out) and the results cover every outcome, the evaluator's prompt says so, and
+   changes its words in four ways: it starts from the diff and works out which outcomes, and which parts of the
+   application, it can affect; an outcome not judged `passed` in the previous round (judged anything else, `accepted`
+   included, or not listed), and every outcome the diff can affect, is judged as fully as in a first round; only an
+   outcome judged `passed` there and that the diff cannot affect needs one direct look, the call a person would make,
+   with data of its own; and where the diff touches code many paths share (a router, a schema, a shared component, a
+   dependency, configuration), every outcome counts as affected. Its turns go to what the diff can affect, and its
+   look-around visits only the pages or endpoints the diff changes. Nothing else changes: the limits, the ledger and the
+   pass rules are a first round's, every verdict still cites calls made in this run (a result from the previous round is
+   never evidence), and an outcome the evaluator did not look at is unsure. agent-runner derives the focus from the
+   handoff, so there is no setting for it; a round with no diff, a cut one, or previous results that do not cover every
+   outcome is not focused: it still gets the diff and any results, with a first round's words. The aim is fewer turns
+   and less cost on the rounds after a fix; compare a fix cycle's evaluate runs with its first round's turns and cost to
+   see it.
 
    The report's frontmatter is decoded strictly: `verdicts` (per outcome its `outcome` id, the older `id` still read,
    both differing refused; `verdict`; `ledger`, the seqs it cites, at most 8 that count kept; an optional one-line

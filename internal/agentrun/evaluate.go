@@ -322,10 +322,7 @@ func (h EvaluateHandoff) prompt(reportPath, shotsDir string, limits templates.St
 			MaxToolCalls: h.Tools.MaxToolCalls, LookAroundRoutes: h.Tools.LookAroundRoutes,
 		},
 		Request: h.Request, Outcomes: h.Outcomes, FixDiff: h.FixDiff, PriorRound: h.PriorRound,
-	}
-	if c := h.FixDiffCut; c != nil {
-		p.FixDiffCut = templates.FixDiffCut{ShownBytes: c.ShownBytes, ReadBytes: c.ReadBytes, ForgeCut: c.ForgeCut,
-			Files: c.Files, MoreFiles: c.MoreFiles, Unavailable: c.Unavailable}
+		FixDiffCut: h.fixDiffCut(), Focused: h.changeFocused(),
 	}
 	if w := h.Tools.Workspace; w != nil {
 		p.Workspace = &templates.EvaluateWorkspace{Surface: w.Surface, Binary: w.Binary, Language: w.Language,
