@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.18](https://github.com/devthenet-labs/maul/compare/v0.14.17...v0.14.18) (2026-11-27)
+
+
+### Miscellaneous Chores
+
+* release 0.14.18 ([#474](https://github.com/devthenet-labs/maul/issues/474)) ([16b6fd5](https://github.com/devthenet-labs/maul/commit/16b6fd561013616952129ff651060618a0651c6f))
+
 ## [0.14.17](https://github.com/devthenet-labs/maul/compare/v0.14.16...v0.14.17) (2026-11-26)
 
 
