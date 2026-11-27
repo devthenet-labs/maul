@@ -871,6 +871,8 @@ func (p *pass) merged(ctx context.Context, prs []v1alpha1.IntentPullRequest, mer
 	return p.setPhase(ctx, v1alpha1.IntentMerged, func(cur *v1alpha1.Intent) {
 		cur.Status.PullRequests = prs
 		cur.Status.ActiveRun = nil
+		// A replan in review the merges overtook (mergedDuringReplan).
+		cur.Status.Replan = nil
 	})
 }
 

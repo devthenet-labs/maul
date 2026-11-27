@@ -73,7 +73,8 @@ type previewRecord struct {
 // never posts twice), recorded by id and body digest on the pull request's
 // record, and from then on edited in place, only when what it says changes:
 // live at a new head, being redeployed, waiting for a free slot, failed,
-// expired, gone, and last removed once the intent has ended. A comment
+// expired, gone, and last removed once the intent has ended, or replaced
+// on the pull requests a replan in review closes. A comment
 // someone deleted is posted again only once the preview is live again.
 //
 // It is best effort, like the cross-link, and never holds a phase or a
@@ -216,7 +217,7 @@ func (p *pass) commentFor(ctx context.Context, view previewView, pr v1alpha1.Int
 	if rp == nil && id == 0 {
 		return templates.IntentPreviewComment{}, false
 	}
-	c := p.previewComment(view, pr, rp, len(previews) > 1, terminal(p.in.Status.Phase))
+	c := p.previewComment(view, pr, rp, len(previews) > 1, p.retiredPreview())
 	c.Verify = p.previewVerifySection(ctx, pr, rp != nil, c.State)
 	return c, true
 }
@@ -224,7 +225,7 @@ func (p *pass) commentFor(ctx context.Context, view previewView, pr v1alpha1.Int
 // evaluationComment is the link-less comment (Workspace, SPEC-S2) on pr,
 // the pull request of an agents Project's surface repository: where its
 // hand-off and evaluation stand, at its head; removed once the intent has
-// ended. It is shown (posted, then kept as the preview comment is once
+// ended, replaced on one a replan in review closes. It is shown (posted, then kept as the preview comment is once
 // live) as soon as a hand-off or a verification stands; ok is false while
 // neither does and nothing is posted yet, and for another repository's
 // pull request.
@@ -236,8 +237,8 @@ func (p *pass) evaluationComment(ctx context.Context, pr v1alpha1.IntentPullRequ
 	}
 	c := templates.IntentPreviewComment{Namespace: p.in.Namespace, Intent: p.in.Name, Resource: p.in.Name,
 		Revision: pr.HeadSHA, Workspace: true}
-	if terminal(p.in.Status.Phase) {
-		c.State = templates.PreviewRemoved
+	if retired := p.retiredPreview(); retired != "" {
+		c.State = retired
 		return c, true
 	}
 	c.Handoff = p.handoffView()
@@ -249,18 +250,19 @@ func (p *pass) evaluationComment(ctx context.Context, pr v1alpha1.IntentPullRequ
 	return c, true
 }
 
-// previewComment is the preview comment pr calls for now: removed once the
-// intent has ended; gone when its repository is not previewed (any more) or
-// the intent has no preview to show; else the preview's own state, at the
+// previewComment is the preview comment pr calls for now: retired as
+// retiredPreview says (removed once the intent has ended, replaced during a
+// replan); gone when its repository is not previewed (any more) or the
+// intent has no preview to show; else the preview's own state, at the
 // revision its component runs for pr's repository, under its path when the
 // preview serves more than one repository.
 func (p *pass) previewComment(view previewView, pr v1alpha1.IntentPullRequest, rp *v1alpha1.RepositoryPreview,
-	multi, ended bool) templates.IntentPreviewComment {
+	multi bool, retired string) templates.IntentPreviewComment {
 	c := templates.IntentPreviewComment{Namespace: p.in.Namespace, Intent: p.in.Name, Resource: p.in.Name,
 		Revision: pr.HeadSHA}
 	switch {
-	case ended:
-		c.State = templates.PreviewRemoved
+	case retired != "":
+		c.State = retired
 		return c
 	case rp == nil || view.state == "":
 		c.State = templates.PreviewUnavailable
@@ -311,4 +313,18 @@ func (p *pass) writePreviewComment(ctx context.Context, pr v1alpha1.IntentPullRe
 		}
 	}
 	return c.ID, nil
+}
+
+// retiredPreview is the state every pull request's comment is retired to:
+// PreviewRemoved once the intent has ended, PreviewReplaced while a replan
+// in review replaces the pull requests (their host is the new plan's), ""
+// otherwise.
+func (p *pass) retiredPreview() string {
+	switch {
+	case terminal(p.in.Status.Phase):
+		return templates.PreviewRemoved
+	case p.in.Status.Replan != nil:
+		return templates.PreviewReplaced
+	}
+	return ""
 }

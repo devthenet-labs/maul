@@ -39,7 +39,11 @@ import (
 //     every pull request head maul posted one on (withdrawAcceptance);
 //  3. read each open pull request live, post one comment on it and close it
 //     (closeForReplan), recording each one's state;
-//  4. post the one reply on the issue, then plan again (startPlanning, the
+//  4. if a human merged every pull request meanwhile, post the one reply
+//     and end the intent Merged as review does (mergedDuringReplan);
+//     otherwise say on each closed pull request's preview comment that a
+//     replan closed it (PreviewReplaced: its host is the new plan's);
+//  5. post the one reply on the issue, then plan again (startPlanning, the
 //     replan the trigger: the new plan's runs are attributed to the
 //     replanner), with the plan, its pull requests, the approvers' review
 //     threads and the verification results as context (reviewContext),
@@ -155,7 +159,55 @@ func (p *pass) continueReplan(ctx context.Context) (ctrl.Result, error) {
 	if changed || err != nil {
 		return ctrl.Result{}, err
 	}
+	if p.everyPullRequestMerged() {
+		return ctrl.Result{}, p.mergedDuringReplan(ctx)
+	}
+	// Best effort, as the preview comments always are: a pull request's
+	// comment the write misses keeps what it said.
+	if changed, _, err := p.syncPreviewComments(ctx); changed || err != nil {
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{}, p.planAfterReplan(ctx, leftOpen)
+}
+
+// everyPullRequestMerged reports an intent whose every recorded pull
+// request merged: a human merged the last of them after the replan was
+// recorded, and before it could close them.
+func (p *pass) everyPullRequestMerged() bool {
+	prs := p.in.Status.PullRequests
+	return len(prs) > 0 && !slices.ContainsFunc(prs, func(pr v1alpha1.IntentPullRequest) bool {
+		return pr.State != prMerged
+	})
+}
+
+// mergedDuringReplan ends a replan whose intent's every pull request merged
+// as review ends one (merged): what merged cannot be planned again. The
+// replan's one reply says so first; the Merged write clears the replan.
+func (p *pass) mergedDuringReplan(ctx context.Context) error {
+	rp := p.in.Status.Replan
+	key := actionKey(rp.Trigger)
+	n := templates.ReplanRefusedNotice{Namespace: p.in.Namespace, Intent: p.in.Name, Key: key,
+		Reason: templates.ReplanRefusedAllMerged}
+	if rp.Trigger.Source == v1alpha1.IntentActionLabel {
+		n.Label = p.trigger()
+	} else {
+		n.Verb = replanVerb
+	}
+	var mergedAt time.Time
+	for _, pr := range p.in.Status.PullRequests {
+		n.Merged = append(n.Merged, templates.IntentPullRequest{Repository: repoSlug(pr.Repository),
+			Number: pr.Number, URL: pr.URL, State: pr.State})
+		if pr.MergedAt != nil && (mergedAt.IsZero() || pr.MergedAt.Time.Before(mergedAt)) {
+			mergedAt = pr.MergedAt.Time
+		}
+	}
+	body, err := templates.RenderReplanRefusedNotice(n)
+	if err := p.notice(ctx, key, rp.Trigger.At.Time, body, err); err != nil {
+		return err
+	}
+	p.r.log().LogAttrs(ctx, slog.LevelInfo, "every pull request merged during a replan in review; the intent "+
+		"ends merged", slog.String("intent", p.in.Name))
+	return p.merged(ctx, p.in.Status.PullRequests, mergedAt)
 }
 
 // oldPlanRunning reports a run of the replaced plan (any but a plan run)

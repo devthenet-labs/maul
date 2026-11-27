@@ -335,6 +335,14 @@ func (f *fakeGitHub) repoErr(method, url string) error {
 	return f.repoErrs["* "+slug]
 }
 
+// pendingErrs is how many failures failNext queued for method that no call
+// has met yet.
+func (f *fakeGitHub) pendingErrs(method string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.errs[method])
+}
+
 func (f *fakeGitHub) failNext(method string, errs ...error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -939,8 +947,16 @@ func (f *fakeGitHub) PullRequestCommentEdited(ctx context.Context, repoURL, node
 	return f.CommentEdited(ctx, repoURL, nodeID)
 }
 
+// CreatePullRequestComment fails with what failNext queued under its own
+// name, then posts as CreateIssueComment does (whose failures it meets too).
 func (f *fakeGitHub) CreatePullRequestComment(ctx context.Context, repoURL string, number int64, body string) (
 	*ghclient.Comment, error) {
+	f.mu.Lock()
+	err := f.call("CreatePullRequestComment")
+	f.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
 	return f.CreateIssueComment(ctx, repoURL, number, body)
 }
 

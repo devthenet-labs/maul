@@ -103,6 +103,10 @@ const (
 	// ReplanRefusedMerged: a pull request of the intent has merged; what
 	// merged cannot be planned again.
 	ReplanRefusedMerged ReplanRefusal = "merged"
+	// ReplanRefusedAllMerged: every pull request of the intent merged after
+	// the replan was taken up and before it closed them: the intent is
+	// complete, and nothing is planned again.
+	ReplanRefusedAllMerged ReplanRefusal = "all-merged"
 	// ReplanRefusedCost: the intent is at its cost ceiling, which a new plan
 	// would not lift.
 	ReplanRefusedCost ReplanRefusal = "cost"
@@ -121,7 +125,8 @@ type ReplanRefusedNotice struct {
 	Label string
 	// Reason is why it was refused.
 	Reason ReplanRefusal
-	// Merged are the pull requests already merged (ReplanRefusedMerged).
+	// Merged are the pull requests already merged (ReplanRefusedMerged,
+	// ReplanRefusedAllMerged).
 	Merged []IntentPullRequest
 	// SpentMicroUSD and CeilingMicroUSD are the spend and the Project's
 	// per-intent ceiling (ReplanRefusedCost).
@@ -135,7 +140,7 @@ var errNoReplanRefusal = errors.New("render replan refusal: no reason")
 // RenderReplanRefusedNotice renders a ReplanRefusedNotice.
 func RenderReplanRefusedNotice(n ReplanRefusedNotice) (string, error) {
 	switch n.Reason {
-	case ReplanRefusedMerged, ReplanRefusedCost, ReplanRefusedLimit:
+	case ReplanRefusedMerged, ReplanRefusedAllMerged, ReplanRefusedCost, ReplanRefusedLimit:
 	default:
 		return "", fmt.Errorf("%w %q", errNoReplanRefusal, n.Reason)
 	}

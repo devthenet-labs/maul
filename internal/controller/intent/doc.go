@@ -368,7 +368,8 @@
 //     plan's runs settle (the run reconciler stops them, planSuperseded),
 //     each withdrawn maul/acceptance is recorded by its digest, each closed
 //     pull request by its state (its one comment found by its marker), and
-//     the reply is posted once before the Planning write clears the record.
+//     the reply is posted once before the Planning write clears the record;
+//     if every pull request merged meanwhile, before the Merged write does.
 //   - The build push is two-phase: the commit is created, its SHA recorded
 //     on the run, and only then the branch maul-intent/<intent> created,
 //     create-only; an existing branch is adopted only if it already points

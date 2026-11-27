@@ -211,6 +211,64 @@ func TestReplanInReviewStopsTheRound(t *testing.T) {
 	}
 }
 
+// TestReplanInReviewEndsWhenEveryPullRequestMerges: a human merging the
+// intent's every pull request after its replan was recorded (here while
+// the round it stops settles) ends the intent Merged, as a merge in review
+// does: the issue is closed as completed, the reply says nothing is planned
+// again, and no new plan is written over what merged.
+func TestReplanInReviewEndsWhenEveryPullRequestMerges(t *testing.T) {
+	e := replanEnv(t, testProject())
+	name := e.reviewing()
+	release := e.runningRound(name)
+	id := e.gh.comment(approver, "/maul replan")
+	e.settleActions(name)
+	if rp := e.get(name).Status.Replan; rp == nil || rp.Trigger.EventID != id {
+		t.Fatalf("replan = %+v, want the command recorded while the round runs", rp)
+	}
+	e.gh.closePR(true)
+	release()
+	in := e.drive(name, v1alpha1.IntentMerged, repoImage)
+	if got := e.notices(name, "comment-"+itoa(id)); len(got) != 1 ||
+		!strings.Contains(got[0], "the intent is complete and nothing is planned again") {
+		t.Errorf("replies to the replan = %q, want one saying nothing is planned again", got)
+	}
+	if e.gh.state() != "closed" || len(e.gh.closedPRs) != 0 {
+		t.Errorf("issue %s, maul closed %v: want the issue closed on the merge and no pull request closed",
+			e.gh.state(), e.gh.closedPRs)
+	}
+	st := in.Status
+	if st.Replan != nil || st.Input.Revision != 1 || len(st.PullRequests) != 1 || st.PullRequests[0].State != prMerged {
+		t.Errorf("status = replan %+v, input r%d, pull requests %+v: want the merge recorded and no new plan",
+			st.Replan, st.Input.Revision, st.PullRequests)
+	}
+	for _, run := range e.intentRuns(name) {
+		if run.Spec.Stage == v1alpha1.IntentStagePlan && run.Spec.Round != 1 {
+			t.Errorf("plan run %s of r%d: the merged change was planned again", run.Name, run.Spec.Round)
+		}
+	}
+}
+
+// TestReplanInReviewRetiresPreviewComments: the preview comment of a pull
+// request a replan closes says so and no longer links the preview, whose
+// host goes on to serve the new plan.
+func TestReplanInReviewRetiresPreviewComments(t *testing.T) {
+	e := newOnePreviewEnv(t)
+	e.intent.Settings.ReplanInReview = true
+	name, n := e.inReviewOne()
+	e.servePreview(name, v1alpha1.PreviewReady, "https://"+previewHostOf(name))
+	e.settleActions(name)
+	if c := e.onePreviewComment(name, n); !strings.Contains(c.Body, linkTo(previewHostOf(name))) {
+		t.Fatalf("preview comment before the replan:\n%s", c.Body)
+	}
+	e.clock.Advance(time.Minute)
+	e.gh.comment(approver, "/maul replan")
+	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
+	c := e.onePreviewComment(name, n)
+	if !strings.Contains(c.Body, "A replan closed this pull request") || strings.Contains(c.Body, "https://") {
+		t.Errorf("preview comment of the closed pull request:\n%s", c.Body)
+	}
+}
+
 // TestReplanInReviewFromBlocked: an intent blocked in review (here on its
 // revision limit) replans; the block's condition is resolved.
 func TestReplanInReviewFromBlocked(t *testing.T) {
@@ -276,6 +334,32 @@ func TestReplanInReviewRefusals(t *testing.T) {
 	}
 }
 
+// failReplanStep fails step once on the passes that resume a recorded
+// replan, and fails the test unless a call met that failure. The reply is
+// posted last, once the pull request is closed: a CreateIssueComment
+// failure is injected only then, so it is the reply that fails and not a
+// comment before it.
+func (e *env) failReplanStep(name, step string) {
+	e.t.Helper()
+	armed := step != "CreateIssueComment"
+	if armed {
+		e.gh.failNext(step, errTransient)
+	}
+	// The pass meeting the failure fails; the next ones resume.
+	for range 6 {
+		if !armed && slices.Contains(e.gh.closedPRs, 1) {
+			e.gh.failNext(step, errTransient)
+			armed = true
+		}
+		_ = e.reconcileIntent(name)
+		e.runRuns()
+		e.clock.Advance(time.Minute)
+	}
+	if left := e.gh.pendingErrs(step); !armed || left != 0 {
+		e.t.Fatalf("armed %v, %d injected %s failures left: the step was never failed", armed, left, step)
+	}
+}
+
 // TestReplanInReviewSurvivesFailures (crash injection): a GitHub call
 // failing at each step of the replan leaves it recorded and resumed by the
 // next pass, which repeats only what is idempotent: one comment on the pull
@@ -295,18 +379,13 @@ func TestReplanInReviewSurvivesFailures(t *testing.T) {
 			})
 			e.clock.Advance(time.Minute)
 			id := e.gh.comment(approver, "/maul replan")
-			e.settleActions(name)
-			e.gh.failNext(step, errTransient)
-			if step == "CreateIssueComment" {
-				// The reply, not the plan comment, is the call to fail.
-				e.gh.failNext(step, errTransient)
+			// One pass records the replan; every step after it is the
+			// failures' to meet.
+			e.mustIntent(name)
+			if rp := e.get(name).Status.Replan; rp == nil || rp.Trigger.EventID != id {
+				t.Fatalf("replan = %+v, want the command recorded by the first pass", rp)
 			}
-			// The pass meeting the failure fails; the next ones resume.
-			for range 6 {
-				_ = e.reconcileIntent(name)
-				e.runRuns()
-				e.clock.Advance(time.Minute)
-			}
+			e.failReplanStep(name, step)
 			in := e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
 			key := "comment-" + itoa(id)
 			if len(e.notices(name, key)) != 1 || len(e.prNotices(name, templates.ReplanClosedKey(key))) != 1 ||
@@ -335,13 +414,13 @@ func TestReplanInReviewSurvivesFailures(t *testing.T) {
 
 // TestReplanInReviewAnswersOnce (critique 4): a label replan with a command
 // after it in the same poll: the command is answered exactly once, after
-// the replan, as the phase the intent is then in admits it; and the replan
-// command's own reply is never posted twice, even as later polls list it.
+// the replan, as the phase the intent is then in admits it; and the label
+// replan's own reply is never posted twice, even as later polls list it.
 func TestReplanInReviewAnswersOnce(t *testing.T) {
 	e := replanEnv(t, testProject())
 	name := e.reviewing()
 	e.clock.Advance(time.Minute)
-	e.gh.label(1, "maul:target", approver)
+	ev := e.gh.label(1, "maul:target", approver)
 	e.clock.Advance(time.Second)
 	cmd := e.gh.comment(approver, "/maul approve")
 	e.drive(name, v1alpha1.IntentAwaitingApproval, repoImage)
@@ -351,6 +430,9 @@ func TestReplanInReviewAnswersOnce(t *testing.T) {
 	}
 	if got := e.notices(name, "comment-"+itoa(cmd)); len(got) != 1 {
 		t.Errorf("replies to the /maul approve = %q, want one", got)
+	}
+	if got := e.notices(name, "event-"+itoa(ev)); len(got) != 1 {
+		t.Errorf("replies to the label replan = %q, want one", got)
 	}
 	if e.get(name).Status.Phase != v1alpha1.IntentAwaitingApproval {
 		t.Errorf("phase %s: a command made before the new plan was posted approved it", e.get(name).Status.Phase)

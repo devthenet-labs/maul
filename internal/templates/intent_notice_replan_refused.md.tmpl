@@ -11,6 +11,15 @@ purpose. */ -}}
 - [{{ .Ref }}]({{ .URL }})
 {{- end }}
 {{- end }}
+{{- else if eq .Reason "all-merged" -}}
+{{ .Asked }} does nothing: every pull request of this intent merged before maul could close it for the new plan, so the intent is complete and nothing is planned again. Open a new issue for what is still to change.
+{{- with .Merged }}
+
+**Merged:**
+{{ range . }}
+- [{{ .Ref }}]({{ .URL }})
+{{- end }}
+{{- end }}
 {{- else if eq .Reason "cost" -}}
 {{ .Asked }} does nothing while this intent is at its cost ceiling: it has spent {{ code .Spent }} of the project's {{ code .Ceiling }}, and a new plan would be stopped by the same ceiling before it could be written. Raise {{ code "limits.maxCostMicroUSD" }}, then replan.
 {{- else -}}

@@ -7,6 +7,6 @@
 
 - [devthenet-labs/marigold-web#4](https://github.com/devthenet-labs/marigold-web/pull/4)
 
-**Left open, since maul could not close it: close it yourself, as it is no longer part of this intent:**
+**Left open, since maul could not close it: close it yourself, as it is no longer part of this intent, and maul no longer follows it (a `maul/acceptance` on it was for the replaced plan):**
 
 - [devthenet-labs/Acme.Web_App#9](https://github.com/devthenet-labs/Acme.Web_App/pull/9)

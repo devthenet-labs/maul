@@ -300,7 +300,7 @@ func TestViewPreviewProperty(t *testing.T) {
 			failure = err.Error()
 			return false
 		}
-		c := p.previewComment(v, in.Status.PullRequests[0], &v1alpha1.EffectivePreviews(proj)[0], false, false)
+		c := p.previewComment(v, in.Status.PullRequests[0], &v1alpha1.EffectivePreviews(proj)[0], false, "")
 		comment, err := templates.RenderIntentPreviewComment(c)
 		if err != nil {
 			failure = err.Error()

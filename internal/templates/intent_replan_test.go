@@ -57,6 +57,14 @@ func TestReplanInReviewGoldens(t *testing.T) {
 				Reason: ReplanRefusedMerged, Merged: testMultiPRs()[:1],
 			})
 		}},
+		{"intent_notice_replan_refused_all_merged.md", func() (string, error) {
+			merged := testMultiPRs()
+			merged[0].State, merged[1].State = "merged", "merged"
+			return RenderReplanRefusedNotice(ReplanRefusedNotice{
+				Namespace: "maul", Intent: "marigold-3", Key: "comment-41", Verb: "replan",
+				Reason: ReplanRefusedAllMerged, Merged: merged,
+			})
+		}},
 		{"intent_notice_replan_refused_cost.md", func() (string, error) {
 			return RenderReplanRefusedNotice(ReplanRefusedNotice{
 				Namespace: "maul", Intent: "marigold-3", Key: "event-7", Label: "maul:intent",

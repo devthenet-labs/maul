@@ -164,6 +164,9 @@ func TestIntentPreviewGoldens(t *testing.T) {
 		{"intent_preview_removed.md", func() (string, error) {
 			return RenderIntentPreviewComment(testPreviewComment(PreviewRemoved, "", "/api"))
 		}},
+		{"intent_preview_replaced.md", func() (string, error) {
+			return RenderIntentPreviewComment(testPreviewComment(PreviewReplaced, "", "/api"))
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -210,7 +213,8 @@ func TestPreviewCommentKey(t *testing.T) {
 			t.Errorf("notice key %q is used twice", k)
 		}
 	}
-	for _, state := range []string{PreviewLive, PreviewUpdating, PreviewWaiting, PreviewUnavailable, PreviewRemoved} {
+	for _, state := range []string{PreviewLive, PreviewUpdating, PreviewWaiting, PreviewUnavailable, PreviewRemoved,
+		PreviewReplaced} {
 		body, err := RenderIntentPreviewComment(testPreviewComment(state, "", ""))
 		if err != nil {
 			t.Fatal(err)
@@ -234,7 +238,8 @@ var previewHosts = []string{
 // previewConfig generates previews in every state and reason, at hosts from
 // previewHosts, with components and a resource name of markdown tokens.
 func previewConfig(seed int64) *quick.Config {
-	states := []string{"", PreviewLive, PreviewUpdating, PreviewWaiting, PreviewUnavailable, PreviewRemoved, "bogus"}
+	states := []string{"", PreviewLive, PreviewUpdating, PreviewWaiting, PreviewUnavailable, PreviewRemoved,
+		PreviewReplaced, "bogus"}
 	reasons := []string{"", PreviewFailed, PreviewExpired, PreviewUnlinkable, "bogus"}
 	tokens := func(r *rand.Rand) string {
 		var b strings.Builder

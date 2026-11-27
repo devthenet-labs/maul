@@ -124,8 +124,12 @@ can also replace the plan while the intent is `InReview` or `Revising`, or `Bloc
 2. withdraws its verdict: the `maul/acceptance` status on each pull request becomes an `error`, "superseded by a
    replan";
 3. comments once on each open pull request ("Closed by `/maul replan` from `you` …") and closes it. Its branch is left
-   as it is;
+   as it is, and its preview comment says a replan closed it. A pull request maul cannot close is named in the reply:
+   close it yourself, as maul no longer follows it;
 4. replies once on the issue, and writes a new plan from the issue.
+
+If every pull request is merged before maul closes them, nothing is planned again: maul replies saying so, and the
+intent ends as merged.
 
 The new planner is given the previous plan, the pull requests' links and states, the approvers' reviews and comments on
 them, and what the evaluator found, as context; your note is part of the request. The new plan needs its own approval

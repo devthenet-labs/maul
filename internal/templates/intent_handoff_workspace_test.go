@@ -70,6 +70,11 @@ func TestWorkspaceHandoffGoldens(t *testing.T) {
 			c.State = PreviewRemoved
 			return RenderIntentPreviewComment(c)
 		}},
+		{"intent_evaluation_replaced.md", func() (string, error) {
+			c := workspaceComment(&PreviewHandoff{State: HandoffReady}, testWorkspaceSection())
+			c.State = PreviewReplaced
+			return RenderIntentPreviewComment(c)
+		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := tt.render()
