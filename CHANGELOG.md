@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.14.19](https://github.com/devthenet-labs/maul/compare/v0.14.18...v0.14.19) (2026-11-28)
+
+
+### Features
+
+* **intents:** a change-focused evaluation round after a fix or a push ([#476](https://github.com/devthenet-labs/maul/issues/476)) ([bb2d67b](https://github.com/devthenet-labs/maul/commit/bb2d67b8d780e778c989ac504289fa860b1ba0d1))
+* **intents:** delete the check-era fields retired by the observed evaluator ([#477](https://github.com/devthenet-labs/maul/issues/477)) ([0450984](https://github.com/devthenet-labs/maul/commit/0450984a962a76e53426b9c098da21f53d3c2cd8))
+* **intents:** replan an intent in review, in place, behind a flag ([#478](https://github.com/devthenet-labs/maul/issues/478)) ([f7c040c](https://github.com/devthenet-labs/maul/commit/f7c040c8cccdd1652b1c61dccd1391dff0938e9a))
+
 ## [0.14.18](https://github.com/devthenet-labs/maul/compare/v0.14.17...v0.14.18) (2026-11-27)
 
 
