@@ -969,3 +969,39 @@ func multiRepoAddsNothing(t *testing.T, e *intentEnv, name string) {
 		t.Errorf("previews = %d (%v), want none", len(previews.Items), err)
 	}
 }
+
+// TestMultiRepoReplanRefusedOnceMerged: with replans in review on, a replan
+// of a multi-repository intent one of whose pull requests has merged is
+// refused (what merged is on its default branch and cannot be planned
+// again): one reply naming the merged pull request, the other left open,
+// the intent still in review; its merge then ends the intent.
+func TestMultiRepoReplanRefusedOnceMerged(t *testing.T) {
+	e := startMultiRepo(t, []v1alpha1.ProjectRepository{
+		{Name: "api", URL: apiRepoURL},
+		{Name: "lib", URL: libRepoURL},
+	}, nil, false, append(slices.Clone(multiRepoArgs), replanArgs...)...)
+	number, name := e.fileIntent(t)
+	in := e.approvePlan(t, number, name, 1)
+	if len(in.Status.PullRequests) != 2 {
+		t.Fatalf("pull requests = %+v, want the API's and the library's", in.Status.PullRequests)
+	}
+	api, lib := prOf(t, in, apiRepoURL), prOf(t, in, libRepoURL)
+	e.gh.MergePull(int(api.Number), v1alpha1.IntentBranchPrefix+name, strings.Repeat("3", 40))
+
+	afterSecond(in.Status.PhaseTimes[len(in.Status.PhaseTimes)-1].At.Time)
+	cmd := e.gh.CommentAs(number, "/maul replan", approver)
+	key := fmt.Sprintf("comment-%d", cmd)
+	eventually(t, "the replan to be refused", func() bool { return len(e.own(number, notice(name, key))) == 1 })
+	reply := e.own(number, notice(name, key))[0].Body
+	if !strings.Contains(reply, "once a pull request of this intent has merged") || !strings.Contains(reply, api.URL) {
+		t.Errorf("refusal = %q, want it to name the merged pull request", reply)
+	}
+	consistently(t, "the refused replan to change nothing", func() bool {
+		cur := e.intent(t, name)
+		got, _ := e.gh.Pull(int(lib.Number))
+		return cur.Status.Phase == v1alpha1.IntentInReview && cur.Status.Replan == nil &&
+			cur.Status.Input.Revision == 1 && got.State == "open" && len(e.own(number, notice(name, key))) == 1
+	})
+	e.gh.MergePull(int(lib.Number), v1alpha1.IntentBranchPrefix+name, strings.Repeat("4", 40))
+	e.waitPhase(t, name, v1alpha1.IntentMerged)
+}

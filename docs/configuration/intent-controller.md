@@ -71,6 +71,7 @@ other binary binds, so the shared kustomize ConfigMap cannot set one by accident
 | `--intent-tool-resources`                       | `MAUL_INTENT_TOOL_RESOURCES`                          | `""`                                       | The agents tool pod's requests and limits (equal) as JSON `{"tools":{"cpu","memory","ephemeralStorage"},"sandbox":{...}}`, every value a string; an unset one keeps the default. Helm: `intentController.verification.agents.resources`                                                                                                                                                                                                                                                                                                                                                                                              |
 | `--intent-multi-repo`                           | `MAUL_INTENT_MULTI_REPO`                              | `false`                                    | Run intents of Projects listing several repositories; off, their intents are held `Blocked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `--intent-dependencies`                         | `MAUL_INTENT_DEPENDENCIES`                            | `true`                                     | Hold an intent whose issue is blocked by other issues in `Pending` until every blocker is closed as completed (see [Intent dependencies](#intent-dependencies)); off, intents start as soon as their trigger is accepted. Helm: `intentController.dependencies.enabled`                                                                                                                                                                                                                                                                                                                                                              |
+| `--intent-replan-in-review`                     | `MAUL_INTENT_REPLAN_IN_REVIEW`                        | `false`                                    | Take an approver's replan while the intent is in review: stop its round, close its pull requests with a comment and plan again from the issue (see [Replan in review](#replan-in-review)); off, such a replan is answered as not available. Helm: `intentController.replanInReview.enabled`                                                                                                                                                                                                                                                                                                                                          |
 | `--intent-max-concurrent-runs`                  | `MAUL_INTENT_MAX_CONCURRENT_RUNS`                     | `1`                                        | Intent agent Jobs at once, a pool apart from remediation's; a multi-repository intent's builds share it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `--agents-paused`                               | `MAUL_AGENTS_PAUSED`                                  | `false`                                    | Launch no new intent Job; running ones finish and are collected ([pausing agents](investigation-controller.md#pausing-agents)). Helm: `agent.paused`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `--attribution-mode`                            | `MAUL_ATTRIBUTION_MODE`                               | `off`                                      | `attribute` stamps each new IntentRun with whom it is for, annotates its Jobs and names it on the issue ([run attribution](attribution.md)). Helm: `attribution.mode`                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -644,19 +645,53 @@ eviction would end the run with nothing to show for it. Sizing advice, with a wo
 
 ## On the issue
 
-| Action                                            | Effect                                                     |
-| ------------------------------------------------- | ---------------------------------------------------------- |
-| The trigger label (`maul:<project>`)              | Starts an intent: plans it                                 |
-| The approve label, or `/maul approve`             | Approves the posted plan; the build starts                 |
-| The trigger label re-applied, or `/maul replan`   | Plans again, with approver comments since the last plan    |
-| The trigger label re-applied on a `Failed` intent | Revives it: a new plan, and a new approval                 |
-| `/maul start`                                     | Starts a `Pending` intent without waiting for its blockers |
-| `/maul cancel`                                    | Closes the intent and its issue (`not_planned`)            |
+| Action                                            | Effect                                                                                                                |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| The trigger label (`maul:<project>`)              | Starts an intent: plans it                                                                                            |
+| The approve label, or `/maul approve`             | Approves the posted plan; the build starts                                                                            |
+| The trigger label re-applied, or `/maul replan`   | Plans again, with approver comments since the last plan; in review only with [replan in review](#replan-in-review) on |
+| The trigger label re-applied on a `Failed` intent | Revives it: a new plan, and a new approval                                                                            |
+| `/maul start`                                     | Starts a `Pending` intent without waiting for its blockers                                                            |
+| `/maul cancel`                                    | Closes the intent and its issue (`not_planned`)                                                                       |
 
 A replan or revival does not start from nothing. Its planner is also handed a context file of the earlier work, as data:
 the previous plan, how the latest build, revise or check-fix run ended if it failed, the approvers' earlier comments on
 the issue (from the trigger up to the previous plan), and each repository's latest working notes (below). Each part is
 bounded. The request stays the authority on what to build, and the approval is still bound to the request alone.
+
+### Replan in review
+
+With `--intent-replan-in-review` (chart `intentController.replanInReview.enabled`; off by default for one release), an
+approver's replan while the intent is `InReview` or `Revising`, or `Blocked` from either, replaces the approved plan in
+place. It is refused, with one reply, when a pull request of the intent has merged (read live), when the intent's spend
+is at `limits.maxCostMicroUSD`, or when no input revision is left. Accepted, it is recorded on the Intent first
+(`status.replan`), and every pass resumes it before anything of review runs, so maul's own closes are never read as a
+human's. Each step is idempotent:
+
+1. The old plan's runs are stopped: none is launched, a running one is aborted, and the push gate refuses its commit and
+   branch (`a replan in review superseded the run's plan`). The replan waits for them to settle.
+2. Its PreviewVerifications are deleted, and each pull request head maul posted a `maul/acceptance` on gets a final
+   `error`, "superseded by a replan".
+3. Each open pull request is read live, gets one comment and is closed. One a human merged meanwhile stays merged and is
+   named in the reply. The branches are left as they are: nothing deletes branches. If a human merged every pull request
+   meanwhile, the replan ends there: the reply says nothing is planned again, and the intent ends `Merged` as a merge in
+   review ends it. Each pull request's preview comment says a replan replaced its plan and no longer links the preview,
+   whose host goes on to serve the new plan (best effort: a write GitHub fails then is not retried). One maul could not
+   close (GitHub refused, or its repository left the Project) is named in the reply as left open and is no longer
+   followed: the new plan tracks only its own pull requests.
+4. The issue gets one reply, and the intent plans again from the issue at the next input revision, with the replan as
+   its trigger (its runs are attributed to the replanner). Its context file adds the replaced plan's pull requests
+   (link, state, head), the approvers' review threads on them and the verification's results, each escaped, fenced and
+   bounded. The replan's note is an approver comment on the issue, so it is in the request.
+
+The new plan needs a new approval and builds on `maul-intent/<intent>-p<revision>` (`status.planBranchesFrom` records
+the first such revision; an intent never replanned in review keeps `maul-intent/<intent>`). `maxRevisions`,
+`maxCheckFixes`, the repeated-failure stop, `maxVerifyFixes` and `maxVerifications` count the new plan's rounds alone;
+round numbers continue, and the intent's spend, evaluations included, keeps counting.
+
+Turning the flag off is the rollback: a replan in review is then answered as not available, as before; one already
+recorded is finished. An intent replanned in review keeps its suffixed branch after a downgrade only on releases that
+know `status.planBranchesFrom`: a downgrade below this release while such an intent is open is unsupported.
 
 A plan may end with a `## Notes for the builder` section: what the build should know that its steps do not say, such as
 where things are, the commands to use and the pitfalls. It is part of the plan, so the approver reads it as written and

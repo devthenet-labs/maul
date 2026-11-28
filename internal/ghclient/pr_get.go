@@ -6,6 +6,8 @@ package ghclient
 import (
 	"context"
 	"fmt"
+
+	"github.com/google/go-github/v90/github"
 )
 
 // GetPullRequest fetches one pull request's current state — what a close
@@ -28,4 +30,16 @@ func (c *Client) GetPullRequest(ctx context.Context, repo Repo, number int) (*Pu
 		Title:          pr.GetTitle(),
 		ChangedFiles:   pr.GetChangedFiles(),
 	}, nil
+}
+
+// ClosePullRequest closes one pull request, unmerged, by setting its state
+// alone: nothing else of it (title, body, base) is sent, so a close never
+// rewrites what a human edited. Closing a closed pull request is a no-op
+// success; its branch is left as it is.
+func (c *Client) ClosePullRequest(ctx context.Context, repo Repo, number int) error {
+	if _, _, err := c.gh.PullRequests.Edit(ctx, repo.Owner, repo.Name, number,
+		&github.PullRequest{State: new("closed")}); err != nil {
+		return fmt.Errorf("ghclient: close PR %s#%d: %w", repo, number, err)
+	}
+	return nil
 }

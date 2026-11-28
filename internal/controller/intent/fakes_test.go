@@ -185,6 +185,9 @@ type fakeGitHub struct {
 	nextID  int64
 	version int
 
+	// closedPRs are the pull requests ClosePullRequest closed, in order.
+	closedPRs []int64
+
 	bot   string
 	perms map[string]string // lower-cased login → permission; "404" answers ErrNoSuchUser
 	// ids are the numeric account ids Collaborator answers, by lower-cased
@@ -330,6 +333,14 @@ func (f *fakeGitHub) repoErr(method, url string) error {
 		return err
 	}
 	return f.repoErrs["* "+slug]
+}
+
+// pendingErrs is how many failures failNext queued for method that no call
+// has met yet.
+func (f *fakeGitHub) pendingErrs(method string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.errs[method])
 }
 
 func (f *fakeGitHub) failNext(method string, errs ...error) {
@@ -936,8 +947,16 @@ func (f *fakeGitHub) PullRequestCommentEdited(ctx context.Context, repoURL, node
 	return f.CommentEdited(ctx, repoURL, nodeID)
 }
 
+// CreatePullRequestComment fails with what failNext queued under its own
+// name, then posts as CreateIssueComment does (whose failures it meets too).
 func (f *fakeGitHub) CreatePullRequestComment(ctx context.Context, repoURL string, number int64, body string) (
 	*ghclient.Comment, error) {
+	f.mu.Lock()
+	err := f.call("CreatePullRequestComment")
+	f.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
 	return f.CreateIssueComment(ctx, repoURL, number, body)
 }
 
@@ -1226,6 +1245,26 @@ func (f *fakeGitHub) GetPullRequest(_ context.Context, repoURL string, number in
 	}
 	cp := pr.pr
 	return &cp, nil
+}
+
+// ClosePullRequest closes a pull request of repoURL unmerged; closing a
+// closed one changes nothing, as on GitHub. One that is not there is a 404.
+func (f *fakeGitHub) ClosePullRequest(_ context.Context, repoURL string, number int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.call("ClosePullRequest"); err != nil {
+		return err
+	}
+	if err := f.repoErr("ClosePullRequest", repoURL); err != nil {
+		return err
+	}
+	pr, ok := f.prs[number]
+	if !ok || !pr.in(repoURL) {
+		return ghError(http.StatusNotFound, "Not Found")
+	}
+	pr.pr.State = "closed"
+	f.closedPRs = append(f.closedPRs, number)
+	return nil
 }
 
 // ListPullRequestFiles lists the first limit files of a pull request of

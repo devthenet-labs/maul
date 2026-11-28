@@ -43,7 +43,7 @@ func (e *env) blockedOpening() string {
 	e.gh.label(1, "maul:approved", approver)
 	e.driveUntil(name, func(in *v1alpha1.Intent) bool { return len(in.Status.PullRequests) == 1 })
 	e.gh.mu.Lock()
-	delete(e.gh.branches, fakeRef(webRepoURL, branchName(name)))
+	delete(e.gh.branches, fakeRef(webRepoURL, legacyBranch(name)))
 	e.gh.mu.Unlock()
 	in := e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	if c := meta.FindStatusCondition(in.Status.Conditions, v1alpha1.ConditionBranchConflict); c == nil ||

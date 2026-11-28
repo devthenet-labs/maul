@@ -77,7 +77,7 @@ func TestRequestedChangesStartsPinnedReviseRound(t *testing.T) {
 		t.Errorf("revise outcome = %+v, revisions = %d, want pushed commit and one revision", run.Status,
 			in.Status.Revisions)
 	}
-	if got := e.gh.branches[branchName(name)]; got != run.Status.PushedCommit {
+	if got := e.gh.branches[legacyBranch(name)]; got != run.Status.PushedCommit {
 		t.Errorf("intent branch = %s, want pushed commit %s", got, run.Status.PushedCommit)
 	}
 	var repo v1alpha1.Repository
@@ -85,9 +85,9 @@ func TestRequestedChangesStartsPinnedReviseRound(t *testing.T) {
 		Name: run.Spec.Repository.RepositoryRef.Name}, &repo); err != nil {
 		t.Fatal(err)
 	}
-	if repo.Spec.Ref.Branch != branchName(name) || repo.Status.ResolvedSHA != run.Status.BaseSHA {
+	if repo.Spec.Ref.Branch != legacyBranch(name) || repo.Status.ResolvedSHA != run.Status.BaseSHA {
 		t.Errorf("revise Repository branch = %q, SHA = %q; want %q at the run base %q",
-			repo.Spec.Ref.Branch, repo.Status.ResolvedSHA, branchName(name), run.Status.BaseSHA)
+			repo.Spec.Ref.Branch, repo.Status.ResolvedSHA, legacyBranch(name), run.Status.BaseSHA)
 	}
 	var cm corev1.ConfigMap
 	if err := e.c.Get(context.Background(), types.NamespacedName{Namespace: testNS,
@@ -396,9 +396,9 @@ func TestReviseHeadMovedRetriesFromFreshBranchPin(t *testing.T) {
 		t.Fatalf("revise attempts = %+v, want head_moved then complete", runs)
 	}
 	if runs[1].Status.BaseSHA != runs[0].Status.BaseSHA ||
-		e.gh.branches[branchName(name)] != runs[1].Status.PushedCommit || in.Status.Revisions != 1 {
+		e.gh.branches[legacyBranch(name)] != runs[1].Status.PushedCommit || in.Status.Revisions != 1 {
 		t.Errorf("retry base = %s, branch = %s, revisions = %d; want retry's pushed commit and one revision",
-			runs[1].Status.BaseSHA, e.gh.branches[branchName(name)], in.Status.Revisions)
+			runs[1].Status.BaseSHA, e.gh.branches[legacyBranch(name)], in.Status.Revisions)
 	}
 }
 
@@ -613,17 +613,17 @@ func TestDeletedPRBranchBeforeRevisePinBlocksWithoutSpinning(t *testing.T) {
 	e.gh.label(1, "maul:approved", approver)
 	in := e.drive(name, v1alpha1.IntentInReview, repoImage)
 	number := in.Status.PullRequests[0].Number
-	headofBranch := e.gh.branches[branchName(name)]
+	headofBranch := e.gh.branches[legacyBranch(name)]
 	e.gh.reviews[number] = []ghclient.Review{{ID: 986, NodeID: "review-986", Author: actorOf(approver),
 		State: "CHANGES_REQUESTED", Body: "Please add a test.", SubmittedAt: e.clock.Now()}}
 	e.clock.Advance(3 * time.Minute)
 	e.drive(name, v1alpha1.IntentRevising, repoImage)
-	delete(e.gh.branches, branchName(name))
+	delete(e.gh.branches, legacyBranch(name))
 	in = e.drive(name, v1alpha1.IntentBlocked, repoImage)
 	if len(e.runsOf(name, v1alpha1.IntentStageRevise)) != 1 || in.Status.ActiveRun != nil {
 		t.Fatalf("missing branch left active run or retries: %+v", in.Status)
 	}
-	e.gh.branches[branchName(name)] = headofBranch
+	e.gh.branches[legacyBranch(name)] = headofBranch
 	e.drive(name, v1alpha1.IntentInReview, repoImage)
 }
 

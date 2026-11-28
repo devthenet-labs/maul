@@ -287,6 +287,12 @@ func (p *pass) answer(ctx context.Context, actions []humanAction, issue *ghclien
 				return false, err
 			}
 		}
+		if p.in.Status.Replan != nil {
+			// A replan in review was recorded: it is settled first, and the
+			// actions after it are answered once the intent plans again,
+			// as the phase it is then in admits them.
+			return true, nil
+		}
 	}
 	if c := p.pollNewest; c != nil {
 		return false, p.recordSeen(ctx, c.ID, c.CreatedAt)
@@ -775,6 +781,8 @@ func (p *pass) settleReplan(ctx context.Context, a humanAction, issue *ghclient.
 			return err
 		}
 		return consume()
+	case p.replanInReview():
+		return p.settleReplanInReview(ctx, a, rec)
 	case p.in.Status.Phase != v1alpha1.IntentAwaitingApproval:
 		if err := p.notAvailable(ctx, a, p.in.Status.Phase, false); err != nil {
 			return err

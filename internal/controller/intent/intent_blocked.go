@@ -511,7 +511,7 @@ func (p *pass) reviseBranchHolds(ctx context.Context, reason string) (bool, erro
 	if ok, err := p.rateOK(ctx, run.Spec.Repository.URL); err != nil || !ok {
 		return true, err
 	}
-	_, err := p.r.GitHub.HeadSHA(ctx, run.Spec.Repository.URL, branchName(p.in.Name))
+	_, err := p.r.GitHub.HeadSHA(ctx, run.Spec.Repository.URL, branchName(p.in, run.Spec.Inputs.PlanRevision))
 	if ghclient.IsNotFound(err) {
 		return true, nil
 	}
@@ -524,7 +524,7 @@ func (p *pass) branchRestoreHolds(ctx context.Context, build *v1alpha1.IntentRun
 	if build == nil || build.Status.PushedCommit == "" {
 		return true, nil
 	}
-	head, err := p.r.GitHub.HeadSHA(ctx, build.Spec.Repository.URL, branchName(p.in.Name))
+	head, err := p.r.GitHub.HeadSHA(ctx, build.Spec.Repository.URL, branchName(p.in, build.Spec.Inputs.PlanRevision))
 	if ghclient.IsNotFound(err) {
 		return true, nil
 	}
@@ -579,7 +579,7 @@ func (p *pass) imageBlockHolds(ctx context.Context) (bool, error) {
 // returned so a block can say the branch is maul's and safe to delete.
 func (p *pass) branchConflict(ctx context.Context, repoURL string, round int32) (string, *v1alpha1.IntentRun,
 	error) {
-	branch := branchName(p.in.Name)
+	branch := branchName(p.in, round)
 	head, err := p.r.GitHub.HeadSHA(ctx, repoURL, branch)
 	switch {
 	case ghclient.IsNotFound(err):

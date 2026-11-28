@@ -125,6 +125,11 @@ func newServeCmd(opts *cli.Options) *cobra.Command {
 		"hold an intent whose issue GitHub records as blocked by other issues in Pending until every blocker is "+
 			"closed as completed (an approver's /maul start overrides); off, intents start as soon as their "+
 			"trigger is accepted and every Project says DependenciesUnavailable (DependenciesOff)")
+	f.Bool("intent-replan-in-review", false,
+		"take an approver's replan (/maul replan, or the trigger label re-applied) while the intent is in review: "+
+			"stop its round, close its pull requests with a comment, and plan again from the issue; the new "+
+			"plan needs a new approval and builds on branches of its own. Off, such a replan is answered as not "+
+			"available")
 	f.Duration("intent-dependency-give-up", intent.DefaultDependencyGiveUp,
 		"how long a dependency read GitHub keeps failing holds an intent before it starts without its dependencies")
 	_ = f.MarkHidden("intent-dependency-give-up")
@@ -227,6 +232,7 @@ func settings(opts *cli.Options, namespace, agentNS string) (intent.Settings, er
 		MultiRepo:            opts.Bool("intent-multi-repo"),
 		Previews:             opts.Bool("intent-previews-enabled"),
 		IgnoreDependencies:   !opts.Bool("intent-dependencies"),
+		ReplanInReview:       opts.Bool("intent-replan-in-review"),
 		DependencyGiveUp:     opts.Duration("intent-dependency-give-up"),
 		Plan: intent.StageCeiling{
 			MaxTurns:    int32(opts.Int("intent-plan-max-turns")),
@@ -1012,6 +1018,7 @@ func serve(ctx context.Context, opts *cli.Options) error {
 		slog.Bool("agents_paused", opts.Bool(runnercfg.AgentsPausedFlag)),
 		slog.Bool("multi_repo", set.MultiRepo),
 		slog.Bool("dependencies", !set.IgnoreDependencies),
+		slog.Bool("replan_in_review", set.ReplanInReview),
 		slog.Bool("verification", set.Verification),
 		slog.Bool("evaluator", set.Evaluator),
 		slog.Bool("evaluate_codex", set.EvaluateCodex),

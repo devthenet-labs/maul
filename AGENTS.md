@@ -190,6 +190,18 @@ Eighteen binaries, one module. "Not monolithic" means separate binaries/deployme
   nudges its Project's waiters, a 404/410/403 starts it at once and any other failure after 30 minutes (Project
   `DependenciesUnavailable`); `--intent-dependencies` (default true, chart `intentController.dependencies.enabled`)
   off runs the old path. People's guide docs/intents/dependencies.md.
+  With `--intent-replan-in-review` (default off; chart `intentController.replanInReview.enabled`) an approver's replan
+  in review (InReview, Revising, Blocked from either) replaces the plan in place (`replan_review.go`): refused once a
+  pull request merged (read live), at the cost ceiling or with no input revision left; accepted, recorded first
+  (`status.replan`) and resumed before the poll each pass, so maul's own closes are never read as a human's: the old
+  plan's runs are stopped (`planSuperseded`: never launched, aborted, refused by the push gate), its verifications
+  dropped and a final error `maul/acceptance` ("superseded by a replan") posted where maul had one, each open pull
+  request commented on once and closed (`ghclient.ClosePullRequest`), one reply, then Planning with the replan as the
+  trigger and the old plan, pull requests, approver review threads and verification results as context
+  (`replan_review_context.go`). The new plan needs a new approval and builds on `maul-intent/<intent>-p<rev>`
+  (`v1alpha1.IntentBranch`, from `status.planBranchesFrom`, zero for an intent never replanned in review, which keeps
+  `maul-intent/<intent>`); the per-plan limits count the approved plan revision's rounds alone (`planRuns`), round
+  numbers and the intent's spend carry on.
   With `--intent-multi-repo` (slice 3; off, a multi-repository Project is not Ready and its intents are held Blocked)
   a Project lists up to eight repositories: one plan Job reads them all (the others as digest-pinned `Trees`, recorded
   on the run), each repository the plan names gets its own build run (`<intent>-bld-r<rev>-<key>-a<n>`, its own image)

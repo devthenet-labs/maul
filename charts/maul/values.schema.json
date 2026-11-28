@@ -2205,6 +2205,16 @@
                         }
                     }
                 },
+                "replanInReview": {
+                    "type": "object",
+                    "description": "Replan in review: an approver's replan while an intent's pull requests are open closes them and plans again from the issue, under a new approval. Off by default; off, such a replan is answered as not available.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        }
+                    }
+                },
                 "config": {
                     "type": "object",
                     "additionalProperties": false,

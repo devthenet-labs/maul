@@ -79,6 +79,9 @@ type GitHub interface {
 	FindPullRequest(ctx context.Context, repoURL, head, base string) (*ghclient.PR, error)
 	CreatePullRequest(ctx context.Context, repoURL string, req ghclient.PRRequest) (*ghclient.PR, error)
 	GetPullRequest(ctx context.Context, repoURL string, number int64) (*ghclient.PullRequest, error)
+	// ClosePullRequest closes a pull request unmerged (a replan in review
+	// closing the superseded plan's): its state alone, never its branch.
+	ClosePullRequest(ctx context.Context, repoURL string, number int64) error
 	// ListPullRequestFiles is the first files a pull request changes, at
 	// most limit (ghclient.ListPullRequestFiles): what a plan is told of
 	// another intent's open pull request.
@@ -619,6 +622,14 @@ func (g *forgeGitHub) GetPullRequest(ctx context.Context, repoURL string, number
 		return nil, err
 	}
 	return c.GetPullRequest(ctx, repo, int(number))
+}
+
+func (g *forgeGitHub) ClosePullRequest(ctx context.Context, repoURL string, number int64) error {
+	c, repo, err := g.client(ctx, repoURL, pullsWrite)
+	if err != nil {
+		return err
+	}
+	return c.ClosePullRequest(ctx, repo, int(number))
 }
 
 func (g *forgeGitHub) ListPullRequestFiles(ctx context.Context, repoURL string, number int64, limit int) (

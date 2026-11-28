@@ -798,7 +798,20 @@ func (p *pass) availableVerbs(phase v1alpha1.IntentPhase) []string {
 	if phase == v1alpha1.IntentPending && p.waitingPoll() {
 		out = append([]string{action.VerbStart}, out...)
 	}
+	if p.set.ReplanInReview && p.reviewPhase(phase) {
+		// Before cancel, which verbs always lists last.
+		out = slices.Insert(out, len(out)-1, action.VerbReplan)
+	}
 	return out
+}
+
+// reviewPhase reports phase as one of review's: InReview or Revising, or
+// Blocked from either (the intent's own block, when phase is its phase).
+func (p *pass) reviewPhase(phase v1alpha1.IntentPhase) bool {
+	if phase == v1alpha1.IntentBlocked && phase == p.in.Status.Phase {
+		phase = v1alpha1.IntentBlockedFrom(p.in)
+	}
+	return phase == v1alpha1.IntentInReview || phase == v1alpha1.IntentRevising
 }
 
 // setDependenciesUnavailable sets cur's DependenciesUnavailable condition

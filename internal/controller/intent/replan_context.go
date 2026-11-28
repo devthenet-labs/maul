@@ -51,7 +51,8 @@ func (p *pass) planContext(ctx context.Context, prev *v1alpha1.IntentPlan) (stri
 		return "", err
 	}
 	notes := p.lastWorkingNotes()
-	if plan == "" && failure == "" && comments == "" && notes == "" {
+	review := p.reviewContext(ctx)
+	if plan == "" && failure == "" && comments == "" && notes == "" && review == "" {
 		return "", nil
 	}
 	var b strings.Builder
@@ -83,6 +84,7 @@ func (p *pass) planContext(ctx context.Context, prev *v1alpha1.IntentPlan) (stri
 			"work, not the request.\n\n")
 		b.WriteString(notes + "\n")
 	}
+	b.WriteString(review)
 	return b.String(), nil
 }
 

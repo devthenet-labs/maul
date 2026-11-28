@@ -398,6 +398,7 @@ func (s *Server) routes(mux *http.ServeMux) {
 	handle("GET /repos/{owner}/{repo}/compare/{spec}", permContents, s.compare)
 	handle("GET /repos/{owner}/{repo}/pulls", permPullRequests, s.listPulls)
 	handle("GET /repos/{owner}/{repo}/pulls/{number}", permPullRequests, s.getPull)
+	handle("PATCH /repos/{owner}/{repo}/pulls/{number}", permPullRequests, s.editPull)
 	handle("POST /repos/{owner}/{repo}/pulls", permPullRequests, s.createPull)
 	handle("GET /repos/{owner}/{repo}/pulls/{number}/reviews", permPullRequests, s.listReviews)
 	handle("GET /repos/{owner}/{repo}/pulls/{number}/comments", permPullRequests, s.listReviewComments)

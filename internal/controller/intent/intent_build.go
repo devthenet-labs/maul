@@ -275,7 +275,7 @@ func (p *pass) openPullRequest(ctx context.Context, run *v1alpha1.IntentRun,
 	repos []v1alpha1.ProjectRepository) (bool, error) {
 	repoURL := run.Spec.Repository.URL
 	in := p.inRepository(repoURL)
-	branch := branchName(p.in.Name)
+	branch := p.branch()
 	pr, own, base, err := p.findPullRequest(ctx, repoURL)
 	if err != nil {
 		if ghclient.IsRefused(err) {
@@ -395,7 +395,7 @@ func (p *pass) findPullRequest(ctx context.Context, repoURL string) (pr *ghclien
 	if err != nil {
 		return nil, false, "", fmt.Errorf("read the default branch: %w", err)
 	}
-	pr, err = p.r.GitHub.FindPullRequest(ctx, repoURL, branchName(p.in.Name), base)
+	pr, err = p.r.GitHub.FindPullRequest(ctx, repoURL, p.branch(), base)
 	if err != nil || pr == nil {
 		if err != nil {
 			err = fmt.Errorf("find the pull request: %w", err)
@@ -871,6 +871,8 @@ func (p *pass) merged(ctx context.Context, prs []v1alpha1.IntentPullRequest, mer
 	return p.setPhase(ctx, v1alpha1.IntentMerged, func(cur *v1alpha1.Intent) {
 		cur.Status.PullRequests = prs
 		cur.Status.ActiveRun = nil
+		// A replan in review the merges overtook (mergedDuringReplan).
+		cur.Status.Replan = nil
 	})
 }
 

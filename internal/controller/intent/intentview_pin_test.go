@@ -72,7 +72,12 @@ func randomRuns(r *rand.Rand) []*v1alpha1.IntentRun {
 	repos := []string{"https://github.com/acme/app", "https://github.com/Acme/App.git", "https://github.com/acme/api"}
 	var runs []*v1alpha1.IntentRun
 	rounds := int32(r.Intn(6))
+	// Plan revisions only move forward, a replan in review between rounds.
+	planRevision := int32(1)
 	for round := int32(1); round <= rounds; round++ {
+		if r.Intn(4) == 0 {
+			planRevision++
+		}
 		stage, trigger := stages[r.Intn(len(stages))], v1alpha1.IntentRunTrigger("")
 		if stage == v1alpha1.IntentStageRevise {
 			trigger = triggers[r.Intn(len(triggers))]
@@ -86,7 +91,8 @@ func randomRuns(r *rand.Rand) []*v1alpha1.IntentRun {
 			for _, attempt := range r.Perm(1 + r.Intn(4)) {
 				run := &v1alpha1.IntentRun{
 					Spec: v1alpha1.IntentRunSpec{Stage: stage, Round: round, Attempt: int32(attempt + 1),
-						Trigger: trigger, Repository: v1alpha1.IntentRunRepository{URL: repo}},
+						Trigger: trigger, Repository: v1alpha1.IntentRunRepository{URL: repo},
+						Inputs: v1alpha1.IntentRunInputs{PlanRevision: planRevision}},
 					Status: v1alpha1.IntentRunStatus{Phase: phases[r.Intn(len(phases))],
 						Outcome: outcomes[r.Intn(len(outcomes))]},
 				}
@@ -103,20 +109,23 @@ func randomRuns(r *rand.Rand) []*v1alpha1.IntentRun {
 }
 
 // The dashboard's revision and check-fix counts are the rounds this package
-// enforces the limits with, for any runs: a card or a limit-reached reason
-// never disagrees with what blocked the intent.
+// enforces the limits with, for any runs and any approved plan revision (a
+// replan in review starts the counts again): a card or a limit-reached
+// reason never disagrees with what blocked the intent.
 func TestIntentviewRoundCountsPinned(t *testing.T) {
 	cfg := &quick.Config{
 		MaxCount: 3000,
 		Rand:     rand.New(rand.NewSource(20261006)),
 		Values: func(args []reflect.Value, r *rand.Rand) {
 			args[0] = reflect.ValueOf(randomRuns(r))
+			args[1] = reflect.ValueOf(int32(1 + r.Intn(3)))
 		},
 	}
-	if err := quick.Check(func(runs []*v1alpha1.IntentRun) bool {
-		p := &pass{runs: runs}
-		return intentview.RevisionRounds(runs) == p.revisionRounds() &&
-			intentview.CheckFixRounds(runs) == p.checkFixRounds()
+	if err := quick.Check(func(runs []*v1alpha1.IntentRun, approved int32) bool {
+		in := &v1alpha1.Intent{Status: v1alpha1.IntentStatus{Approval: &v1alpha1.IntentApproval{PlanRevision: approved}}}
+		p := &pass{in: in, runs: runs}
+		return intentview.RevisionRounds(runs, approved) == p.revisionRounds() &&
+			intentview.CheckFixRounds(runs, approved) == p.checkFixRounds()
 	}, cfg); err != nil {
 		t.Error(err)
 	}

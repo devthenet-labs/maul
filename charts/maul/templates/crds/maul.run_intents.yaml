@@ -425,7 +425,9 @@ spec:
               branch:
                 description: |-
                   Branch is the branch every pull request of the intent is opened from:
-                  maul-intent/<intent>, created once and then only fast-forwarded.
+                  maul-intent/<intent> (maul-intent/<intent>-p<plan revision> for a plan
+                  made by a replan in review: IntentBranch), created once and then only
+                  fast-forwarded.
                 maxLength: 255
                 pattern: ^maul-intent/[a-z0-9]([-a-z0-9.]*[a-z0-9])?$
                 type: string
@@ -1058,6 +1060,17 @@ spec:
                 - digest
                 - revision
                 type: object
+              planBranchesFrom:
+                description: |-
+                  PlanBranchesFrom is the first plan revision built on a branch of its
+                  own (IntentBranch): the plan revision after the one the intent's first
+                  replan in review superseded, set once by that replan. Zero while the
+                  intent was never replanned in review: every plan builds on
+                  maul-intent/<intent>.
+                format: int32
+                maximum: 999
+                minimum: 0
+                type: integer
               previewBases:
                 description: |-
                   PreviewBases are the default-branch heads the intent's preview runs
@@ -1271,6 +1284,66 @@ spec:
                 x-kubernetes-list-map-keys:
                 - repository
                 x-kubernetes-list-type: map
+              replan:
+                description: |-
+                  Replan is the replan in review being settled (IntentReplan); nil
+                  once the intent plans again, and while none was asked for.
+                properties:
+                  planRevision:
+                    description: PlanRevision is the approved plan revision the replan
+                      supersedes.
+                    format: int32
+                    maximum: 999
+                    minimum: 1
+                    type: integer
+                  trigger:
+                    description: |-
+                      Trigger is the replan: the trigger label re-applied, or /maul replan,
+                      by an approver. The new plan's runs are attributed to it.
+                    properties:
+                      at:
+                        description: At is the action's created_at, as GitHub reports
+                          it.
+                        format: date-time
+                        type: string
+                      eventID:
+                        description: EventID is GitHub's id of the action, in Source's
+                          id space.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      login:
+                        description: |-
+                          Login of the actor. It may be anyone, a Bot ("<name>[bot]")
+                          included: an action refused for its actor is consumed too.
+                        maxLength: 64
+                        minLength: 1
+                        pattern: ^[A-Za-z0-9][A-Za-z0-9_.-]*(\[bot\])?$
+                        type: string
+                      source:
+                        description: Source of the action, and so the id space of
+                          EventID.
+                        enum:
+                        - label
+                        - command
+                        type: string
+                      userID:
+                        description: |-
+                          UserID is GitHub's numeric id of the actor (design L1). Zero on an
+                          action recorded before it was.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                    required:
+                    - at
+                    - eventID
+                    - login
+                    - source
+                    type: object
+                required:
+                - planRevision
+                - trigger
+                type: object
               revisions:
                 description: |-
                   Revisions counts completed review-driven revise rounds, against the

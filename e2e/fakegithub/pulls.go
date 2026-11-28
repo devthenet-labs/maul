@@ -160,6 +160,44 @@ func (s *Server) getPull(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, &out)
 }
 
+// editPull answers PATCH /repos/{o}/{r}/pulls/{number}: only a close
+// (state closed, nothing else) is supported, since that is the one edit maul
+// makes. An open pull request is closed unmerged, its head where its branch
+// points now; a closed or merged one is left as it is, as GitHub does.
+func (s *Server) editPull(w http.ResponseWriter, r *http.Request) {
+	n, err := strconv.Atoi(r.PathValue("number"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	var req map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(req) != 1 || req["state"] != "closed" {
+		http.Error(w, `{"message":"fakegithub: only {\"state\":\"closed\"} edits are supported"}`,
+			http.StatusUnprocessableEntity)
+		return
+	}
+	s.mu.Lock()
+	p, ok := s.pulls[n]
+	var out pull
+	if ok {
+		if p.State == "open" {
+			p.Head.SHA = s.headSHA(p.repoOf(), p.Head.Ref)
+			p.State = "closed"
+		}
+		out = s.rendered(p)
+	}
+	s.mu.Unlock()
+	if !ok {
+		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		return
+	}
+	writeJSON(w, &out)
+}
+
 // ref is a pull request's head or base: the branch, and for the head the
 // commit it points at and the repository the branch lives in.
 type ref struct {

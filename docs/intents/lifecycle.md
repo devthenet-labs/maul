@@ -113,6 +113,35 @@ own approval.
 
 `/maul cancel` stops work on the intent and closes the issue.
 
+### Replanning in review
+
+Once the pull requests are open, the approved plan normally stays as it is: review it, revise it with `/maul revise`, or
+cancel. With **replan in review** on (`intentController.replanInReview.enabled`, off by default for now), an approver
+can also replace the plan while the intent is `InReview` or `Revising`, or `Blocked` from either: comment
+`/maul replan <what should change>` on the issue, or apply the trigger label again. maul then:
+
+1. stops any revise round or evaluation that is running (nothing more is pushed for the old plan);
+2. withdraws its verdict: the `maul/acceptance` status on each pull request becomes an `error`, "superseded by a
+   replan";
+3. comments once on each open pull request ("Closed by `/maul replan` from `you` …") and closes it. Its branch is left
+   as it is, and its preview comment says a replan replaced its plan. A pull request maul cannot close is named in the
+   reply: close it yourself, as maul no longer follows it;
+4. replies once on the issue, and writes a new plan from the issue.
+
+If every pull request is merged before maul closes them, nothing is planned again: maul replies saying so, and the
+intent ends as merged.
+
+The new planner is given the previous plan, the pull requests' links and states, the approvers' reviews and comments on
+them, and what the evaluator found, as context; your note is part of the request. The new plan needs its own approval
+(the approve label is taken off before it is posted), and it builds new pull requests on a branch of its own,
+`maul-intent/<intent>-p<revision>`. The revision, CI-fix and acceptance-fix limits start again for the new plan; the
+intent's cost keeps counting.
+
+maul refuses a replan in review, with one reply, when a pull request of the intent has already merged (what merged is on
+its default branch, and a new plan cannot replace it), when the intent is at its cost ceiling (raise
+`limits.maxCostMicroUSD` first), or when it has no plan revision left. With the setting off, `/maul replan` in review is
+answered as not available, as before.
+
 ## 5. The build and the pull request
 
 maul starts a **build run** in the application repository's own agent image, so the agent can build the code and run its

@@ -105,7 +105,7 @@ func TestRevisePushHeadReadFailures(t *testing.T) {
 			name := e.awaiting()
 			e.gh.label(1, "maul:approved", approver)
 			in := e.drive(name, v1alpha1.IntentInReview, repoImage)
-			buildHead := e.gh.branches[branchName(name)]
+			buildHead := e.gh.branches[legacyBranch(name)]
 			number := in.Status.PullRequests[0].Number
 			e.gh.reviews[number] = []ghclient.Review{{ID: 971, NodeID: "review-971", Author: actorOf(approver),
 				State: "CHANGES_REQUESTED", Body: "Please add a test.", SubmittedAt: e.clock.Now()}}
@@ -123,7 +123,7 @@ func TestRevisePushHeadReadFailures(t *testing.T) {
 				}
 				runs := e.runsOf(name, v1alpha1.IntentStageRevise)
 				if len(runs) != 1 || runs[0].Status.Phase != v1alpha1.RunComplete ||
-					e.gh.branches[branchName(name)] != runs[0].Status.PushedCommit {
+					e.gh.branches[legacyBranch(name)] != runs[0].Status.PushedCommit {
 					t.Fatalf("revise attempts = %d, want one complete and pushed", len(runs))
 				}
 				return
@@ -146,7 +146,7 @@ func TestRevisePushHeadReadFailures(t *testing.T) {
 			if first.Status.PushedCommit == "" {
 				t.Error("the attempt recorded no commit")
 			}
-			if got := e.gh.branches[branchName(name)]; got != buildHead {
+			if got := e.gh.branches[legacyBranch(name)]; got != buildHead {
 				t.Errorf("intent branch = %s, want still the build's %s: nothing pushed", got, buildHead)
 			}
 		})

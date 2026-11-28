@@ -113,3 +113,7 @@ func (e *env) commandOn(name, surface, body string) int64 {
 	}
 	return e.prCommand(e.get(name).Status.PullRequests[0].Number, approver, body)
 }
+
+// legacyBranch is the branch of an intent never replanned in review, spelled
+// out: maul-intent/<intent>, whatever its plan revision.
+func legacyBranch(name string) string { return v1alpha1.IntentBranchPrefix + name }

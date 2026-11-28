@@ -1931,6 +1931,17 @@ if [ "$(get intent "$it | .metadata.annotations[\"checksum/config\"]")" = \
 fi
 expect_fail 'dependencies block of the wrong shape' 'additional properties' \
   --set intentController.enabled=true --set intentController.dependencies.bogus=true
+# A replan in review is off unless turned on, and turning it on rolls the
+# controller.
+cm intent intent-controller MAUL_INTENT_REPLAN_IN_REVIEW false
+render intent-replan -f "$ifx" --set intentController.replanInReview.enabled=true
+cm intent-replan intent-controller MAUL_INTENT_REPLAN_IN_REVIEW true
+if [ "$(get intent "$it | .metadata.annotations[\"checksum/config\"]")" = \
+  "$(get intent-replan "$it | .metadata.annotations[\"checksum/config\"]")" ]; then
+  fail "intent-replan: checksum/config did not change, so turning replans in review on would not roll the controller"
+fi
+expect_fail 'replanInReview block of the wrong shape' 'additional properties' \
+  --set intentController.enabled=true --set intentController.replanInReview.bogus=true
 if [ "$(get intent "$it | .metadata.annotations[\"checksum/config\"]")" = \
   "$(get intent-tuned "$it | .metadata.annotations[\"checksum/config\"]")" ]; then
   fail "intent-tuned: checksum/config did not change, so an upgrade would not roll the controller"

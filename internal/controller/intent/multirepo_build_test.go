@@ -139,7 +139,7 @@ func checkFanOutRecords(t *testing.T, e *env, name string) {
 	t.Helper()
 	in := e.get(name)
 	if in.Status.PullRequests[0].Repository != appRepoURL || in.Status.PullRequests[1].Repository != webRepoURL ||
-		in.Status.Branch != branchName(name) || in.Status.ActiveRun != nil {
+		in.Status.Branch != legacyBranch(name) || in.Status.ActiveRun != nil {
 		t.Errorf("status: pull requests %+v, branch %q, activeRun %+v", in.Status.PullRequests, in.Status.Branch,
 			in.Status.ActiveRun)
 	}
@@ -168,7 +168,7 @@ func checkFanOutWrites(t *testing.T, e *env, name string) {
 		!slices.Equal(e.gh.commitRepos, []string{webSlug, "acme/app"}) {
 		t.Errorf("commits made in %v, want one per repository", e.gh.commitRepos)
 	}
-	if e.gh.branches[branchName(name)] == "" || e.gh.branches[webSlug+":"+branchName(name)] == "" {
+	if e.gh.branches[legacyBranch(name)] == "" || e.gh.branches[webSlug+":"+legacyBranch(name)] == "" {
 		t.Errorf("branches = %v, want the intent branch in each repository", e.gh.branches)
 	}
 	for n := int64(1); n <= 2; n++ {
@@ -373,12 +373,12 @@ func TestStaleRoundBranchBlocksBeforeAnyBuild(t *testing.T) {
 			t.Fatalf("build %s of the new round created beside the stale branch", b.Name)
 		}
 	}
-	if got := e.gh.branches[branchName(name)]; got != stale {
+	if got := e.gh.branches[legacyBranch(name)]; got != stale {
 		t.Errorf("the stale branch was moved to %s", got)
 	}
 
-	delete(e.gh.branches, branchName(name))
-	delete(e.gh.branches, webSlug+":"+branchName(name))
+	delete(e.gh.branches, legacyBranch(name))
+	delete(e.gh.branches, webSlug+":"+legacyBranch(name))
 	in = e.drive(name, v1alpha1.IntentInReview, repoImage)
 	if len(in.Status.PullRequests) != 2 {
 		t.Errorf("pull requests = %+v, want both", in.Status.PullRequests)

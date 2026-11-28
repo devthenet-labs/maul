@@ -219,7 +219,7 @@ func (p *pass) missingPendingReviseBranch(ctx context.Context, run *v1alpha1.Int
 	if err == nil && repo.Status.Artifact != nil && repo.Status.ResolvedSHA != "" {
 		return false, nil
 	}
-	_, err = p.r.GitHub.HeadSHA(ctx, run.Spec.Repository.URL, branchName(p.in.Name))
+	_, err = p.r.GitHub.HeadSHA(ctx, run.Spec.Repository.URL, branchName(p.in, run.Spec.Inputs.PlanRevision))
 	if ghclient.IsNotFound(err) {
 		return true, p.block(ctx, v1alpha1.ConditionBranchConflict, ReasonBranchMissing,
 			fmt.Sprintf("the intent PR branch%s was deleted before its revision could be pinned; restore it to "+
@@ -254,7 +254,8 @@ func (p *pass) failedRevise(ctx context.Context, run *v1alpha1.IntentRun, rs rou
 	if run.Status.Outcome == OutcomeHeadMoved && retriesHeadMoved(run.Spec.Trigger) &&
 		rs.next() <= v1alpha1.MaxIntentRunAttempt {
 		if pr := p.pullRequest(run.Spec.Repository.URL); pr != nil {
-			if _, err := p.r.GitHub.HeadSHA(ctx, pr.Repository, branchName(p.in.Name)); ghclient.IsNotFound(err) {
+			if _, err := p.r.GitHub.HeadSHA(ctx, pr.Repository,
+				branchName(p.in, run.Spec.Inputs.PlanRevision)); ghclient.IsNotFound(err) {
 				return true, p.block(ctx, v1alpha1.ConditionBranchConflict, ReasonBranchMissing,
 					fmt.Sprintf("the intent PR branch%s was deleted during revision; restore it to resume",
 						p.inRepository(pr.Repository)))
@@ -462,7 +463,8 @@ func (p *pass) ensureReviseChildren(ctx context.Context, run *v1alpha1.IntentRun
 	var repo v1alpha1.Repository
 	switch err := p.r.Get(ctx, key, &repo); {
 	case err == nil:
-		if !controlledBy(repo.OwnerReferences, run.UID) || repo.Spec.Ref.Branch != branchName(p.in.Name) ||
+		if !controlledBy(repo.OwnerReferences, run.UID) ||
+			repo.Spec.Ref.Branch != branchName(p.in, run.Spec.Inputs.PlanRevision) ||
 			!sameRepo(repo.Spec.URL, run.Spec.Repository.URL) {
 			return fmt.Errorf("revise Repository %s: %w", key.Name, errNotOwned)
 		}
@@ -472,7 +474,7 @@ func (p *pass) ensureReviseChildren(ctx context.Context, run *v1alpha1.IntentRun
 			Labels:          map[string]string{v1alpha1.LabelIntent: p.in.Name, v1alpha1.LabelIntentRun: run.Name},
 			OwnerReferences: []metav1.OwnerReference{runOwner(run)},
 		}, Spec: v1alpha1.RepositorySpec{URL: run.Spec.Repository.URL,
-			Ref: v1alpha1.RepositoryRef{Branch: branchName(p.in.Name)}}}
+			Ref: v1alpha1.RepositoryRef{Branch: branchName(p.in, run.Spec.Inputs.PlanRevision)}}}
 		if err := p.r.Create(ctx, &repo); err != nil && !kerrors.IsAlreadyExists(err) {
 			return fmt.Errorf("create revise Repository %s: %w", key.Name, err)
 		}
@@ -1022,15 +1024,24 @@ func maxRevisions(proj *v1alpha1.Project) int32 {
 	return v1alpha1.DefaultMaxRevisions
 }
 
-// revisionRounds counts leased review/command rounds, including agent failures.
-// A round refused before launch for lack of usable feedback does not spend
-// this allowance; the independent MaxIntentRound still bounds such rounds.
-// Check-fix and acceptance-fix rounds count against their own limits.
+// revisionRounds counts the approved plan revision's leased review/command
+// rounds, including agent failures. A round refused before launch for lack
+// of usable feedback does not spend this allowance; the independent
+// MaxIntentRound still bounds such rounds. Check-fix and acceptance-fix
+// rounds count against their own limits. A plan a replan in review made
+// starts the count again: round numbers never repeat, so a round's runs all
+// record one plan revision.
 func (p *pass) revisionRounds() int32 {
+	return revisionRoundsIn(planRuns(p.runs, p.approvedRevision()))
+}
+
+// revisionRoundsIn counts the leased review/command rounds among runs, as
+// revisionRounds does.
+func revisionRoundsIn(runs []*v1alpha1.IntentRun) int32 {
 	seen := map[int32]bool{}
-	for _, run := range p.runs {
+	for _, run := range runs {
 		if run.Spec.Stage == v1alpha1.IntentStageRevise && countsAsRevision(run.Spec.Trigger) {
-			if latest := p.round(v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository).latest(); latest != nil &&
+			if latest := roundIn(runs, v1alpha1.IntentStageRevise, run.Spec.Round, anyRepository).latest(); latest != nil &&
 				latest.Status.Phase == v1alpha1.RunFailed && latest.Status.Outcome == OutcomeNoUsableFeedback {
 				continue
 			}

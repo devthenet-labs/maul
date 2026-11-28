@@ -1427,6 +1427,16 @@ intentController:
     # DependenciesUnavailable (DependenciesOff).
     dependencies:
         enabled: true
+    # Replan in review: an approver's `/maul replan` (or the trigger label
+    # re-applied) while an intent's pull requests are open stops its round,
+    # closes those pull requests with a comment, and plans again from the
+    # issue; the new plan needs a new approval and builds new pull requests
+    # on branches of their own. Refused once a pull request has merged, at
+    # the cost ceiling, or with no plan revision left. Off (the default for
+    # now): such a replan is answered as not available. Off is also the
+    # rollback lever; a replan already under way finishes.
+    replanInReview:
+        enabled: false
     # The Secrets your Forges reference (spec.secretRef): intent-controller's
     # `secrets get` is restricted to exactly these names. Required and
     # non-empty — RBAC reads an empty resourceNames list as every Secret.

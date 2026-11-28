@@ -322,6 +322,7 @@ string. Off, no key renders.
 {{- end }}
 {{- $_ := set $data "MAUL_INTENT_MULTI_REPO" $own.multiRepo }}
 {{- $_ := set $data "MAUL_INTENT_DEPENDENCIES" (dig "dependencies" "enabled" true $root.Values.intentController) }}
+{{- $_ := set $data "MAUL_INTENT_REPLAN_IN_REVIEW" (dig "replanInReview" "enabled" false $root.Values.intentController) }}
 {{- $_ := set $data "MAUL_INTENT_MAX_CONCURRENT_RUNS" $own.maxConcurrentRuns }}
 {{- $_ := set $data "MAUL_INTENT_RATE_LIMIT_FLOOR" $own.rateLimitFloor }}
 {{- $_ := set $data "MAUL_INTENT_TTL" $own.intentTTL }}

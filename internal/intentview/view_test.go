@@ -134,7 +134,8 @@ func TestBlockedReasonsUsePublicWordingOnly(t *testing.T) {
 	in := &v1alpha1.Intent{Status: v1alpha1.IntentStatus{
 		Phase:     v1alpha1.IntentBlocked,
 		Revisions: 3, CheckFixes: 2,
-		Usage: v1alpha1.IntentUsage{CostMicroUSD: 10_250_000},
+		Approval: &v1alpha1.IntentApproval{PlanRevision: 1},
+		Usage:    v1alpha1.IntentUsage{CostMicroUSD: 10_250_000},
 		Conditions: []metav1.Condition{
 			cond(v1alpha1.ConditionResourcesUnavailable, "Unschedulable"),
 			cond(v1alpha1.ConditionImageRequired, "RepositoryImageRejected"),
@@ -176,7 +177,7 @@ func reviseRun(round, attempt int32, trigger v1alpha1.IntentRunTrigger, phase v1
 	outcome string) *v1alpha1.IntentRun {
 	return &v1alpha1.IntentRun{
 		Spec: v1alpha1.IntentRunSpec{Stage: v1alpha1.IntentStageRevise, Round: round, Attempt: attempt,
-			Trigger: trigger},
+			Trigger: trigger, Inputs: v1alpha1.IntentRunInputs{PlanRevision: 1}},
 		Status: v1alpha1.IntentRunStatus{Phase: phase, Outcome: outcome},
 	}
 }
@@ -219,12 +220,41 @@ func TestRoundsCountedAgainstTheLimits(t *testing.T) {
 			reviseRun(2, 2, review, failed, "runtime_error"),
 		}, 1, 0},
 	} {
-		if got := RevisionRounds(tc.runs); got != tc.revisions {
+		if got := RevisionRounds(tc.runs, 1); got != tc.revisions {
 			t.Errorf("%s: RevisionRounds = %d, want %d", tc.name, got, tc.revisions)
 		}
-		if got := CheckFixRounds(tc.runs); got != tc.checkFx {
+		if got := CheckFixRounds(tc.runs, 1); got != tc.checkFx {
 			t.Errorf("%s: CheckFixRounds = %d, want %d", tc.name, got, tc.checkFx)
 		}
+	}
+}
+
+// A replan in review starts the approved plan's counts again: rounds of the
+// plan it superseded count for no limit of the new plan's.
+func TestRoundsCountedPerPlanRevision(t *testing.T) {
+	next := reviseRun(3, 1, v1alpha1.IntentRunTriggerCommand, v1alpha1.RunComplete, "ok")
+	next.Spec.Inputs.PlanRevision = 3
+	runs := []*v1alpha1.IntentRun{
+		reviseRun(1, 1, v1alpha1.IntentRunTriggerReview, v1alpha1.RunComplete, "ok"),
+		reviseRun(2, 1, v1alpha1.IntentRunTriggerChecks, v1alpha1.RunFailed, "timeout"),
+		next,
+	}
+	if got := RevisionRounds(runs, 3); got != 1 {
+		t.Errorf("RevisionRounds of the new plan = %d, want its one round", got)
+	}
+	if got := CheckFixRounds(runs, 3); got != 0 {
+		t.Errorf("CheckFixRounds of the new plan = %d, want none of the old plan's", got)
+	}
+	if got := RevisionRounds(runs, 1); got != 1 {
+		t.Errorf("RevisionRounds of the old plan = %d, want 1", got)
+	}
+	in := &v1alpha1.Intent{}
+	if ApprovedPlanRevision(in) != 0 {
+		t.Error("ApprovedPlanRevision with no approval is not 0")
+	}
+	in.Status.Approval = &v1alpha1.IntentApproval{PlanRevision: 3}
+	if ApprovedPlanRevision(in) != 3 {
+		t.Error("ApprovedPlanRevision is not the approval's")
 	}
 }
 

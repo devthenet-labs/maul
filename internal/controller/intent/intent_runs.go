@@ -111,8 +111,13 @@ const anyRepository = ""
 // failures are its repository's own: each repository of a multi-repository
 // plan is built, retried and spent separately.
 func (p *pass) round(stage v1alpha1.IntentStage, round int32, repoURL string) roundRuns {
+	return roundIn(p.runs, stage, round, repoURL)
+}
+
+// roundIn is round over runs.
+func roundIn(runs []*v1alpha1.IntentRun, stage v1alpha1.IntentStage, round int32, repoURL string) roundRuns {
 	var rs roundRuns
-	for _, run := range p.runs {
+	for _, run := range runs {
 		if run.Spec.Stage == stage && run.Spec.Round == round &&
 			(repoURL == anyRepository || sameRepo(run.Spec.Repository.URL, repoURL)) {
 			rs = append(rs, run)
@@ -120,6 +125,26 @@ func (p *pass) round(stage v1alpha1.IntentStage, round int32, repoURL string) ro
 	}
 	slices.SortFunc(rs, func(a, b *v1alpha1.IntentRun) int { return int(a.Spec.Attempt - b.Spec.Attempt) })
 	return rs
+}
+
+// approvedRevision is the approved plan's revision, 0 while none is.
+func (p *pass) approvedRevision() int32 {
+	if p.in != nil && p.in.Status.Approval != nil {
+		return p.in.Status.Approval.PlanRevision
+	}
+	return 0
+}
+
+// planRuns are the runs among runs of plan revision rev: what a plan's own
+// limits count, so a plan a replan in review made starts them again.
+func planRuns(runs []*v1alpha1.IntentRun, rev int32) []*v1alpha1.IntentRun {
+	var out []*v1alpha1.IntentRun
+	for _, run := range runs {
+		if run.Spec.Inputs.PlanRevision == rev {
+			out = append(out, run)
+		}
+	}
+	return out
 }
 
 func (rs roundRuns) latest() *v1alpha1.IntentRun {
@@ -384,7 +409,7 @@ func (p *pass) blockOnBranch(ctx context.Context, round int32, repo v1alpha1.Pro
 	if err != nil || sha == "" {
 		return false, err
 	}
-	branch := branchName(p.in.Name)
+	branch := branchName(p.in, round)
 	if stale != nil {
 		p.r.log().LogAttrs(ctx, slog.LevelWarn, "the intent branch is at a commit an earlier round pushed",
 			slog.String("intent", p.in.Name), slog.String("repository", repo.URL), slog.String("branch", branch),

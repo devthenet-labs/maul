@@ -35,7 +35,9 @@
 //     authority from GitHub API facts, snapshots the request, creates the
 //     plan and build IntentRuns, writes the plan back for approval, accepts
 //     an approval bound to the plan and input digests, opens the pull
-//     requests, and settles merge, close, cancel, failure and revival.
+//     requests, and settles merge, close, cancel, failure, revival and a
+//     replan in review (it alone writes status.replan and
+//     status.planBranchesFrom, and closes the pull requests it opened).
 //
 // # Several repositories
 //
@@ -212,7 +214,10 @@
 // AwaitingApproval → Planning on a replan, Planning and Building → Failed
 // when attempts are exhausted (two per stage; a plan the approval comment
 // cannot show counts as an invalid attempt), Failed → Planning when an
-// approver applies the trigger label again, any non-terminal phase →
+// approver applies the trigger label again, InReview, Revising and Blocked
+// (from either) → Planning on a replan in review (--intent-replan-in-review,
+// replan_review.go: the round stopped, the pull requests closed, a new plan
+// on a branch of its own), any non-terminal phase →
 // Closed on a human close, a cancel, or every pull request settled with at
 // least one closed unmerged,
 // and Planning or Building → Blocked on the cost ceiling, a missing,
@@ -356,6 +361,15 @@
 //     before Closed on a cancel or on every pull request closed. A restart in
 //     between repeats the effects, which are idempotent, and completedAt is
 //     never set while the trigger is still in place.
+//   - A replan in review is recorded (status.replan, with the trigger
+//     consumed) before anything of it is done, and a pass that finds it
+//     recorded resumes it before the poll and the phase step, so no reading
+//     of the pull requests can take maul's own closes for a human's: the old
+//     plan's runs settle (the run reconciler stops them, planSuperseded),
+//     each withdrawn maul/acceptance is recorded by its digest, each closed
+//     pull request by its state (its one comment found by its marker), and
+//     the reply is posted once before the Planning write clears the record;
+//     if every pull request merged meanwhile, before the Merged write does.
 //   - The build push is two-phase: the commit is created, its SHA recorded
 //     on the run, and only then the branch maul-intent/<intent> created,
 //     create-only; an existing branch is adopted only if it already points

@@ -64,15 +64,15 @@ one Project's trigger label per issue.
 
 ### Commands
 
-| Command                                                  | Effect                                                                                            | Works while the intent is             |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------- |
-| `/maul approve`                                          | Approves the posted plan and starts the build                                                     | `AwaitingApproval`                    |
-| `/maul replan [note]`                                    | Plans again, using the note and the approvers' comments since the last plan                       | `AwaitingApproval`                    |
-| `/maul start`                                            | Starts the intent now, without waiting for the issues it is [blocked by](intents/dependencies.md) | `Pending`, waiting on its blockers    |
-| `/maul verify`, alone or with `fix`, `stop` or `--reset` | Checks the change against the plan's outcomes now                                                 | `InReview` or `Revising`              |
-| `/maul accept <id>` or `/maul accept all`                | Accepts an outcome, or every outcome that can be accepted, at the current commits                 | `InReview` or `Revising`              |
-| `/maul preview`                                          | Shows the preview link now, before maul has finished checking the change                          | `InReview` or `Revising`              |
-| `/maul cancel`                                           | Stops work on the intent and closes its issue. Open pull requests are left to you                 | Any phase before the intent has ended |
+| Command                                                  | Effect                                                                                            | Works while the intent is                                                                                                                        |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/maul approve`                                          | Approves the posted plan and starts the build                                                     | `AwaitingApproval`                                                                                                                               |
+| `/maul replan [note]`                                    | Plans again, using the note and the approvers' comments since the last plan                       | `AwaitingApproval`; with [replan in review](intents/lifecycle.md#replanning-in-review) on, also `InReview`, `Revising` and `Blocked` from either |
+| `/maul start`                                            | Starts the intent now, without waiting for the issues it is [blocked by](intents/dependencies.md) | `Pending`, waiting on its blockers                                                                                                               |
+| `/maul verify`, alone or with `fix`, `stop` or `--reset` | Checks the change against the plan's outcomes now                                                 | `InReview` or `Revising`                                                                                                                         |
+| `/maul accept <id>` or `/maul accept all`                | Accepts an outcome, or every outcome that can be accepted, at the current commits                 | `InReview` or `Revising`                                                                                                                         |
+| `/maul preview`                                          | Shows the preview link now, before maul has finished checking the change                          | `InReview` or `Revising`                                                                                                                         |
+| `/maul cancel`                                           | Stops work on the intent and closes its issue. Open pull requests are left to you                 | Any phase before the intent has ended                                                                                                            |
 
 With per-user model credentials enforced, `/maul approve` (or the approve label) also works on an intent that is
 `Blocked` with `CredentialRequired`: an approver who holds a valid credential re-approves the same plan.

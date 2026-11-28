@@ -210,6 +210,8 @@ stateDiagram-v2
     Revising --> InReview : the round pushed, or failed
     InReview --> Merged : merged
     Revising --> Merged : merged during a round
+    InReview --> Planning : replan in review
+    Revising --> Planning : replan in review
     Failed --> Planning : trigger label applied again
     Merged --> [*]
     Closed --> [*]
@@ -220,24 +222,25 @@ Two sets of edges are left out of the diagram to keep it readable:
 - every non-terminal phase has an edge to `Blocked`, and `Blocked` has an edge back to each of them, and to `Merged`;
 - every non-terminal phase, `Blocked` included, has an edge to `Closed`.
 
-| Edge                                           | Trigger                                                                                                          |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| _(none)_ → `Pending`                           | The intent-controller found an issue carrying the trigger label                                                  |
-| `Pending` → `Planning`                         | The trigger label was applied by an approver                                                                     |
-| `Pending` → `Closed`                           | The trigger was not an approver's, or was a bot's; one notice is posted                                          |
-| `Planning` → `AwaitingApproval`                | A valid plan was posted on the issue                                                                             |
-| `Planning` → `Failed`                          | Plan attempts exhausted, or the plan was invalid twice                                                           |
-| `AwaitingApproval` → `Building`                | An approval was accepted (the approve label or `/maul approve`)                                                  |
-| `AwaitingApproval` → `Planning`                | An approver asked for a replan (the trigger label again, or `/maul replan`)                                      |
-| `Building` → `InReview`                        | Every pull request is open                                                                                       |
-| `Building` → `Failed`                          | Build attempts exhausted                                                                                         |
-| `InReview` → `Revising`                        | A revision, CI-fix or verify-fix round started                                                                   |
-| `Revising` → `InReview`                        | The round pushed, or failed                                                                                      |
-| `InReview` / `Revising` / `Blocked` → `Merged` | Every pull request merged                                                                                        |
-| any non-terminal → `Blocked`                   | A limit or a precondition stopped it                                                                             |
-| `Blocked` → the phase it was blocked from      | The Project changed and the block no longer holds                                                                |
-| any non-terminal → `Closed`                    | A person closed the issue or ran `/maul cancel`, or every pull request settled with at least one closed unmerged |
-| `Failed` → `Planning`                          | Revival: an approver applied the trigger label again                                                             |
+| Edge                                             | Trigger                                                                                                          |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| _(none)_ → `Pending`                             | The intent-controller found an issue carrying the trigger label                                                  |
+| `Pending` → `Planning`                           | The trigger label was applied by an approver                                                                     |
+| `Pending` → `Closed`                             | The trigger was not an approver's, or was a bot's; one notice is posted                                          |
+| `Planning` → `AwaitingApproval`                  | A valid plan was posted on the issue                                                                             |
+| `Planning` → `Failed`                            | Plan attempts exhausted, or the plan was invalid twice                                                           |
+| `AwaitingApproval` → `Building`                  | An approval was accepted (the approve label or `/maul approve`)                                                  |
+| `AwaitingApproval` → `Planning`                  | An approver asked for a replan (the trigger label again, or `/maul replan`)                                      |
+| `Building` → `InReview`                          | Every pull request is open                                                                                       |
+| `Building` → `Failed`                            | Build attempts exhausted                                                                                         |
+| `InReview` → `Revising`                          | A revision, CI-fix or verify-fix round started                                                                   |
+| `Revising` → `InReview`                          | The round pushed, or failed                                                                                      |
+| `InReview` / `Revising` / `Blocked` → `Merged`   | Every pull request merged                                                                                        |
+| `InReview` / `Revising` / `Blocked` → `Planning` | A [replan in review](intents/lifecycle.md#replanning-in-review): the pull requests closed, a new plan written    |
+| any non-terminal → `Blocked`                     | A limit or a precondition stopped it                                                                             |
+| `Blocked` → the phase it was blocked from        | The Project changed and the block no longer holds                                                                |
+| any non-terminal → `Closed`                      | A person closed the issue or ran `/maul cancel`, or every pull request settled with at least one closed unmerged |
+| `Failed` → `Planning`                            | Revival: an approver applied the trigger label again                                                             |
 
 ## Why an intent is Blocked
 

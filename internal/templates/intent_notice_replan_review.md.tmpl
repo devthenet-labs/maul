@@ -1,0 +1,30 @@
+{{- /* The reply to a replan accepted while the intent was in review, posted
+once its pull requests are closed and before it plans again. The actor is
+code, never a mention; the pull requests are maul's own, linked on purpose.
+One line per paragraph: GitHub renders a line break inside an issue comment
+as a hard break. */ -}}
+{{ .Marker }}
+### maul: planning again
+
+{{ .Asked }} from {{ code .Actor }} replaces plan r{{ .PlanRevision }}. maul stopped its work on that plan and closed its pull requests, and now writes a new plan from this issue, with the earlier plan, its pull requests, the approvers' review comments and the verification results as context. The new plan needs a new approval, and builds new pull requests on branches of their own; the branches of the closed ones are left as they are.
+{{- with .Closed }}
+
+**Closed:**
+{{ range . }}
+- [{{ .Ref }}]({{ .URL }})
+{{- end }}
+{{- end }}
+{{- with .Merged }}
+
+**Merged before maul could close it, and left merged:**
+{{ range . }}
+- [{{ .Ref }}]({{ .URL }})
+{{- end }}
+{{- end }}
+{{- with .LeftOpen }}
+
+**Left open, since maul could not close it: close it yourself, as it is no longer part of this intent, and maul no longer follows it (a {{ code "maul/acceptance" }} on it was for the replaced plan):**
+{{ range . }}
+- [{{ .Ref }}]({{ .URL }})
+{{- end }}
+{{- end }}
