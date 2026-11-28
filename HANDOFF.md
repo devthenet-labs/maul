@@ -26,25 +26,27 @@ of releases (0.12.41 to 0.14.19) that made the agent evaluator the only verifier
   on a Project. Remove them from the maul-config values before upgrading, or `helm upgrade` of maul-config fails (maul
   itself upgrades). The CRDs no longer carry the check-era fields, so the API server prunes them from stored objects.
   0.14.19 has no startup census for them: an install must have run 0.14.18 first.
-- **Rollback:** `helm rollback maul 85 -n maul` and `helm rollback maul-config 81 -n maul` (0.14.18). The rollback
-  restores the 0.14.18 CRDs, but fields pruned under 0.14.19 do not come back, and what 0.14.19 wrote stays. To turn off
-  only replan in review, set `intentController.replanInReview.enabled: false` and upgrade; a replan already under way
-  finishes.
+- **Rollback:** maul first, since it carries the CRDs: `helm rollback maul 85 -n maul`, then
+  `helm rollback maul-config 81 -n maul` (both 0.14.18; revision 81 still states the `checkReview` keys, which 0.14.18
+  accepts). The rollback restores the 0.14.18 CRDs, but fields pruned under 0.14.19 do not come back, and what 0.14.19
+  wrote stays. An upgrade back to 0.14.18 from values (rather than a rollback) needs `intentController.replanInReview`
+  removed first: 0.14.18's schema refuses it. To turn off only replan in review, set
+  `intentController.replanInReview.enabled: false` and upgrade; a replan already under way finishes.
 
 ### What shipped since 0.12.40
 
-- **Per-user model credentials and usage (0.12.41 to 0.12.43):** the `ModelCredential` kind, the broker resolving a
+- **Per-user model credentials and usage (0.12.41, 0.12.42):** the `ModelCredential` kind, the broker resolving a
   person's own key per request, the Account page, `Blocked` `CredentialRequired`, per-user OpenAI keys, and the Usage
   page opening on cost.
-- **Codex through the broker:** the OpenAI Responses route, then intents planned and built on brokered codex.
-- **Easy previews, finished:** `maul setup previews --apply`, the Tailscale operator's Secret and tailnet policy, and
-  previews on the sign-in host's registrable domain once acknowledged.
+- **Codex through the broker (0.12.42):** the OpenAI Responses route, then intents planned and built on brokered codex.
+- **Easy previews, finished (0.12.42):** `maul setup previews --apply`, the Tailscale operator's Secret and tailnet
+  policy, and previews on the sign-in host's registrable domain once acknowledged.
 - **Verification (0.13.x):** acceptance verification slice 1, intents waiting on their blocking issues, then the agent
-  evaluator: S0 and S1 (the slot tool pod), S2 (the agents-namespace tool pod for a CLI or a library), and the removal
-  of slice 1's CRD fields behind a startup census. Claude 5.5 models, and each Project choosing its stages' models.
-- **0.14.x:** the S3 replay rung; outcomes that state the issue's rule; `maul setup github-app` and
-  `maul setup project`; subagents in build runs and workflows behind their own switch; the editable Project settings
-  page for approvers, with per-Project subagents and workflows switches (0.14.16, 0.14.17).
+  evaluator: S0 and S1 (the slot tool pod) and S2 (the agents-namespace tool pod for a CLI or a library).
+- **0.14.x:** the removal of slice 1's CRD fields behind a startup census, Claude 5.5 models and each Project choosing
+  its stages' models, and the S3 replay rung (all 0.14.0); outcomes that state the issue's rule; `maul setup github-app`
+  and `maul setup project` (0.14.13); subagents in build runs and workflows behind their own switch; the editable
+  Project settings page for approvers, with per-Project subagents and workflows switches (0.14.16 to 0.14.18).
 - **0.14.18, the observed evaluator:** an outcome passes or fails only on a verdict that cites the round's own recorded
   calls. Saved checks, replays and the check reviewer are retired, and earlier judgements were withdrawn once.
 - **0.14.19:** the check-era fields, the `checkreview` stage and the supersede are deleted (#477). A round after a fix
@@ -55,12 +57,12 @@ of releases (0.12.41 to 0.14.19) that made the agent evaluator the only verifier
 ### Open and next
 
 - **beatbattle-59** has a queued `/maul verify --reset` and its Preview is Queued: all four slots are held, each for 72
-  hours after a pass. **beatbattle-49**'s Preview has expired and needs a fresh round. Both still carry the
-  `VerificationSuperseded` condition 0.14.18 set. 0.14.19 no longer clears it, so it stays until a later write replaces
-  the conditions.
+  hours after a pass. **beatbattle-49**'s Preview has expired and needs a fresh round. Both, and overdub-10, still carry
+  the `VerificationSuperseded` condition 0.14.18 set. No 0.14.19 code sets, reads or clears it: it is stale residue on
+  those three Intents.
 - **Measure the change-focused round** on overdub and beatbattle: cost and time per round against a full round, and
   whether it misses anything a full round finds.
-- **overdub** improvements (its Project's preview and evaluation set-up) wait for the owner's go-ahead.
+- **overdub** improvements wait for the owner's go-ahead; nothing is pushed to its repositories without it.
 - **Preview slots** are held 72 hours after a pass, so four open intents fill the desktop. Decide whether a pass should
   release its slot sooner.
 - Replan in review is off by default. Turn it on by default once it has been used live.
