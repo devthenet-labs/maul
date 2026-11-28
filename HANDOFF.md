@@ -11,22 +11,61 @@
 > documentation values `111122223333` and `203.0.113.10/32`. The real ones are in terraform-devthenet's `k8s/` values
 > (private).
 
-## In flight: the agent evaluator, slice S2 (on main, not released)
+## Current checkpoint — 2026-11-27: 0.14.19 on the desktop, EKS down
 
-Design `.claude/plans/agent-evaluator/DESIGN.md`; S1 (the slot tool pod) shipped in 0.13.13 and 0.13.14. S2, the
-agents-namespace tool pod for a Project with no preview (`surfaces.cli` or `surfaces.library`), is merged on main (S2-01
-to S2-22, S2-20b; spec `.claude/plans/agent-evaluator/SPEC-S2.md`), off by default
-(`intentController.verification.agents.enabled`): people's guide
-[docs/intents/evaluator.md](docs/intents/evaluator.md#without-a-preview-a-cli-or-a-library), operator's
-[docs/configuration/intent-controller.md](docs/configuration/intent-controller.md#the-agents-tool-pod). Still to come:
-the release candidate with the S1 regression check (S2-25) and the live gate (S2-26: the isolation probe's agents rows,
-the confirm-rate bar of 80% on correct CLI and library builds, the `bbcount` fixture's owner AWS step). Rollback: the
-flag off; the always-on sweep deletes every tool Job. Calibration D12 failed for `claude-sonnet-5`, so a model-judged
-screenshot was never support while saved checks decided; with saved checks retired, a cited screenshot counts like any
-other call (see the evaluator page's [known limits](docs/intents/evaluator.md#known-limits)). Replan from InReview and
-codex verification are open.
+**0.14.19 deletes the check-era fields, adds the change-focused evaluation round and replan in review.** It closes a run
+of releases (0.12.41 to 0.14.19) that made the agent evaluator the only verifier and gave approvers their own controls.
 
-## Current checkpoint — 2026-10-18: 0.12.40 on the desktop, EKS down
+- **Live:** only the desktop (destroyer k3d). maul Helm revision 87 and maul-config revision 82, both 0.14.19 (before:
+  85 and 81 on 0.14.18; maul revision 86 is the first attempt, whose maul-config step the schema refused, below). Every
+  deployment is available on its v0.14.19 image, no maul pod restarted, all five Projects are Ready, and no maul binary
+  logged an ERROR since the upgrade. Replan in review is on there (`intentController.replanInReview.enabled: true`; the
+  intent-controller startup line says `replan_in_review=true`). EKS devthenet-dev is still down (restore:
+  terraform-devthenet `scripts/eks-up`).
+- **Upgrade note:** 0.14.19's maul-config schema refuses the retired `models.checkReview` and `limits.checkReview` keys
+  on a Project. Remove them from the maul-config values before upgrading, or `helm upgrade` of maul-config fails (maul
+  itself upgrades). The CRDs no longer carry the check-era fields, so the API server prunes them from stored objects.
+  0.14.19 has no startup census for them: an install must have run 0.14.18 first.
+- **Rollback:** `helm rollback maul 85 -n maul` and `helm rollback maul-config 81 -n maul` (0.14.18). The rollback
+  restores the 0.14.18 CRDs, but fields pruned under 0.14.19 do not come back, and what 0.14.19 wrote stays. To turn off
+  only replan in review, set `intentController.replanInReview.enabled: false` and upgrade; a replan already under way
+  finishes.
+
+### What shipped since 0.12.40
+
+- **Per-user model credentials and usage (0.12.41 to 0.12.43):** the `ModelCredential` kind, the broker resolving a
+  person's own key per request, the Account page, `Blocked` `CredentialRequired`, per-user OpenAI keys, and the Usage
+  page opening on cost.
+- **Codex through the broker:** the OpenAI Responses route, then intents planned and built on brokered codex.
+- **Easy previews, finished:** `maul setup previews --apply`, the Tailscale operator's Secret and tailnet policy, and
+  previews on the sign-in host's registrable domain once acknowledged.
+- **Verification (0.13.x):** acceptance verification slice 1, intents waiting on their blocking issues, then the agent
+  evaluator: S0 and S1 (the slot tool pod), S2 (the agents-namespace tool pod for a CLI or a library), and the removal
+  of slice 1's CRD fields behind a startup census. Claude 5.5 models, and each Project choosing its stages' models.
+- **0.14.x:** the S3 replay rung; outcomes that state the issue's rule; `maul setup github-app` and
+  `maul setup project`; subagents in build runs and workflows behind their own switch; the editable Project settings
+  page for approvers, with per-Project subagents and workflows switches (0.14.16, 0.14.17).
+- **0.14.18, the observed evaluator:** an outcome passes or fails only on a verdict that cites the round's own recorded
+  calls. Saved checks, replays and the check reviewer are retired, and earlier judgements were withdrawn once.
+- **0.14.19:** the check-era fields, the `checkreview` stage and the supersede are deleted (#477). A round after a fix
+  or a push is change-focused when maul holds a whole diff and a clean result for every outcome (#476). An approver may
+  `/maul replan` an intent in review: its round stops, its pull requests close with a comment, and it plans again in
+  place, behind `--intent-replan-in-review` (#478).
+
+### Open and next
+
+- **beatbattle-59** has a queued `/maul verify --reset` and its Preview is Queued: all four slots are held, each for 72
+  hours after a pass. **beatbattle-49**'s Preview has expired and needs a fresh round. Both still carry the
+  `VerificationSuperseded` condition 0.14.18 set. 0.14.19 no longer clears it, so it stays until a later write replaces
+  the conditions.
+- **Measure the change-focused round** on overdub and beatbattle: cost and time per round against a full round, and
+  whether it misses anything a full round finds.
+- **overdub** improvements (its Project's preview and evaluation set-up) wait for the owner's go-ahead.
+- **Preview slots** are held 72 hours after a pass, so four open intents fill the desktop. Decide whether a pass should
+  release its slot sooner.
+- Replan in review is off by default. Turn it on by default once it has been used live.
+
+## Checkpoint — 2026-10-18: 0.12.40 on the desktop, EKS down
 
 **0.12.40 ships easy previews (`maul setup previews`, `maul check previews`) and the Claude CLI posture hardening.**
 Design `.claude/plans/preview-setup-design.md` (the owner took every recommended default in its §11).
